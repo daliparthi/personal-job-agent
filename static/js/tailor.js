@@ -17,7 +17,8 @@ const kwRe = (alias, flags = "i") => new RegExp(`(?<![A-Za-z0-9])${escRe(alias)}
 const hasAny = (aliases, text) => aliases.some((a) => kwRe(a).test(text));
 const STOP = new Set("a an and the of for to in on with by at from as or is are was were be been this that their our your it its into over per via using use used across within".split(" "));
 const contentWords = (s) => (s.toLowerCase().match(/[a-z][a-z0-9+#.]*/g) || []).filter((w) => !STOP.has(w) && w.length > 2);
-const numbersIn = (s) => (s.match(/\d+(?:[.,]\d+)*/g) || []).map((n) => n.replace(/,/g, ""));
+// Standalone numbers only: digits inside a name ("K8s", "S3", "EC2", "OAuth2") are part of the name, not a claim.
+const numbersIn = (s) => (s.match(/(?<![A-Za-z])\d+(?:[.,]\d+)*/g) || []).map((n) => n.replace(/,/g, ""));
 
 const BULLET_SYSTEM = (maxWords) => `You edit resume bullet points so they match a target job.
 Rules:
@@ -47,7 +48,7 @@ const SUMMARY_EXAMPLES = [
   { role: "assistant", content: "Software engineer with 5 years of experience building Java web services and REST APIs with Spring Boot, deployed with Docker and Kubernetes. Enjoys mentoring and writing clean code." },
 ];
 
-function cleanOutput(raw) {
+export function cleanOutput(raw) {
   let s = (raw || "").replace(/\r/g, "");
   s = s.replace(/^\s*(here('| i)s|sure|certainly)[^\n:]*:\s*/i, "");
   s = s.replace(/^\s*(rewritten|tailored|revised|updated)?\s*(bullet|summary|version)?\s*:\s*/i, "");
@@ -118,7 +119,9 @@ export function validate(original, out, { forbidden, kind, allowed = [], extraCo
   // "migrated a warehouse to Snowflake" must not become "migrated Snowflake to a warehouse": a named tool that
   // followed to/into/from/on... in the original should still follow the same word.
   const PREP = /\b(to|into|from|on|onto|in|with|using|via|for)\s+(?:the\s+|a\s+|an\s+)?([A-Z][\w+#.-]*|[\w]+[+#/][\w+#/]*)/g;
-  for (const [, prep, name] of original.matchAll(PREP)) {
+  for (const [, prep, rawName] of original.matchAll(PREP)) {
+    const name = rawName.replace(/[.,;:-]+$/, ""); // "...to Snowflake." names Snowflake, not "Snowflake."
+    if (!name) continue;
     const re = new RegExp(`\\b${prep}\\s+(?:the\\s+|a\\s+|an\\s+)?${escRe(name)}(?![\\w+#])`, "i");
     if (kwRe(name).test(out) && !re.test(out)) { soft.push(`moved “${name}” (was “${prep} ${name}”), check the meaning`); break; }
   }
