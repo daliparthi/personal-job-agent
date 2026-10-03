@@ -65,7 +65,7 @@ function updateChips() {
   pc.textContent = `Profile: ${st.profile || "default"}`;
   pc.title = `Your personal folder: ${st.home || ""}`;
   const last = st.last_run ? new Date(st.last_run).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "never";
-  $("#chip-jobs").textContent = `${st.jobs ?? 0} jobs stored · last run ${last} · keeps ${st.retention_days ?? 7} days`;
+  $("#chip-jobs").textContent = `${st.jobs ?? 0} jobs stored · last run ${last} · new postings kept ${st.retention_days ?? 7} days`;
 }
 
 llm.on(({ state, label, text, progress }) => {

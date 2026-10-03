@@ -157,7 +157,7 @@ class SearchRunner:
                 return
             purged = db.purge_old()
             if purged:
-                self.log(f"Purged {purged} postings older than {RETENTION_DAYS} days")
+                self.log(f"Purged {purged} untouched postings older than {RETENTION_DAYS} days")
             resume = db.get_resume()
             resume_text = resume["text"] if resume else ""
             sig = keyword_signature(mandatory, optional)

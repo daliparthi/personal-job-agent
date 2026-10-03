@@ -268,7 +268,7 @@ def jobs():
 def _job_or_404(job_id):
     j = db.get_job(job_id)
     if not j:
-        raise HTTPException(404, "Job not found (it may have been purged after 7 days)")
+        raise HTTPException(404, "Job not found (untouched postings are purged after 7 days)")
     return j
 
 

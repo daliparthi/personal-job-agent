@@ -63,7 +63,7 @@ home folder:
   .env                 Workday account email + password (only typed into Workday's sign-up / sign-in form)
   master_resume.yaml   your master resume as data (built by the model, edit freely)
   my_companies.yaml    your own Workday sites on top of the shared list (Settings > Add company writes here)
-  jobs.db              settings, profile, postings from the last 7 days, tailored copies
+  jobs.db              settings, profile, postings (new ones from the last 7 days; jobs you worked on are kept), tailored copies
   browser-profile/     the apply window's browser profile (your Workday logins)
   Applications/        one folder per company with what you sent
 ```
@@ -99,7 +99,7 @@ options: `--port 8800`, `--no-browser`.
 | Incremental by default | Later runs only pull postings newer than that company's last successful run, and skip jobs already stored. |
 | Full refresh flag | Tick **Full refresh** to ignore the incremental cursor and re-pull/re-parse the whole 7-day window. |
 | New keywords | Changing mandatory keywords starts a fresh 7-day pull for the new set (the cursor is per keyword set). |
-| DB purge | `jobs.db` in your personal folder; anything posted more than 7 days ago is deleted on start-up, before every search, and hourly. Saved application folders are never deleted. |
+| DB purge | `jobs.db` in your personal folder; untouched postings (status *new*) posted more than 7 days ago are deleted on start-up, before every search, and hourly. Jobs you tailored, saved, are applying to or applied to are kept forever, and saved application folders are never deleted. |
 | Skip current employer | Settings → *Current employer*. That company is skipped during search and hidden from results. |
 | USA only + state filters | Searches use each site's "United States" filter when it has one, then every posting is checked for a US location. Filter by **state** (multi-select) and **city**. Remote roles with no state stay visible when you pick states. |
 | Contract / Full-time / Temporary | From Workday's *Job Type* (worker sub-type) facet, falling back to the posting text. Colour badges: **Full-time** green, **Contract** amber, **Temporary** purple, **Part-time** blue, Internship grey. Click a type chip to omit it; ✕ on a card hides one posting. |

@@ -1,4 +1,5 @@
-"""SQLite storage. Job data older than RETENTION_DAYS is purged automatically."""
+"""SQLite storage. Untouched postings older than RETENTION_DAYS are purged automatically; jobs you worked on
+(tailored, saved, applying, applied) are kept forever."""
 import json
 import sqlite3
 import threading
@@ -62,11 +63,16 @@ def init():
 
 
 def purge_old() -> int:
-    """Drop everything older than the retention window. Returns rows removed from jobs."""
+    """Drop untouched postings older than the retention window. Returns rows removed from jobs.
+
+    Only status 'new' jobs with no application folder and no tailored resume expire. Anything you tailored,
+    saved, are applying to or applied to is kept forever."""
     cutoff = (date.today() - timedelta(days=RETENTION_DAYS)).isoformat()
     stale_run = (datetime.now() - timedelta(days=RETENTION_DAYS)).isoformat(timespec="seconds")
     with conn() as c:
-        n = c.execute("DELETE FROM jobs WHERE posted_date IS NULL OR posted_date < ?", (cutoff,)).rowcount
+        n = c.execute("DELETE FROM jobs WHERE (posted_date IS NULL OR posted_date < ?) "
+                      "AND COALESCE(status, 'new') = 'new' AND folder IS NULL "
+                      "AND id NOT IN (SELECT job_id FROM tailored)", (cutoff,)).rowcount
         c.execute("DELETE FROM tailored WHERE job_id NOT IN (SELECT id FROM jobs)")
         c.execute("DELETE FROM company_runs WHERE last_success < ?", (stale_run,))
     return n
