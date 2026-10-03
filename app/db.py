@@ -50,6 +50,7 @@ def conn():
     with _lock:
         c = sqlite3.connect(DB_PATH, timeout=30)
         c.row_factory = sqlite3.Row
+        c.execute("PRAGMA synchronous=NORMAL")  # safe with WAL; much faster commits
         try:
             yield c
             c.commit()
@@ -59,6 +60,9 @@ def conn():
 
 def init():
     with conn() as c:
+        # Write-ahead logging (stored in the file, so set once): the search and the web page can read while the
+        # other writes, instead of waiting on each other's locks.
+        c.execute("PRAGMA journal_mode=WAL")
         c.executescript(SCHEMA)
 
 

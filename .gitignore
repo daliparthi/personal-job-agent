@@ -4,6 +4,8 @@
 .env.*
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 master_resume.yaml
 tailored_resume.yaml
 my_companies.yaml

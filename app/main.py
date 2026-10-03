@@ -23,6 +23,8 @@ WEBLLM_BUILDS = {
     "q4f32": ("Qwen2.5-0.5B-Instruct-q4f32_1-MLC", "Qwen2-0.5B-Instruct-q4f32_1_cs1k-webgpu.wasm"),
 }
 
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # resume uploads
+
 ensure_home()
 SESSION_KEY = session_key()
 COOKIE = f"jobagent_{PORT}"  # cookies are shared across localhost ports, so the name carries the port
@@ -69,6 +71,9 @@ async def guard(request, call_next):
     else:
         response = JSONResponse({"detail": "Open Job Agent with its start script (this is not your session)"},
                                 status_code=401)
+    # The start link carries the access key in ?key=; never send this page's URL to other sites.
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Content-Type-Options"] = "nosniff"
     # Cross-origin isolation lets the CPU model use several threads (SharedArrayBuffer). Everything is same-origin.
     response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
     response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
@@ -197,7 +202,9 @@ def add_company(body: dict = Body(...)):
 @app.post("/api/resume/parse")
 async def parse_upload(file: UploadFile = File(...)):
     """Step 1 of an upload: read the file and return a rule-based draft for the model to refine."""
-    data = await file.read()
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"That file is over {MAX_UPLOAD_BYTES // (1024 * 1024)} MB; a resume should be much smaller")
     try:
         draft = master.draft(parse_resume(file.filename, data))
     except ValueError as e:
