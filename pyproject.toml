@@ -1,0 +1,27 @@
+# Tooling only: Job Agent is started with start.bat / start.command / start.sh, not installed as a package.
+# Runtime packages: requirements.txt (what you edit) -> requirements.lock (pinned + hashed, what the launchers
+# install). Development tools: requirements-dev.txt.
+
+[project]
+name = "personal-job-agent"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["static/vendor", "models"]
+
+[tool.ruff.lint]
+# Correctness checks (pyflakes, syntax/runtime errors). Style rules are left out on purpose for now.
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E741"]  # `l` for a location/line in short comprehensions is used throughout
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`:Warning"]
+
+[tool.coverage.run]
+source = ["app"]

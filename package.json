@@ -1,0 +1,9 @@
+{
+  "name": "personal-job-agent",
+  "private": true,
+  "description": "Only for running the browser-code tests (node --test). Job Agent itself needs no npm packages.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"tests/js/**/*.test.js\""
+  }
+}

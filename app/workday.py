@@ -53,9 +53,10 @@ def parse_site(name: str, url: str) -> Site:
 
 
 class WorkdayClient:
-    def __init__(self):
+    def __init__(self, transport=None):
+        # transport: tests pass an httpx.MockTransport that serves recorded Workday responses.
         self.http = httpx.AsyncClient(headers=HEADERS, timeout=httpx.Timeout(30.0), follow_redirects=True,
-                                      limits=httpx.Limits(max_connections=20))
+                                      limits=httpx.Limits(max_connections=20), transport=transport)
 
     async def close(self):
         await self.http.aclose()

@@ -1,0 +1,87 @@
+# master_resume.yaml - your master resume as data. Job Agent tailors a COPY of it for each job;
+# only a new upload or your own edit changes this file (edit here, or in Job Agent: Master tab > Edit YAML).
+#
+# sections are printed in this order; kind is one of: summary, skills, experience, projects, education,
+#   certifications, other.
+# experience entries: title, company, location, start, end, description, bullets
+# education entries:  degree, school, location, start, end, description, bullets
+# heading: when an entry has one, those lines are printed exactly as written instead of the fields above.
+
+name: Jordan Avery
+contact:
+  email: jordan.avery@example.com
+  phone: (555) 010-0199
+  location: Austin, TX
+  links:
+    - linkedin.com/in/jordan-avery-example
+sections:
+  - title: PROFESSIONAL SUMMARY
+    kind: summary
+    text: Data engineer with 8 years of experience building batch and streaming data platforms on AWS. Comfortable owning pipelines end to end, from ingestion to dashboards, and partnering with analysts and product teams.
+  - title: SKILLS
+    kind: skills
+    groups:
+      - name: Languages
+        items:
+          - Python
+          - SQL
+          - Bash
+          - Scala
+      - name: Data
+        items:
+          - Apache Spark
+          - Airflow
+          - dbt
+          - Snowflake
+          - PostgreSQL
+          - Kafka
+      - name: Cloud & DevOps
+        items:
+          - AWS (S3, EMR, Redshift)
+          - Docker
+          - Terraform
+          - GitHub Actions
+      - name: BI
+        items:
+          - Tableau
+          - Looker
+  - title: PROFESSIONAL EXPERIENCE
+    kind: experience
+    entries:
+      - title: Senior Data Engineer
+        company: Northwind Analytics
+        location: Austin, TX
+        start: '2021'
+        end: Present
+        bullets:
+          - Designed Spark and Airflow pipelines that process 3 TB of clickstream data per day for 40 downstream teams.
+          - Migrated a legacy on-prem warehouse to Snowflake, cutting monthly infrastructure cost by 35%.
+          - Built data quality checks with dbt tests and alerting, reducing broken dashboards by 60%.
+          - Mentored 4 junior engineers and ran weekly design reviews.
+      - title: Data Engineer
+        company: Contoso Retail
+        location: Dallas, TX
+        start: '2018'
+        end: '2021'
+        bullets:
+          - Developed Python ETL jobs loading point-of-sale data into Redshift for nightly reporting.
+          - Created Kafka consumers to stream inventory updates into PostgreSQL with sub-minute latency.
+          - Automated infrastructure with Terraform and Docker, shortening environment setup from 2 days to 2 hours.
+      - title: Data Analyst
+        company: Fabrikam Health
+        location: Houston, TX
+        start: '2016'
+        end: '2018'
+        bullets:
+          - Wrote SQL reports and Tableau dashboards used by 12 clinic managers.
+          - Cleaned and reconciled claims data, improving report accuracy by 20%.
+  - title: EDUCATION
+    kind: education
+    entries:
+      - degree: B.S. Computer Science
+        school: University of Texas at Austin
+        end: '2016'
+  - title: CERTIFICATIONS
+    kind: certifications
+    items:
+      - AWS Certified Data Analytics - Specialty

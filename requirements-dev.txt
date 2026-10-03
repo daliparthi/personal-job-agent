@@ -1,0 +1,6 @@
+# Development and test tools (not needed to run Job Agent). Install on top of requirements.lock:
+#   python -m pip install -r requirements.lock -r requirements-dev.txt
+pytest>=8.3
+pytest-cov>=5.0
+ruff>=0.6
+uv>=0.4

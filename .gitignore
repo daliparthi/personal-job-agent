@@ -24,6 +24,11 @@ models/onnx/**/model_quantized.onnx
 .venv/
 .venv-*/
 __pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+node_modules/
 *.pyc
 *.part
 .DS_Store

@@ -1,0 +1,14 @@
+{
+  "jobPostingInfo": {
+    "title": "Data Engineer",
+    "jobDescription": "<p>Build ETL pipelines with <b>Python</b>, SQL and Spark on AWS.</p><p>Pay: $120,000 - $150,000 per year.</p>",
+    "location": "Austin, TX",
+    "additionalLocations": ["Remote, US"],
+    "country": {"descriptor": "United States of America"},
+    "jobRequisitionLocation": {"descriptor": "Austin, TX", "country": {"alpha2Code": "US"}},
+    "jobReqId": "R1",
+    "timeType": "Full time",
+    "remoteType": "Hybrid",
+    "externalUrl": "https://acme.wd1.myworkdayjobs.com/External/job/Austin-TX/Data-Engineer_R1"
+  }
+}

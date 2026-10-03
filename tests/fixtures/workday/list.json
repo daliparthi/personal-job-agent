@@ -1,0 +1,19 @@
+{
+  "total": 2,
+  "facets": [
+    {"facetParameter": "locationMainGroup", "descriptor": "Locations", "values": [
+      {"facetParameter": "locationCountry", "descriptor": "Country", "values": [
+        {"descriptor": "United States of America", "id": "us1", "count": 2}
+      ]}
+    ]},
+    {"facetParameter": "workerSubType", "descriptor": "Job Type", "values": [
+      {"id": "reg", "descriptor": "Regular", "count": 2}
+    ]}
+  ],
+  "jobPostings": [
+    {"title": "Data Engineer", "externalPath": "/job/Austin-TX/Data-Engineer_R1", "locationsText": "Austin, TX",
+     "postedOn": "Posted Today", "bulletFields": ["R1"]},
+    {"title": "Staff Accountant", "externalPath": "/job/Austin-TX/Staff-Accountant_R2", "locationsText": "Austin, TX",
+     "postedOn": "Posted 2 Days Ago", "bulletFields": ["R2"]}
+  ]
+}
