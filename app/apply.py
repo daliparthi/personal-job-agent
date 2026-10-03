@@ -24,6 +24,7 @@ from . import db, envfile
 from .config import APPLICATIONS, BROWSER_PROFILE, ENV_FILE, HOME, MASTER_YAML
 from .master import TAILORED_HEADER, dump
 from .resume_io import clean_resume, to_docx, to_html, to_text
+from .workday import is_workday_host
 
 AUTOFILL_JS = (Path(__file__).parent / "autofill.js").read_text(encoding="utf-8")
 
@@ -41,6 +42,16 @@ def browser_candidates():
         if p and os.path.exists(p):
             yield p, {"executable_path": p}
     yield "Playwright Chromium", {}
+
+
+def trusted_frame(frame) -> bool:
+    """A page-binding call may come from any frame of any site; trust only a top frame on a Workday host."""
+    if frame is None or getattr(frame, "parent_frame", None) is not None:
+        return False
+    try:
+        return is_workday_host(urlsplit(frame.url).hostname)
+    except Exception:
+        return False
 
 
 def safe_name(s: str, limit=80) -> str:
@@ -131,8 +142,10 @@ class BrowserWorker:
         return self.ctx
 
     async def _on_event(self, source, kind, payload=None):
+        # The binding exists on every page of this browser profile. Answer only the Workday page we opened, and
+        # only while its top frame is on a Workday host (not after it navigates to a sign-on or any other site).
         info = self.pages.get(source.get("page"))
-        if not info:
+        if not info or not trusted_frame(source.get("frame")):
             return None
         if kind == "profile":
             return info["profile"]
@@ -154,7 +167,7 @@ class BrowserWorker:
             await page.locator('[data-automation-id="adventureButton"]').first.click(timeout=15000)
         except Exception:
             pass
-        asyncio.ensure_future(self._upload_loop(page, resume_path))
+        asyncio.ensure_future(self._upload_loop(page, urlsplit(url).hostname, resume_path))
         asyncio.ensure_future(self._account_loop(page, urlsplit(url).hostname, account))
         return True
 
@@ -187,12 +200,15 @@ class BrowserWorker:
                 pass
             await asyncio.sleep(1.5)
 
-    async def _upload_loop(self, page, resume_path):
-        """Attach the tailored resume whenever Workday shows a resume upload control."""
+    async def _upload_loop(self, page, host, resume_path):
+        """Attach the tailored resume whenever Workday shows a resume upload control.
+
+        Only on the posting's own Workday host (or another Workday career-site host), never on any other site."""
         done = set()
         while not page.is_closed():
             try:
-                if "myworkday" in page.url:
+                current = urlsplit(page.url).hostname
+                if current == host or is_workday_host(current):
                     inputs = page.locator('input[type="file"][data-automation-id="file-upload-input-ref"]')
                     if not await inputs.count():
                         inputs = page.locator('input[type="file"]')

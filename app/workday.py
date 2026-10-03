@@ -10,6 +10,14 @@ _URL_RE = re.compile(
 _SITE_RE = re.compile(
     r"https?://(?P<host>wd\d+\.myworkdaysite\.com)/(?:[a-z]{2}-[A-Z]{2}/)?recruiting/(?P<tenant>[\w-]+)/(?P<site>[^/?#]+)")
 
+_HOST_RE = re.compile(r"(?:^|\.)(?:myworkdayjobs|myworkdaysite)\.com$", re.I)
+
+
+def is_workday_host(host) -> bool:
+    """True for a Workday career-site host name (exact suffix match, never a substring of the URL)."""
+    return bool(host and _HOST_RE.search(host))
+
+
 HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
