@@ -12,13 +12,13 @@ if not exist ".venv\Scripts\python.exe" (
   echo Creating Python environment...
   %PY% -m venv .venv || goto :fail
 )
-rem (Re)install packages on the first run and whenever requirements.txt changes.
-fc /b requirements.txt .venv\requirements.installed >nul 2>&1
+rem (Re)install packages on the first run and whenever requirements.lock changes (exact, hash-checked versions).
+fc /b requirements.lock .venv\requirements.installed >nul 2>&1
 if errorlevel 1 (
   echo Installing Python packages...
   ".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check --upgrade pip
-  ".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r requirements.txt || goto :fail
-  copy /y requirements.txt .venv\requirements.installed >nul
+  ".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r requirements.lock || goto :fail
+  copy /y requirements.lock .venv\requirements.installed >nul
 )
 set NEED_MODELS=
 if not exist "static\vendor\web-llm\index.js" set NEED_MODELS=1

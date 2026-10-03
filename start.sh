@@ -54,12 +54,12 @@ if [ ! -x "$VPY" ]; then
     rm -f "$VENV/get-pip.py"
   fi
 fi
-# (Re)install packages on the first run and whenever requirements.txt changes.
-if ! cmp -s requirements.txt "$VENV/requirements.installed"; then
+# (Re)install packages on the first run and whenever requirements.lock changes (exact, hash-checked versions).
+if ! cmp -s requirements.lock "$VENV/requirements.installed"; then
   echo "Installing Python packages..."
   "$VPY" -m pip install --quiet --disable-pip-version-check --upgrade pip
-  "$VPY" -m pip install --disable-pip-version-check -r requirements.txt || fail "package install failed (see above)"
-  cp requirements.txt "$VENV/requirements.installed"
+  "$VPY" -m pip install --disable-pip-version-check -r requirements.lock || fail "package install failed (see above)"
+  cp requirements.lock "$VENV/requirements.installed"
 fi
 
 # ---------------------------------------------------------------- bundled model files
