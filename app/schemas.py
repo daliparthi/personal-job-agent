@@ -2,6 +2,7 @@
 
 Unknown fields are ignored, so a page that is a version ahead or behind the server still works.
 """
+from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -33,6 +34,8 @@ class SettingsPatch(_Body):
     engine: Literal["auto", "onnx"] | None = None
     upload_format: Literal["docx", "pdf"] | None = None
     max_bullets: int | None = Field(None, ge=0, le=40)
+    keep_new_days: int | None = Field(None, ge=1, le=365)
+    ghost_after_days: int | None = Field(None, ge=3, le=365)
 
     def values(self) -> dict:
         return self.model_dump(exclude_unset=True, exclude_none=True)
@@ -83,6 +86,20 @@ class ResumeSaveIn(_Body):
 
 class RunIn(_Body):
     full_refresh: bool = False
+
+
+class StageIn(_Body):
+    status: str
+    note: str | None = Field(None, max_length=2000)
+
+
+class NoteIn(_Body):
+    note: str = Field(..., min_length=1, max_length=4000)
+
+
+class FollowUpIn(_Body):
+    at: date | None = None  # None clears the follow-up
+    action: str = Field("", max_length=200)
 
 
 class PasswordIn(_Body):

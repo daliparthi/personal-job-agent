@@ -165,3 +165,37 @@ def test_keychain_endpoints(client):
     assert st["company_overrides"] == ["NVIDIA"] and "s3cr3t" not in str(st)
     assert client.post("/api/account/password", json={"password": "x", "company": "no way"}).status_code == 400
     assert "from-env" not in client.get("/api/status").text
+
+
+def test_pipeline_endpoints(client):
+    db.upsert_job(make_job())
+    assert client.patch(f"{JOB_URL}/stage", json={"status": "applied"}).json() == {"ok": True, "status": "applied"}
+    assert client.patch(f"{JOB_URL}/stage", json={"status": "hired"}).status_code == 400
+    assert client.patch("/api/jobs/acme/external:nope/stage", json={"status": "applied"}).status_code == 404
+    events = client.post(f"{JOB_URL}/notes", json={"note": "Recruiter called"}).json()["events"]
+    assert events[-1]["kind"] == "note" and events[-1]["note"] == "Recruiter called"
+    assert client.post(f"{JOB_URL}/notes", json={"note": ""}).status_code == 422
+    r = client.put(f"{JOB_URL}/follow-up", json={"at": "2030-01-15", "action": "Email the recruiter"}).json()
+    assert r["next_action_at"] == "2030-01-15" and r["next_action"] == "Email the recruiter"
+    assert client.put(f"{JOB_URL}/follow-up", json={"at": "someday"}).status_code == 422
+    assert client.put(f"{JOB_URL}/follow-up", json={"at": None}).json()["next_action_at"] is None
+    board = client.get("/api/pipeline").json()
+    assert [j["id"] for c in board["columns"] if c["key"] == "applied" for j in c["jobs"]] == [JOB]
+    assert client.get("/api/pipeline/stats").json()["applied"] == 1
+    assert [e["kind"] for e in client.get(f"{JOB_URL}/events").json()] == ["status", "note", "follow_up", "follow_up"]
+    assert client.get(f"{JOB_URL}/detail").json()["events"]
+    s = client.put("/api/settings", json={"keep_new_days": 30, "ghost_after_days": 14}).json()
+    assert (s["keep_new_days"], s["ghost_after_days"]) == (30, 14)
+    assert client.get("/api/status").json()["retention_days"] == 30
+    assert client.put("/api/settings", json={"keep_new_days": 0}).status_code == 422
+
+
+def test_restored_jobs_appear_at_startup(anon):
+    import json as _json
+    folder = config.APPLICATIONS / "Acme" / "Data Engineer - R7"
+    folder.mkdir(parents=True)
+    (folder / "application.json").write_text(_json.dumps({"job_id": "acme/external:R7", "title": "Data Engineer",
+                                                          "company": "Acme", "status": "applied"}), encoding="utf-8")
+    with TestClient(main.app):  # startup reads the Applications folder
+        pass
+    assert db.get_job("acme/external:R7")["status"] == "applied"

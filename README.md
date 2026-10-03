@@ -100,7 +100,7 @@ options: `--port 8800`, `--no-browser`.
 | Incremental by default | Later runs only pull postings newer than that company's last successful run, and skip jobs already stored. |
 | Full refresh flag | Tick **Full refresh** to ignore the incremental cursor and re-pull/re-parse the whole 7-day window. |
 | New keywords | Changing mandatory keywords starts a fresh 7-day pull for the new set (the cursor is per keyword set). |
-| DB purge | `jobs.db` in your personal folder; untouched postings (status *new*) posted more than 7 days ago are deleted on start-up, before every search, and hourly. Jobs you tailored, saved, are applying to or applied to are kept forever, and saved application folders are never deleted. |
+| DB purge | `jobs.db` in your personal folder; untouched postings (status *new*, no notes or follow-up) posted more than 7 days ago (Settings → *Keep untouched postings for*) are deleted on start-up, before every search, and hourly. Jobs you tailored, saved, applied to or moved along the [pipeline](#pipeline) are kept forever, and saved application folders are never deleted. |
 | Skip current employer | Settings → *Current employer*. That company is skipped during search and hidden from results. |
 | USA only + state filters | Searches use each site's "United States" filter when it has one, then every posting is checked for a US location. Filter by **state** (multi-select) and **city**. Remote roles with no state stay visible when you pick states. |
 | Contract / Full-time / Temporary | From Workday's *Job Type* (worker sub-type) facet, falling back to the posting text. Colour badges: **Full-time** green, **Contract** amber, **Temporary** purple, **Part-time** blue, Internship grey. Click a type chip to omit it; ✕ on a card hides one posting. |
@@ -231,6 +231,26 @@ a GPU folder you don't need; keep `models/onnx`.
 * Workday changes its forms often and every company configures its own questions, so autofill is best-effort.
   Always check each step.
 
+## Pipeline
+
+**Pipeline** (top bar) shows every job you worked on, in columns: *Preparing* (tailored, saved, apply window
+opened), *Applied*, *Recruiter screen*, *Interviewing*, *Offer*, and the outcomes *Rejected*, *Withdrawn*, *Ghosted*.
+
+* Job Agent moves a job forward by itself as you work (tailor → save package → apply window → submitted), never
+  backwards: re-packaging a job you are interviewing for keeps *Interviewing*. Drag a card to any column (or use
+  the *Status* menu in its details) to record what happened.
+* Each job has a **timeline** (every status change, with when and how), **notes** (who you spoke to, what's next)
+  and a **follow-up** date; due follow-ups are listed at the top of the board.
+* Applications with no news for 21 days are flagged *quiet* with a one-click *Move to Ghosted* (Settings → *Suggest
+  "Ghosted" after*). When a search finds that a posting you track was removed from the company's site, the card
+  says *posting closed*; the job itself stays where it is.
+* At the top: applications per week, response rate (any answer, including a rejection), interview rate, offers, and
+  the interview rate by match score, so you can see which scores are worth applying to.
+* **Jobs you worked on are kept forever.** Only untouched postings expire (Settings → *Keep untouched postings for*,
+  7 days by default). Older applied jobs leave the search list and live on the board. The status and timeline are
+  also written into each job's `application.json`, so the Applications folder is a complete record by itself; jobs
+  that an earlier version of Job Agent deleted are restored from those folders when it starts.
+
 ## companies.yaml and my_companies.yaml
 
 * **`companies.yaml` in the program folder** is the shared list for everyone who uses this copy of Job Agent. Edit it
@@ -294,11 +314,13 @@ app/                 Python backend (FastAPI)
   jobparse.py        salary/type/remote/state      scoring.py  ATS match score   lexicon.py  keyword dictionary
   resume_io.py       read files, write DOCX/PDF/TXT apply.py   packages + Playwright apply window + .env sign-up fill
   envfile.py         .env + OS keychain passwords  autofill.js script injected into Workday application pages
+  pipeline.py        statuses, timeline, follow-ups, board + statistics, recovery from Applications/
   schemas.py         request bodies of the local API
 static/              browser UI
   js/llm.js          Qwen engine (CPU default, GPU when available)
   js/resume-parse.js model step that builds master_resume.yaml
   js/tailor.js       live tailoring + line checks   js/resume-view.js  rendering, diff, undo controls
+  js/pipeline.js     the Pipeline board
 models/              Qwen2.5-0.5B files (CPU model in 6 parts)    static/vendor/  WebLLM, Transformers.js, ONNX Runtime
 licenses/            third-party license texts (see THIRD_PARTY_NOTICES.md)
 samples/             fictional sample resume for trying the app

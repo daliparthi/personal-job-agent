@@ -8,12 +8,12 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import apply, db, envfile, master, scoring, search
-from .config import HOME, HOME_ID, MODELS, PORT, RETENTION_DAYS, STATIC, ensure_home, session_key
+from . import apply, db, envfile, master, pipeline, scoring, search
+from .config import HOME, HOME_ID, MODELS, PORT, STATIC, ensure_home, session_key
 from .jobparse import split_keywords
 from .resume_io import clean_resume, parse_resume, to_text
-from .schemas import (CompanyIn, HideIn, OpenIn, PackageIn, PasswordIn, PathIn, PreviewIn, ResumeSaveIn, RunIn,
-                      ScoreIn, SettingsPatch, TailoredIn)
+from .schemas import (CompanyIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn, PathIn, PreviewIn,
+                      ResumeSaveIn, RunIn, ScoreIn, SettingsPatch, StageIn, TailoredIn)
 
 mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("text/javascript", ".mjs")
@@ -36,7 +36,7 @@ runner = search.SearchRunner()
 async def _purge_forever():
     while True:
         try:
-            await asyncio.to_thread(db.purge_old)
+            await asyncio.to_thread(lambda: db.purge_old(db.get_settings()["keep_new_days"]))
         except Exception as e:  # never let one failed purge stop the hourly loop
             print(f"Job Agent: purge failed: {e!r}", flush=True)
         await asyncio.sleep(3600)
@@ -45,6 +45,12 @@ async def _purge_forever():
 @asynccontextmanager
 async def lifespan(app):
     db.init()
+    try:  # application folders of jobs an earlier version purged come back into the pipeline
+        restored = await asyncio.to_thread(pipeline.backfill_from_disk)
+        if restored:
+            print(f"Job Agent: restored {restored} job(s) from your Applications folder", flush=True)
+    except Exception as e:
+        print(f"Job Agent: could not read the Applications folder: {e!r}", flush=True)
     task = asyncio.create_task(_purge_forever())
     yield
     task.cancel()
@@ -169,7 +175,7 @@ def status():
     return {"resume": {"filename": resume["filename"], "uploaded_at": resume["uploaded_at"]} if resume else None,
             "master_error": yaml_error, "jobs": db.count_jobs(), "last_run": db.last_run_overall(),
             "rescoring": search.rescorer.running, "rescore_error": search.rescorer.last_error,
-            "retention_days": RETENTION_DAYS, "models": _bundled_models(), "search": runner.state,
+            "retention_days": db.get_settings()["keep_new_days"], "models": _bundled_models(), "search": runner.state,
             "home": str(HOME), "profile": HOME.name, "account": envfile.status()}
 
 
@@ -331,6 +337,7 @@ def job_detail(job_id: str):
     resume = db.get_resume()
     j["analysis"] = _score(j, resume["text"] if resume else "")
     j["tailored"] = db.get_tailored(job_id)
+    j["events"] = db.job_events(job_id)
     return j
 
 
@@ -350,9 +357,7 @@ def score_resume(job_id: str, body: ScoreIn):
 def save_tailored(job_id: str, body: TailoredIn):
     _job_or_404(job_id)
     db.save_tailored(job_id, body.doc, body.score_after, body.approved, body.rejected)
-    j = db.get_job(job_id)
-    if j["status"] in (None, "new"):
-        db.update_job(job_id, status="tailored")
+    pipeline.advance(job_id, "tailored", "tailored resume saved")
     return {"ok": True}
 
 
@@ -366,17 +371,19 @@ async def package(job_id: str, body: PackageIn):
     db.save_tailored(job_id, doc, body.score_after, body.approved, body.rejected)
     result = await apply.save_package(j, doc["resume"], j.get("match_score"), body.score_after,
                                       body.approved, body.rejected, profile)
-    db.update_job(job_id, folder=result["folder"], status="applied" if j["status"] == "applied" else "saved")
+    db.update_job(job_id, folder=result["folder"])
+    pipeline.advance(job_id, "saved", "application package saved")
     if body.launch:
         fmt = settings.get("upload_format", "docx")
         resume_path = result["pdf"] if fmt == "pdf" and result["pdf"] else result["docx"]
         try:
             await apply.worker.open_application(job_id, j["url"], profile, resume_path, result["folder"], j["tenant"])
-            db.update_job(job_id, status="applied" if j["status"] == "applied" else "applying")
+            pipeline.advance(job_id, "applying", "apply window opened")
             result["launched"] = True
         except Exception as e:
             result["launched"] = False
             result["launch_error"] = str(e)
+    pipeline.write_record(job_id)  # the package rewrote application.json: put the status and timeline back
     return result
 
 
@@ -385,6 +392,51 @@ def mark_applied(job_id: str):
     j = _job_or_404(job_id)
     apply.mark_applied(job_id, j.get("folder"), how="manual")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- pipeline
+@app.get("/api/pipeline")
+def pipeline_board():
+    return pipeline.board(db.get_settings()["ghost_after_days"])
+
+
+@app.get("/api/pipeline/stats")
+def pipeline_stats():
+    return pipeline.stats()
+
+
+@app.patch("/api/jobs/{job_id:path}/stage")
+def move_job(job_id: str, body: StageIn):
+    _job_or_404(job_id)
+    try:
+        pipeline.set_status(job_id, body.status, note=(body.note or "").strip() or "moved on the pipeline board")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "status": db.get_job(job_id)["status"]}
+
+
+@app.post("/api/jobs/{job_id:path}/notes")
+def add_note(job_id: str, body: NoteIn):
+    _job_or_404(job_id)
+    try:
+        pipeline.add_note(job_id, body.note)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"events": db.job_events(job_id)}
+
+
+@app.put("/api/jobs/{job_id:path}/follow-up")
+def set_follow_up(job_id: str, body: FollowUpIn):
+    _job_or_404(job_id)
+    pipeline.set_follow_up(job_id, body.at, body.action)
+    j = db.get_job(job_id)
+    return {"next_action_at": j["next_action_at"], "next_action": j["next_action"], "events": db.job_events(job_id)}
+
+
+@app.get("/api/jobs/{job_id:path}/events")
+def job_events(job_id: str):
+    _job_or_404(job_id)
+    return db.job_events(job_id)
 
 
 # ---------------------------------------------------------------- personal folder

@@ -7,9 +7,10 @@ import re
 import threading
 from datetime import date, datetime, timedelta
 
+import httpx
 import yaml
 
-from . import db, scoring
+from . import db, pipeline, scoring
 from .config import (COMPANIES_SHARED, COMPANY_CONCURRENCY, DETAIL_CONCURRENCY, MAX_PAGES_PER_QUERY,
                      MY_COMPANIES, OLD_COMPANIES_COPY, RETENTION_DAYS)
 from .jobparse import (classify_employment, classify_remote, contains_all, html_to_text, is_us_location,
@@ -139,6 +140,7 @@ def keyword_signature(mandatory, optional):
 
 # ---------------------------------------------------------------- runner
 FLUSH_EVERY = 20  # postings written to the database per transaction during a search
+CHECK_TRACKED_EVERY_HOURS = 20  # how often a search re-checks that a job you track is still posted
 
 
 class SearchRunner:
@@ -187,9 +189,10 @@ class SearchRunner:
             if not mandatory and not optional:
                 self.log("Enter at least one mandatory or optional keyword before searching.")
                 return
-            purged = await asyncio.to_thread(db.purge_old)
+            keep_days = settings.get("keep_new_days") or RETENTION_DAYS
+            purged = await asyncio.to_thread(db.purge_old, keep_days)
             if purged:
-                self.log(f"Purged {purged} untouched postings older than {RETENTION_DAYS} days")
+                self.log(f"Purged {purged} untouched postings older than {keep_days} days")
             resume = await asyncio.to_thread(db.get_resume)
             ctx = {"mandatory": mandatory, "optional": optional, "full_refresh": full_refresh,
                    "sig": keyword_signature(mandatory, optional), "kw_sig": keyword_hits_signature(mandatory, optional),
@@ -255,12 +258,33 @@ class SearchRunner:
                 if not self.stop_requested:
                     await asyncio.to_thread(db.mark_success, site.key, ctx["sig"], started)
                 self.log(f"{name}: checked {len(candidates)} new posting(s)")
+                await self._check_tracked(client, site, name)
             except Exception as e:
                 self.state["errors"].append(f"{name}: {e!r}")
                 self.log(f"{name}: error {e!r}")
             finally:
                 self.state["current"].remove(name)
                 self.state["done"] += 1
+
+    async def _check_tracked(self, client, site, name):
+        """Is each job you are working on or applied to (at this company) still posted? Checked at most daily."""
+        since = (datetime.now() - timedelta(hours=CHECK_TRACKED_EVERY_HOURS)).isoformat(timespec="seconds")
+        rows = await asyncio.to_thread(db.tracked_to_check, site.key, pipeline.CHECK_STILL_POSTED, since)
+        for r in rows:
+            if self.stop_requested:
+                return
+            try:
+                d = await client.job_detail(site, r["external_path"])
+                closed = not d.get("jobPostingInfo")
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code not in (404, 410):
+                    continue  # a server hiccup is not a closed posting; try again next time
+                closed = True
+            except Exception:
+                continue
+            await asyncio.to_thread(pipeline.record_check, r["id"], closed)
+            if closed:
+                self.log(f"{name}: '{r['title']}' is no longer posted")
 
     @staticmethod
     async def _flush(pending, force=False):
@@ -482,10 +506,12 @@ def list_jobs(settings):
     wanted_states = set(f.get("states") or [])
     city = (f.get("city") or "").strip().lower()
     refresh_keyword_hits(mandatory, optional)
+    # Postings from the keep window, plus older ones you are still preparing; applied ones live on the pipeline board.
+    posted_since = (date.today() - timedelta(days=settings.get("keep_new_days") or RETENTION_DAYS)).isoformat()
     rows = db.jobs_for_list(wanted_types, show_hidden=bool(f.get("show_hidden")), remote_only=bool(f.get("remote_only")),
                             min_salary=float(f.get("min_salary") or 0),
                             include_no_salary=f.get("include_no_salary", True) is not False,
-                            kw_sig=keyword_hits_signature(mandatory, optional))
+                            kw_sig=keyword_hits_signature(mandatory, optional), posted_since=posted_since)
     aliases = {c["key"]: c["aliases"] for c in load_companies() if c["key"]} if employer else {}
     out = []
     for j in rows:

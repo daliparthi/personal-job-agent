@@ -65,6 +65,25 @@ MIGRATIONS = [
     ALTER TABLE jobs ADD COLUMN optional_hits_json TEXT;
     CREATE INDEX IF NOT EXISTS jobs_kw ON jobs(kw_sig);
     """,
+    # 4: the application pipeline: when the status last changed, follow-ups, closed postings and a timeline
+    """
+    ALTER TABLE jobs ADD COLUMN status_at TEXT;
+    ALTER TABLE jobs ADD COLUMN next_action_at TEXT;
+    ALTER TABLE jobs ADD COLUMN next_action TEXT;
+    ALTER TABLE jobs ADD COLUMN closed_at TEXT;
+    ALTER TABLE jobs ADD COLUMN checked_at TEXT;
+    CREATE TABLE IF NOT EXISTS job_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT NOT NULL, at TEXT NOT NULL, kind TEXT NOT NULL,
+        from_status TEXT, to_status TEXT, note TEXT
+    );
+    CREATE INDEX IF NOT EXISTS job_events_job ON job_events(job_id, at);
+    UPDATE jobs SET status_at = COALESCE(last_seen, first_seen) WHERE COALESCE(status, 'new') <> 'new';
+    INSERT INTO job_events(job_id, at, kind, to_status, note)
+        SELECT id, COALESCE(last_seen, first_seen, strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime')), 'status',
+               status, 'status before the pipeline tracker existed'
+        FROM jobs WHERE COALESCE(status, 'new') <> 'new';
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -142,17 +161,18 @@ def schema_version() -> int:
     return read().execute("PRAGMA user_version").fetchone()[0]
 
 
-def purge_old() -> int:
-    """Drop untouched postings older than the retention window. Returns rows removed from jobs.
+def purge_old(keep_days: int = RETENTION_DAYS) -> int:
+    """Drop untouched postings older than keep_days (Settings: "Keep new postings"). Returns rows removed from jobs.
 
-    Only status 'new' jobs with no application folder and no tailored resume expire. Anything you tailored,
-    saved, are applying to or applied to is kept forever."""
-    cutoff = (date.today() - timedelta(days=RETENTION_DAYS)).isoformat()
+    Only status 'new' jobs with no application folder, tailored resume, note or follow-up expire. Anything you
+    tailored, saved, applied to or moved along the pipeline is kept forever."""
+    cutoff = (date.today() - timedelta(days=keep_days)).isoformat()
     stale_run = (datetime.now() - timedelta(days=RETENTION_DAYS)).isoformat(timespec="seconds")
     with conn() as c:
         n = c.execute("DELETE FROM jobs WHERE (posted_date IS NULL OR posted_date < ?) "
-                      "AND COALESCE(status, 'new') = 'new' AND folder IS NULL "
-                      "AND id NOT IN (SELECT job_id FROM tailored)", (cutoff,)).rowcount
+                      "AND COALESCE(status, 'new') = 'new' AND folder IS NULL AND next_action_at IS NULL "
+                      "AND id NOT IN (SELECT job_id FROM tailored) "
+                      "AND id NOT IN (SELECT job_id FROM job_events)", (cutoff,)).rowcount
         c.execute("DELETE FROM tailored WHERE job_id NOT IN (SELECT id FROM jobs)")
         c.execute("DELETE FROM company_runs WHERE last_success < ?", (stale_run,))
     return n
@@ -184,6 +204,8 @@ DEFAULT_SETTINGS = {
     "engine": "auto",           # auto = CPU model by default, GPU when this browser has a usable one; "onnx" = CPU only
     "upload_format": "docx",
     "max_bullets": 12,
+    "keep_new_days": RETENTION_DAYS,  # untouched postings expire after this; jobs you worked on never do
+    "ghost_after_days": 21,     # suggest "Ghosted" when an application has had no update for this long
 }
 
 
@@ -341,11 +363,18 @@ def all_jobs(with_text=False):
     return [_decode(r) for r in read().execute(f"SELECT {cols} FROM jobs").fetchall()]
 
 
+PREPARING = ("tailored", "saved", "applying")  # statuses still being worked on before applying
+
+
 def jobs_for_list(types, show_hidden=False, remote_only=False, min_salary=0, include_no_salary=True,
-                  kw_sig=None):
+                  kw_sig=None, posted_since=None):
     """The job list's cheap filters, done in SQL. kw_sig: keep only jobs whose stored keyword check (for this
-    keyword set) passed the mandatory keywords."""
+    keyword set) passed the mandatory keywords. posted_since: older postings are listed only while you are still
+    preparing them (applied ones live on the pipeline board)."""
     where, params = [f"employment_type IN ({', '.join('?' for _ in types)})"], list(types)
+    if posted_since:
+        where.append(f"(posted_date >= ? OR status IN ({', '.join('?' for _ in PREPARING)}))")
+        params += [posted_since, *PREPARING]
     if not show_hidden:
         where.append("COALESCE(hidden, 0) = 0")
     if remote_only:
@@ -423,3 +452,59 @@ def save_tailored(job_id, doc, score_after, approved, rejected):
                   "score_after=excluded.score_after, approved_json=excluded.approved_json, "
                   "rejected_json=excluded.rejected_json, updated_at=excluded.updated_at",
                   (job_id, json.dumps(doc), score_after, json.dumps(approved), json.dumps(rejected), _now()))
+
+
+# ---------- pipeline ----------
+PIPELINE_COLS = (*LIST_COLS, "status_at", "next_action_at", "next_action", "closed_at", "req_id", "first_seen")
+
+
+def tracked_jobs():
+    """Every job past 'new' (the pipeline board), with its tailored match score when there is one."""
+    cols = ", ".join(f"j.{c}" for c in PIPELINE_COLS)
+    return _list_rows(f"SELECT {cols}, t.score_after FROM jobs j LEFT JOIN tailored t ON t.job_id = j.id "
+                      "WHERE COALESCE(j.status, 'new') <> 'new'", ())
+
+
+def set_status(job_id, status, at):
+    with conn() as c:
+        c.execute("UPDATE jobs SET status = ?, status_at = ? WHERE id = ?", (status, at, job_id))
+
+
+def add_event(job_id, kind, note=None, from_status=None, to_status=None, at=None):
+    with conn() as c:
+        c.execute("INSERT INTO job_events(job_id, at, kind, from_status, to_status, note) VALUES(?, ?, ?, ?, ?, ?)",
+                  (job_id, at or _now(), kind, from_status, to_status, note))
+
+
+def job_events(job_id):
+    rows = read().execute("SELECT at, kind, from_status, to_status, note FROM job_events WHERE job_id = ? "
+                          "ORDER BY at, id", (job_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def status_events():
+    """(job_id, to_status, at) of every status change, oldest first (pipeline statistics)."""
+    return read().execute("SELECT job_id, to_status, at FROM job_events WHERE kind = 'status' "
+                          "ORDER BY at, id").fetchall()
+
+
+def set_follow_up(job_id, at, action):
+    with conn() as c:
+        c.execute("UPDATE jobs SET next_action_at = ?, next_action = ? WHERE id = ?", (at, action, job_id))
+
+
+def tracked_to_check(company_key, statuses, checked_before, limit=25):
+    """Tracked, still-open postings of one company not checked since checked_before (is it still posted?)."""
+    marks = ", ".join("?" for _ in statuses)
+    return read().execute(f"SELECT id, title, external_path FROM jobs WHERE company_key = ? AND status IN ({marks}) "
+                          "AND closed_at IS NULL AND external_path IS NOT NULL "
+                          "AND (checked_at IS NULL OR checked_at < ?) ORDER BY checked_at LIMIT ?",
+                          (company_key, *statuses, checked_before, limit)).fetchall()
+
+
+def set_checked(job_id, at, closed=False):
+    with conn() as c:
+        if closed:
+            c.execute("UPDATE jobs SET checked_at = ?, closed_at = ? WHERE id = ?", (at, at, job_id))
+        else:
+            c.execute("UPDATE jobs SET checked_at = ? WHERE id = ?", (at, job_id))

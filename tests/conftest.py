@@ -6,6 +6,7 @@ environment must point at a throwaway personal folder before anything from app/ 
 """
 import os
 import shutil
+from datetime import date
 import tempfile
 from pathlib import Path
 
@@ -89,7 +90,7 @@ def make_job(job_id="acme/external:R1", **over):
         "location": "Austin, TX", "locations_json": ["Austin, TX"], "states_json": ["TX"], "country": "United States",
         "remote_raw": "", "remote_type": "On-site", "employment_type": "Full-time", "worker_sub_type": "Regular",
         "time_type": "Full time", "salary_min": 120000.0, "salary_max": 150000.0, "salary_text": "$120,000 - $150,000",
-        "posted_date": "2026-10-01", "description_html": "<p>We use Python and SQL on AWS.</p>",
+        "posted_date": date.today().isoformat(), "description_html": "<p>We use Python and SQL on AWS.</p>",
         "description_text": "We use Python and SQL on AWS.",
     }
     job.update(over)

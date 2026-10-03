@@ -23,6 +23,7 @@
     <button class="btn" id="btn-load-model">Load model</button>
     <label class="btn" for="resume-file">Upload master resume</label>
     <input type="file" id="resume-file" accept=".docx,.pdf,.txt,.md" hidden>
+    <button class="btn" id="btn-pipeline" title="Every job you worked on, by status: applied, interviews, offers…">Pipeline</button>
     <button class="btn" id="btn-applications">Applications</button>
     <button class="btn" id="btn-settings">Settings</button>
   </div>
@@ -191,6 +192,9 @@
           <select name="upload_format"><option value="docx">DOCX (best for Workday parsing)</option><option value="pdf">PDF</option></select>
         </label>
         <label>Max bullets rewritten per job<input name="max_bullets" type="number" min="0" max="40"></label>
+        <label>Keep untouched postings for (days) <span class="hint">jobs you worked on are kept forever</span>
+          <input name="keep_new_days" type="number" min="1" max="365"></label>
+        <label>Suggest "Ghosted" after (days without news)<input name="ghost_after_days" type="number" min="3" max="365"></label>
       </div>
     </fieldset>
     <fieldset>
@@ -224,6 +228,25 @@
     <p class="hint">Saved in the <code>Applications</code> folder of your personal folder, one folder per company.</p>
     <div id="apps-list"></div>
     <div class="dialog-actions"><span class="spacer"></span><button class="btn" id="apps-close">Close</button></div>
+  </div>
+</dialog>
+
+<!-- pipeline -->
+<dialog id="pipeline-dialog" class="dialog full" aria-labelledby="pl-title">
+  <div class="dialog-body">
+    <div class="pl-head">
+      <h2 id="pl-title">Pipeline</h2>
+      <div class="pl-stats" id="pl-stats"></div>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="pl-close">Close</button>
+    </div>
+    <div class="pl-due" id="pl-due" hidden></div>
+    <p class="hint" id="pl-empty" hidden>Jobs show up here once you tailor, save or apply to them. Drag a card to another
+      column as things move along (recruiter screen, interviews, offer…), add notes and set follow-up reminders.</p>
+    <div class="pl-main">
+      <div class="pl-board" id="pl-board"></div>
+      <aside class="pl-detail" id="pl-detail" hidden aria-label="Job details"></aside>
+    </div>
   </div>
 </dialog>
 

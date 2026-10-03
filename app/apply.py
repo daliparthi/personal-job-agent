@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import db, envfile
+from . import db, envfile, pipeline
 from .config import APPLICATIONS, BROWSER_PROFILE, ENV_FILE, HOME, MASTER_YAML
 from .master import TAILORED_HEADER, dump
 from .resume_io import clean_resume, to_docx, to_html, to_text
@@ -280,7 +280,8 @@ async def save_package(job, resume, score_before, score_after, approved, rejecte
         "work_mode": job.get("remote_type"), "salary_min": job.get("salary_min"), "salary_max": job.get("salary_max"),
         "posted_date": job.get("posted_date"), "match_score_before": score_before, "match_score_after": score_after,
         "approved_keywords": approved, "rejected_keywords": rejected,
-        "status": meta.get("status") if meta.get("status") == "applied" else "prepared",
+        # re-packaging never moves a job back: an applied/interviewing/... status in the file stays
+        "status": meta["status"] if pipeline.rank(meta.get("status")) >= pipeline.rank("applied") else "prepared",
         "prepared_at": datetime.now().isoformat(timespec="seconds"),
         "files": {"resume_docx": docx_path.name, "resume_pdf": pdf_path.name if not pdf_error else None,
                   "resume_yaml": "tailored_resume.yaml", "job_description": "job_description.html"},
@@ -290,15 +291,23 @@ async def save_package(job, resume, score_before, score_after, approved, rejecte
             "pdf_error": pdf_error}
 
 
+APPLIED_HOW = {"manual": "marked as applied", "detected": "submission confirmed on Workday"}
+
+
 def mark_applied(job_id, folder, how="manual"):
+    """You submitted (button in Job Agent or in the Workday window), or the confirmation page was detected."""
     if folder:
         meta_path = Path(folder) / "application.json"
         if meta_path.exists():
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            meta.update(status="applied", applied_at=datetime.now().isoformat(timespec="seconds"), applied_how=how)
+            if not meta.get("applied_at"):
+                meta.update(applied_at=datetime.now().isoformat(timespec="seconds"), applied_how=how)
+            if pipeline.rank(meta.get("status")) < pipeline.rank("applied"):
+                meta["status"] = "applied"
             meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     if db.get_job(job_id):
-        db.update_job(job_id, status="applied")
+        pipeline.advance(job_id, "applied", APPLIED_HOW.get(how, how))
+        pipeline.write_record(job_id)
 
 
 def list_applications():

@@ -2,6 +2,7 @@ import { LocalLLM } from "./llm.js";
 import { refineWithModel, yamlHtml } from "./resume-parse.js";
 import { changeSummary, esc, getAt, renderResume, setAt, textOf, updateBlock, valueFromText } from "./resume-view.js";
 import { tailorResume } from "./tailor.js";
+import { initPipeline, openPipeline } from "./pipeline.js";
 
 // ---------------------------------------------------------------- helpers
 const $ = (s, r = document) => r.querySelector(s);
@@ -38,6 +39,8 @@ function toast(msg, ms = 4500) {
 }
 
 const TYPES = ["Full-time", "Contract", "Temporary", "Part-time", "Internship"];
+// Statuses that mean you already applied (the pipeline tracks what happens after that).
+const APPLIED_OR_LATER = new Set(["applied", "screening", "interviewing", "offer", "rejected", "withdrawn", "ghosted"]);
 const STATES = { AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California", CO: "Colorado", CT: "Connecticut", DE: "Delaware", DC: "District of Columbia", FL: "Florida", GA: "Georgia", HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa", KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland", MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey", NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio", OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", PR: "Puerto Rico", RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont", VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming" };
 
 // master = master_resume.yaml data (never changed by tailoring); tailored = { resume: copy, changes: {path: rec} }
@@ -365,7 +368,7 @@ function renderResumePane() {
   $("#btn-tailor-stop").hidden = !S.tailoring;
   $("#btn-package").disabled = !S.tailored || S.tailoring;
   $("#btn-apply").disabled = !S.tailored || S.tailoring;
-  $("#btn-applied").disabled = !d || !d.folder || d.status === "applied";
+  $("#btn-applied").disabled = !d || !d.folder || APPLIED_OR_LATER.has(d.status);
 }
 
 const persistEdits = debounce(async () => {
@@ -554,7 +557,7 @@ async function onPackage(launch) {
 async function onMarkApplied() {
   if (!S.detail) return;
   await api(`/api/jobs/${enc(S.detail.id)}/applied`, { method: "POST" });
-  S.detail.status = "applied";
+  if (!APPLIED_OR_LATER.has(S.detail.status)) S.detail.status = "applied";
   toast("Marked as applied. application.json in the job's folder was updated.");
   renderResumePane();
   await loadJobs();
@@ -723,6 +726,8 @@ async function openSettings() {
   form.engine.value = s.engine === "onnx" ? "onnx" : "auto";
   form.upload_format.value = s.upload_format || "docx";
   form.max_bullets.value = s.max_bullets ?? 12;
+  form.keep_new_days.value = s.keep_new_days ?? 7;
+  form.ghost_after_days.value = s.ghost_after_days ?? 21;
   $("#profile-fields").innerHTML = PROFILE_FIELDS.map(([k, label, opts]) => {
     const v = s.profile[k] ?? "";
     const input = opts
@@ -754,6 +759,7 @@ async function saveSettingsDialog() {
   await saveSettings({
     current_employer: form.current_employer.value.trim(), engine: form.engine.value,
     upload_format: form.upload_format.value, max_bullets: Number(form.max_bullets.value || 12),
+    keep_new_days: Number(form.keep_new_days.value || 7), ghost_after_days: Number(form.ghost_after_days.value || 21),
     profile, disabled_companies: disabled,
   });
   $("#settings-dialog").close();
@@ -893,6 +899,7 @@ function bindEvents() {
     if (e.key === "Enter") { e.preventDefault(); saveKeychainPassword(); }
   }));
   $("#btn-applications").onclick = openApplications;
+  $("#btn-pipeline").onclick = openPipeline;
   $("#apps-close").onclick = () => $("#apps-dialog").close();
   $("#apps-list").onclick = (e) => {
     const b = e.target.closest("[data-open]");
@@ -914,6 +921,14 @@ async function init() {
   updateChips();
   renderResumePane();
   bindEvents();
+  initPipeline({
+    api, toast,
+    onShowJob: (id) => selectJob(id),
+    onChanged: async () => { // statuses may have changed on the board
+      await loadJobs();
+      if (S.sel && !S.tailoring) await selectJob(S.sel);
+    },
+  });
   await loadJobs();
   if (S.status.rescoring) watchRescore();
   if (S.status.search?.running) pollSearch();
