@@ -11,6 +11,7 @@ tailored_resume.yaml
 my_companies.yaml
 companies.yaml.old
 .session-key
+.keychain-entries
 .port
 browser-profile/
 Applications/

@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import hmac
 import mimetypes
 from contextlib import asynccontextmanager
@@ -10,11 +9,11 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from . import apply, db, envfile, master, scoring, search
-from .config import HOME, MODELS, PORT, RETENTION_DAYS, STATIC, ensure_home, session_key
+from .config import HOME, HOME_ID, MODELS, PORT, RETENTION_DAYS, STATIC, ensure_home, session_key
 from .jobparse import split_keywords
 from .resume_io import clean_resume, parse_resume, to_text
-from .schemas import (CompanyIn, HideIn, OpenIn, PackageIn, PathIn, PreviewIn, ResumeSaveIn, RunIn, ScoreIn,
-                      SettingsPatch, TailoredIn)
+from .schemas import (CompanyIn, HideIn, OpenIn, PackageIn, PasswordIn, PathIn, PreviewIn, ResumeSaveIn, RunIn,
+                      ScoreIn, SettingsPatch, TailoredIn)
 
 mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("text/javascript", ".mjs")
@@ -26,11 +25,11 @@ WEBLLM_BUILDS = {
 }
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # resume uploads
+PARSE_TIMEOUT = 60                   # seconds to read one uploaded resume
 
 ensure_home()
 SESSION_KEY = session_key()
 COOKIE = f"jobagent_{PORT}"  # cookies are shared across localhost ports, so the name carries the port
-HOME_ID = hashlib.sha1(str(HOME).lower().encode()).hexdigest()[:16]
 runner = search.SearchRunner()
 
 
@@ -193,6 +192,31 @@ def put_settings(body: SettingsPatch):
     return after
 
 
+@app.get("/api/account")
+def account():
+    return envfile.status()
+
+
+@app.post("/api/account/password")
+def store_password(body: PasswordIn):
+    """Save a Workday password in the OS keychain (empty: delete it). The page never reads one back."""
+    try:
+        envfile.store_password(body.password, body.company.strip())
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(400, str(e))
+    return envfile.status()
+
+
+@app.post("/api/account/move-to-keychain")
+def move_to_keychain():
+    """Move every password in .env into the OS keychain and blank it in .env."""
+    try:
+        moved = envfile.move_env_passwords_to_keychain()
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    return {"moved": moved, "account": envfile.status()}
+
+
 @app.get("/api/companies")
 def companies():
     disabled = set(db.get_settings().get("disabled_companies") or [])
@@ -219,9 +243,13 @@ async def parse_upload(file: UploadFile = File(...)):
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, f"That file is over {MAX_UPLOAD_BYTES // (1024 * 1024)} MB; a resume should be much smaller")
     try:
-        draft = master.draft(parse_resume(file.filename, data))
+        # A worker thread with a time limit: a huge or malformed PDF can't stall the server.
+        structured = await asyncio.wait_for(asyncio.to_thread(parse_resume, file.filename, data), PARSE_TIMEOUT)
+        draft = master.draft(structured)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except asyncio.TimeoutError:
+        raise HTTPException(400, "Reading that file took too long; try a DOCX or TXT copy of your resume")
     except Exception as e:
         raise HTTPException(400, f"Could not read that file: {e}")
     return {"filename": file.filename, "draft": draft}

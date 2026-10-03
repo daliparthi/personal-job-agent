@@ -679,10 +679,39 @@ const PROFILE_FIELDS = [
 function renderAccount() {
   const a = S.status.account || {};
   const ok = (v) => `<span class="${v ? "good" : "bad"}">${v ? "set" : "not set"}</span>`;
+  const where = a.password_in_keychain ? " (OS keychain)" : a.password_in_env ? " (.env file)" : "";
   $("#home-path").textContent = S.status.home || "";
   $("#env-path").textContent = a.path || "";
-  $("#env-status").innerHTML = `WORKDAY_EMAIL: ${a.email ? `<b>${esc(a.email)}</b>` : ok(false)} · WORKDAY_PASSWORD: ${ok(a.password_set)}`
+  $("#env-status").innerHTML = `WORKDAY_EMAIL: ${a.email ? `<b>${esc(a.email)}</b>` : ok(false)} · WORKDAY_PASSWORD: ${ok(a.password_set)}${where}`
     + (a.company_overrides?.length ? ` · company-specific: ${esc(a.company_overrides.join(", "))}` : "");
+  $("#keychain-row").hidden = !a.keychain;
+  $("#btn-kc-move").hidden = !(a.keychain && a.env_passwords?.length);
+  $("#kc-hint").textContent = !a.keychain
+    ? "This computer has no OS keychain Job Agent can use, so keep the password in the .env file."
+    : a.env_passwords?.length
+      ? `${a.env_passwords.join(", ")} ${a.env_passwords.length === 1 ? "is" : "are"} in plain text in .env: move ${a.env_passwords.length === 1 ? "it" : "them"} to the keychain.`
+      : "Passwords saved here go to your OS keychain (Windows Credential Manager, macOS Keychain or Linux Secret Service), not to a file. An empty password deletes the saved one.";
+}
+
+async function saveKeychainPassword() {
+  const company = $("#kc-company").value.trim();
+  try {
+    const password = $("#kc-password").value;
+    S.status.account = await api("/api/account/password", { method: "POST", body: { password, company } });
+    $("#kc-password").value = "";
+    renderAccount();
+    const whose = company ? `${company}'s` : "your";
+    toast(password ? `Saved ${whose} Workday password in the OS keychain.` : `Deleted ${whose} Workday password from the OS keychain.`);
+  } catch (e) { toast(e.message, 8000); }
+}
+
+async function moveEnvPasswords() {
+  try {
+    const r = await api("/api/account/move-to-keychain", { method: "POST" });
+    S.status.account = r.account;
+    renderAccount();
+    toast(r.moved.length ? `Moved ${r.moved.join(", ")} to the OS keychain and blanked ${r.moved.length === 1 ? "it" : "them"} in .env.` : "Nothing to move.");
+  } catch (e) { toast(e.message, 8000); }
 }
 
 async function openSettings() {
@@ -857,6 +886,12 @@ function bindEvents() {
   $("#btn-open-home").onclick = () => api("/api/open", { method: "POST", body: { what: "home" } }).catch((err) => toast(err.message));
   $("#btn-open-env").onclick = () => api("/api/open", { method: "POST", body: { what: "env" } }).catch((err) => toast(err.message));
   $("#btn-env-refresh").onclick = async () => { S.status = await api("/api/status"); renderAccount(); };
+  $("#btn-kc-save").onclick = saveKeychainPassword;
+  $("#btn-kc-move").onclick = moveEnvPasswords;
+  // Enter in the password box saves it (instead of submitting, and closing, the Settings dialog).
+  ["#kc-password", "#kc-company"].forEach((s) => $(s).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); saveKeychainPassword(); }
+  }));
   $("#btn-applications").onclick = openApplications;
   $("#apps-close").onclick = () => $("#apps-dialog").close();
   $("#apps-list").onclick = (e) => {

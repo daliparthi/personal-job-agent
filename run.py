@@ -10,7 +10,6 @@ Each person (each user account, or each --profile) gets their own data, port and
 the source code serves everyone on the computer.
 """
 import argparse
-import hashlib
 import importlib
 import json
 import os
@@ -54,7 +53,7 @@ def main():
         sys.exit(str(e))
     os.environ["JOB_AGENT_HOME"] = str(home)
     importlib.reload(config)
-    home_id = hashlib.sha1(str(home).lower().encode()).hexdigest()[:16]
+    home_id = config.HOME_ID
     config.ensure_home()
     key = config.session_key()
 

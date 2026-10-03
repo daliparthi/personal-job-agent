@@ -151,17 +151,29 @@
     }
   }
 
+  // Built with DOM calls and element.style (never innerHTML or style="" markup), so a site's Content-Security-Policy
+  // or Trusted Types rules can't block or strip it.
+  function node(tag, css, text) {
+    const n = document.createElement(tag);
+    n.style.cssText = css;
+    if (text) n.textContent = text;
+    return n;
+  }
+
   function banner(msg) {
     let b = document.getElementById("__jobagent_banner");
     if (!b) {
-      b = document.createElement("div");
+      b = node("div", "position:fixed;z-index:2147483647;right:16px;bottom:16px;max-width:340px;background:#0f172a;color:#f8fafc;" +
+        "font:13px/1.4 system-ui,Segoe UI,sans-serif;padding:12px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35)");
       b.id = "__jobagent_banner";
-      b.style.cssText = "position:fixed;z-index:2147483647;right:16px;bottom:16px;max-width:340px;background:#0f172a;color:#f8fafc;" +
-        "font:13px/1.4 system-ui,Segoe UI,sans-serif;padding:12px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35)";
-      b.innerHTML = '<div style="font-weight:600;margin-bottom:4px">Job Agent autofill</div><div id="__jobagent_msg"></div>' +
-        '<button id="__jobagent_done" style="margin-top:8px;background:#22c55e;color:#04210f;border:0;border-radius:6px;padding:6px 10px;font-weight:600;cursor:pointer">I submitted — mark as applied</button>';
+      const text = node("div", "");
+      text.id = "__jobagent_msg";
+      const done = node("button", "margin-top:8px;background:#22c55e;color:#04210f;border:0;border-radius:6px;padding:6px 10px;" +
+        "font-weight:600;cursor:pointer", "I submitted — mark as applied");
+      done.id = "__jobagent_done";
+      done.onclick = () => markApplied("manual");
+      b.append(node("div", "font-weight:600;margin-bottom:4px", "Job Agent autofill"), text, done);
       document.documentElement.appendChild(b);
-      b.querySelector("#__jobagent_done").onclick = () => markApplied("manual");
     }
     b.querySelector("#__jobagent_msg").textContent = msg;
   }

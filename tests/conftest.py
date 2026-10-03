@@ -16,6 +16,33 @@ os.environ["JOB_AGENT_HOME"] = str(HOME)
 os.environ.pop("JOB_AGENT_PROFILE", None)
 os.environ.pop("JOB_AGENT_PORT", None)
 
+import keyring  # noqa: E402
+from keyring.backend import KeyringBackend  # noqa: E402
+from keyring.errors import PasswordDeleteError  # noqa: E402
+
+
+class MemoryKeyring(KeyringBackend):
+    """Stands in for the OS keychain so tests never read or write your real Credential Manager / Keychain."""
+    priority = 1
+
+    def __init__(self):
+        super().__init__()
+        self.store = {}
+
+    def get_password(self, service, username):
+        return self.store.get((service, username))
+
+    def set_password(self, service, username, password):
+        self.store[(service, username)] = password
+
+    def delete_password(self, service, username):
+        if self.store.pop((service, username), None) is None:
+            raise PasswordDeleteError("not found")
+
+
+KEYCHAIN = MemoryKeyring()
+keyring.set_keyring(KEYCHAIN)
+
 from app import config, db  # noqa: E402
 
 assert config.HOME == HOME.resolve() or config.HOME == HOME, "app.config was imported before conftest.py"
@@ -36,8 +63,9 @@ def _release_db():
 def fresh_home():
     """An empty personal folder and database for every test."""
     _release_db()
+    KEYCHAIN.store.clear()
     for name in ("jobs.db", "jobs.db-wal", "jobs.db-shm", "my_companies.yaml", "master_resume.yaml", ".env",
-                 "companies.yaml", "companies.yaml.old"):
+                 "companies.yaml", "companies.yaml.old", ".keychain-entries"):
         (config.HOME / name).unlink(missing_ok=True)
     shutil.rmtree(config.APPLICATIONS, ignore_errors=True)
     config.ensure_home()

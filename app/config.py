@@ -15,6 +15,7 @@ several people on the same computer (Windows, macOS or Linux). Each person gets 
 
 run.py sets JOB_AGENT_HOME from --profile / --home before this module is imported.
 """
+import hashlib
 import os
 import re
 import secrets
@@ -38,6 +39,7 @@ def home_for(profile=None, home=None) -> Path:
 
 
 HOME = home_for(os.environ.get("JOB_AGENT_PROFILE"), os.environ.get("JOB_AGENT_HOME"))
+HOME_ID = hashlib.sha1(str(HOME).lower().encode()).hexdigest()[:16]  # names this personal folder (ping, keychain)
 DB_PATH = HOME / "jobs.db"
 BROWSER_PROFILE = HOME / "browser-profile"
 APPLICATIONS = HOME / "Applications"
@@ -45,6 +47,7 @@ MY_COMPANIES = HOME / "my_companies.yaml"
 OLD_COMPANIES_COPY = HOME / "companies.yaml"  # stale copy made by earlier versions; migrated away
 MASTER_YAML = HOME / "master_resume.yaml"
 ENV_FILE = HOME / ".env"
+KEYCHAIN_INDEX = HOME / ".keychain-entries"  # names (never values) of the OS keychain entries this folder made
 SESSION_KEY_FILE = HOME / ".session-key"
 PORT_FILE = HOME / ".port"
 

@@ -162,12 +162,20 @@
       <p class="hint">Another person on this computer account can start Job Agent with <code>--profile Name</code> (e.g. <code>.\start.bat --profile Name</code> on Windows or <code>./start.sh --profile Name</code> on macOS/Linux) to get their own folder; each user account gets its own automatically.</p>
     </fieldset>
     <fieldset>
-      <legend>Workday account <span class="hint">from your .env file</span></legend>
+      <legend>Workday account <span class="hint">email from your .env file · password from your OS keychain or .env</span></legend>
       <div class="path-row"><span id="env-status"></span></div>
       <div class="path-row"><code id="env-path"></code>
         <button type="button" class="btn small" id="btn-open-env">Edit .env</button>
         <button type="button" class="btn small" id="btn-env-refresh">Re-check</button></div>
-      <p class="hint">When an apply window reaches Workday's Create Account or Sign In form, Job Agent types this email and password in. You tick any terms box and click <b>Create Account</b> / <b>Sign In</b> yourself. The password never leaves this computer except into that form.</p>
+      <div class="add-company" id="keychain-row">
+        <input type="password" id="kc-password" placeholder="Workday password" autocomplete="new-password" aria-label="Workday password">
+        <input id="kc-company" class="small-input" placeholder="all companies" aria-label="Company (optional)"
+          title="Leave empty for every company, or the first part of one company's Workday address (e.g. NVIDIA)">
+        <button type="button" class="btn small" id="btn-kc-save">Save in OS keychain</button>
+        <button type="button" class="btn small" id="btn-kc-move" hidden>Move .env passwords to the keychain</button>
+      </div>
+      <p class="hint" id="kc-hint"></p>
+      <p class="hint">When an apply window reaches Workday's Create Account or Sign In form, Job Agent types this email and password in. You tick any terms box and click <b>Create Account</b> / <b>Sign In</b> yourself. The password never leaves this computer except into that form, and this page can only store a new one, never read it back.</p>
     </fieldset>
     <fieldset>
       <legend>Search</legend>

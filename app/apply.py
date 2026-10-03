@@ -133,9 +133,10 @@ class BrowserWorker:
                 self.ctx = None
         pw = await self._playwright()
         BROWSER_PROFILE.mkdir(parents=True, exist_ok=True)
+        # No bypass_csp: Workday career sites send no enforcing Content-Security-Policy (only Report-Only), init
+        # scripts and bindings work under CSP anyway, and every other site in this profile keeps its protection.
         self.ctx = await self._launch(pw.chromium.launch_persistent_context, user_data_dir=str(BROWSER_PROFILE),
-                                      headless=False, no_viewport=True, bypass_csp=True,
-                                      args=["--start-maximized"])
+                                      headless=False, no_viewport=True, args=["--start-maximized"])
         await self.ctx.expose_binding("__jobAgentEvent", self._on_event)
         await self.ctx.add_init_script(script=AUTOFILL_JS)
         self.ctx.on("close", lambda *_: setattr(self, "ctx", None))

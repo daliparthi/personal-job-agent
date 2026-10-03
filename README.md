@@ -60,7 +60,8 @@ home folder:
 ```
 <home>/JobAgent/default/     Windows C:\Users\you\JobAgent\default · macOS /Users/you/JobAgent/default
                              Linux /home/you/JobAgent/default
-  .env                 Workday account email + password (only typed into Workday's sign-up / sign-in form)
+  .env                 Workday account email (+ password unless it is in your OS keychain; only typed into
+                       Workday's sign-up / sign-in form)
   master_resume.yaml   your master resume as data (built by the model, edit freely)
   my_companies.yaml    your own Workday sites on top of the shared list (Settings > Add company writes here)
   jobs.db              settings, profile, postings (new ones from the last 7 days; jobs you worked on are kept), tailored copies
@@ -215,6 +216,11 @@ a GPU folder you don't need; keep `models/onnx`.
   only on the posting's own Workday address (never on a single-sign-on page or any other site). A company-specific
   login can go in `.env` as `NVIDIA_WORKDAY_EMAIL=` / `NVIDIA_WORKDAY_PASSWORD=` (the first part of its Workday URL).
   Edits to `.env` apply to the next apply window; no restart needed.
+* **Passwords in your OS keychain (recommended)** — Settings → *Workday account* saves a password in Windows
+  Credential Manager, the macOS Keychain or the Linux Secret Service instead of `.env` (optionally for one company,
+  e.g. `NVIDIA`), and *Move .env passwords to the keychain* moves what is already in `.env` and blanks it there. A
+  keychain password wins over the same one in `.env`; a company's own password wins over the general one. The page
+  can store or delete a password but never read one back.
 * It fills: first/last name, email (your profile email, or `WORKDAY_EMAIL` if blank), phone, phone type, address,
   city, state, ZIP, country, LinkedIn/GitHub/website, *authorized to work in the US*, *need sponsorship*,
   *previously worked here*, and *how did you hear* (when it is a simple list). It never overwrites something you
@@ -254,9 +260,14 @@ addresses work. A YAML mistake or a URL that isn't a Workday site shows up in re
 ## Privacy
 
 Everything stays on this computer, in your personal folder. The only network traffic is to the Workday sites you
-list. `.env` holds your Workday password in plain text, protected by your user account like the rest of your
-personal folder (on macOS/Linux Job Agent makes the folder readable only by you) — use a password you don't use anywhere else. The project folder contains no personal data, so it can be
-shared or copied (leave out `.venv/`).
+list. Your Workday password is safest in the OS keychain (Settings → *Workday account*); if you keep it in `.env`
+instead it is plain text, protected by your user account like the rest of your personal folder (on macOS/Linux Job
+Agent makes the folder readable only by you). Either way, use a password you don't use anywhere else. The project
+folder contains no personal data, so it can be shared or copied (leave out `.venv/`).
+
+The apply window keeps each site's own security rules (Job Agent does not switch off Content-Security-Policy), and it
+hands your profile and resume only to Workday career-site pages: a sign-on page or any other site opened in that
+window gets nothing.
 
 ## Limits worth knowing
 
@@ -282,7 +293,8 @@ app/                 Python backend (FastAPI)
   workday.py         Workday API client            search.py   incremental/full search + filtering
   jobparse.py        salary/type/remote/state      scoring.py  ATS match score   lexicon.py  keyword dictionary
   resume_io.py       read files, write DOCX/PDF/TXT apply.py   packages + Playwright apply window + .env sign-up fill
-  envfile.py         reads your .env               autofill.js script injected into Workday application pages
+  envfile.py         .env + OS keychain passwords  autofill.js script injected into Workday application pages
+  schemas.py         request bodies of the local API
 static/              browser UI
   js/llm.js          Qwen engine (CPU default, GPU when available)
   js/resume-parse.js model step that builds master_resume.yaml

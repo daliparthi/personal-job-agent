@@ -85,6 +85,11 @@ class RunIn(_Body):
     full_refresh: bool = False
 
 
+class PasswordIn(_Body):
+    password: str = Field("", max_length=512)
+    company: str = Field("", max_length=60)  # e.g. NVIDIA for NVIDIA_WORKDAY_PASSWORD; empty: the general one
+
+
 class PathIn(_Body):
     path: str
 

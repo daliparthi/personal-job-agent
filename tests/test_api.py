@@ -54,7 +54,7 @@ def test_start_link_sets_a_strict_cookie(anon):
 def test_status_and_settings(client):
     st = client.get("/api/status").json()
     assert st["resume"] is None and st["jobs"] == 0 and st["profile"] == config.HOME.name
-    assert "password" not in str(st["account"]).replace("password_set", "")
+    assert "password" not in st["account"]  # only flags such as password_set, never a password
     s = client.put("/api/settings", json={"mandatory": "python", "filters": {"remote_only": True}}).json()
     assert s["mandatory"] == "python" and s["filters"]["remote_only"] is True and s["filters"]["include_no_salary"]
 
@@ -153,3 +153,15 @@ def test_search_endpoints(client):
     st = client.get("/api/search/status").json()
     assert st["running"] is False
     assert client.post("/api/search/stop").json()["running"] is False
+
+
+def test_keychain_endpoints(client):
+    config.ENV_FILE.write_text("WORKDAY_EMAIL=me@example.com\nWORKDAY_PASSWORD=from-env\n", encoding="utf-8")
+    st = client.get("/api/account").json()
+    assert st["password_in_env"] and not st["password_in_keychain"]
+    r = client.post("/api/account/move-to-keychain").json()
+    assert r["moved"] == ["WORKDAY_PASSWORD"] and r["account"]["password_in_keychain"]
+    st = client.post("/api/account/password", json={"password": "s3cr3t-nv", "company": "NVIDIA"}).json()
+    assert st["company_overrides"] == ["NVIDIA"] and "s3cr3t" not in str(st)
+    assert client.post("/api/account/password", json={"password": "x", "company": "no way"}).status_code == 400
+    assert "from-env" not in client.get("/api/status").text
