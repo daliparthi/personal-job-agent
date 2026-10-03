@@ -9,7 +9,9 @@ JD = ("We are hiring a Data Engineer. You will build ETL pipelines with Python, 
 
 def test_score_shape_and_bounds():
     sc = score(RESUME, JD, "Data Engineer")
-    assert set(sc) == {"score", "coverage", "similarity", "title_alignment", "matched", "missing", "aliases"}
+    assert {"score", "base", "coverage", "similarity", "title_alignment", "matched", "missing", "aliases", "where",
+            "adjustments", "experience", "seniority", "knockouts", "evidence", "requirements"} <= set(sc)
+    assert sc["adjustments"] == [] and sc["score"] == sc["base"]  # no profile: no adjustments
     assert 0 <= sc["score"] <= 100
     assert {"Python", "SQL", "AWS", "ETL"} <= set(sc["matched"])
     missing = {m["keyword"]: m for m in sc["missing"]}

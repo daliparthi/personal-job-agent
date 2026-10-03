@@ -161,9 +161,25 @@ score = 60% keyword coverage   (weighted ATS keywords in the JD that your resume
 ```
 
 Keywords come from `app/lexicon.py` (≈450 skills, tools, certifications and soft skills — add your own lines), repeated
-acronyms in the posting, and your own keywords. The employer's own name is never counted as a skill. Hover the score
-in the resume pane for the breakdown. After tailoring you see **before → after** (red when an edit lowered it — undo
-lines until it goes back up).
+acronyms in the posting, and your own keywords. The employer's own name is never counted as a skill. After tailoring
+you see **before → after** (red when an edit lowered it — undo lines until it goes back up).
+
+**Where a keyword appears matters.** The posting is split by its headings: keywords under its required
+qualifications count ×1.5, in the duties or overview ×1, under *preferred / nice to have* ×0.75, and not at all
+when they only appear in the parts about the company, pay, benefits and equal opportunity (often a third of a
+posting). Missing chips marked <sup>req</sup> are required; faded ones are only nice to have.
+
+**Then the score is adjusted, always with a reason** (the *Why* box at the top of the job description):
+
+| | |
+|---|---|
+| Years of experience | The years the posting asks for vs. the years your jobs' dates add up to (overlaps counted once): −3 per missing year, at most −15. "5+ years of Kafka" is checked against the jobs whose lines mention Kafka (−2 each). |
+| Seniority | A role two or more levels above your latest title (e.g. a director role for a senior engineer): −8; two or more below: −3. |
+| Hard requirements | No visa sponsorship (when you need it), US citizens only, a security clearance (when your profile says you have none), or a degree above yours: −10 each (at most −20), shown as ⛔ in the list. *Hide ones I don't qualify for* filters them out. Fill in *US citizen?* / *Security clearance?* in Settings → Applicant profile; left blank they only warn. |
+
+The *Why* box also lists each requirement line of the posting with ✓ / ◐ / ✗ and the line of your resume that shows
+it. 👍 / 👎 record whether a match was good; `tools/calibrate.py` uses those (and how far your applications got on
+the Pipeline) to check whether another 60/25/15 split would rank your good matches higher.
 
 ## Tailoring, checks and undo
 
@@ -328,7 +344,8 @@ companies.yaml       the shared list of Workday sites (read fresh for every sear
 app/                 Python backend (FastAPI)
   config.py          project vs personal paths     master.py   master_resume.yaml: draft, checks, save, sync
   workday.py         Workday API client            search.py   incremental/full search + filtering
-  jobparse.py        salary/type/remote/state      scoring.py  ATS match score   lexicon.py  keyword dictionary
+  jobparse.py        salary/type/remote/state, posting sections + requirements   scoring.py  match score + reasons
+  candidate.py       your years, seniority, degree from master_resume.yaml        lexicon.py  keyword dictionary
   resume_io.py       read files, write DOCX/PDF/TXT apply.py   packages + Playwright apply window + .env sign-up fill
   envfile.py         .env + OS keychain passwords  autofill.js script injected into Workday application pages
   pipeline.py        statuses, timeline, follow-ups, board + statistics, recovery from Applications/
@@ -344,6 +361,7 @@ models/              Qwen2.5-0.5B files (CPU model in 6 parts)    static/vendor/
 licenses/            third-party license texts (see THIRD_PARTY_NOTICES.md)
 samples/             fictional sample resume for trying the app
 tests/               pytest suite (+ tests/js for the browser checks)
+tools/calibrate.py   checks the score weights against your own outcomes
 requirements.txt     packages you edit       requirements.lock  exact, hash-checked versions the start scripts install
 ```
 

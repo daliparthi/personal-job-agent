@@ -358,3 +358,33 @@ legend { font-weight: 600; padding: 0 4px; }
 .sm-h3 { margin: 4px 0 0; font-size: 14px; }
 .badge.b-new { background: var(--accent); color: var(--accent-ink); }
 #list-new { font-size: 12px; }
+
+/* ---------------------------------------------------------------- why this score */
+.why { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0; background: var(--panel-2);
+  display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.why-head { display: flex; align-items: center; gap: 8px; }
+.why-head b { font-size: 15px; }
+.why .fb { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 2px 8px; cursor: pointer;
+  filter: grayscale(1); opacity: .6; }
+.why .fb.on, .why .fb:hover { filter: none; opacity: 1; border-color: var(--accent); }
+.why-bars { display: grid; gap: 4px; }
+.why-bar { display: grid; grid-template-columns: 72px 1fr 40px; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+.why-bar i { height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--accent) var(--v), var(--line) var(--v)); }
+.why-bar b { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+.why-adj { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 3px; }
+.why-adj b.down { display: inline-block; min-width: 30px; color: var(--bad); font-variant-numeric: tabular-nums; }
+.why-facts { color: var(--ink-2); display: grid; gap: 2px; }
+.why-ev summary { cursor: pointer; font-weight: 600; }
+.why-ev ul { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 6px; }
+.ev { display: grid; grid-template-columns: 18px 1fr; gap: 6px; }
+.ev-icon { font-weight: 700; text-align: center; }
+.ev-met .ev-icon, .ev-likely .ev-icon { color: var(--good); }
+.ev-partial .ev-icon { color: var(--warn); }
+.ev-missing .ev-icon { color: var(--bad); }
+.ev-unclear .ev-icon { color: var(--ink-3); }
+.ev-from { color: var(--ink-2); font-size: 12px; font-style: italic; }
+.kw.ko { background: var(--bad-soft); color: var(--bad); font-weight: 600; }
+.kw.ko-soft { background: var(--warn-soft); color: var(--warn); }
+.kw.w-preferred { opacity: .65; }
+.kw sup { font-size: 9px; margin-left: 2px; }
+.badge.b-ko { background: var(--bad-soft); color: var(--bad); }

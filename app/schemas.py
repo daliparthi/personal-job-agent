@@ -21,6 +21,7 @@ class FiltersPatch(_Body):
     include_no_salary: bool | None = None
     require_optional: bool | None = None
     show_hidden: bool | None = None
+    hide_knockouts: bool | None = None
 
 
 class SettingsPatch(_Body):
@@ -101,6 +102,10 @@ class NoteIn(_Body):
 class FollowUpIn(_Body):
     at: date | None = None  # None clears the follow-up
     action: str = Field("", max_length=200)
+
+
+class FeedbackIn(_Body):
+    value: Literal[-1, 0, 1]  # thumbs down, cleared, thumbs up
 
 
 class PasswordIn(_Body):

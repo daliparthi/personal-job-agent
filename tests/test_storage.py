@@ -92,7 +92,9 @@ def test_batch_helpers():
     db.upsert_jobs([make_job("a:1", company_key="a"), make_job("a:2", company_key="a"), make_job("b:1", company_key="b")])
     assert db.job_ids("a") == {"a:1", "a:2"}
     db.touch_jobs(["a:1", "a:2"])
-    db.set_scores([("a:1", 77, ["Python"], [{"keyword": "Spark"}]), ("a:2", None, [], [])])
+    db.set_scores([("a:1", 77, ["Python"], [{"keyword": "Spark"}], [{"kind": "degree", "label": "x"}]),
+                   ("a:2", None, [], [], [])])
+    assert db.get_job("a:1")["knockouts"] == [{"kind": "degree", "label": "x"}]
     assert db.get_job("a:1")["match_score"] == 77 and db.get_job("a:1")["missing"] == [{"keyword": "Spark"}]
     assert db.get_job("a:2")["match_score"] is None
 

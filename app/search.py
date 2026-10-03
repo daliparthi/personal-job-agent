@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 import httpx
 import yaml
 
-from . import alerts, db, pipeline, scoring
+from . import alerts, candidate, db, pipeline, scoring
 from .config import (COMPANIES_SHARED, COMPANY_CONCURRENCY, DETAIL_CONCURRENCY, MAX_PAGES_PER_QUERY,
                      MY_COMPANIES, OLD_COMPANIES_COPY, RETENTION_DAYS)
 from .jobparse import (classify_employment, classify_remote, contains_all, html_to_text, is_us_location,
@@ -207,7 +207,8 @@ class SearchRunner:
             resume = await asyncio.to_thread(db.get_resume)
             ctx = {"mandatory": mandatory, "optional": optional, "full_refresh": full_refresh,
                    "sig": keyword_signature(mandatory, optional), "kw_sig": keyword_hits_signature(mandatory, optional),
-                   "resume_text": resume["text"] if resume else ""}
+                   "resume_text": resume["text"] if resume else "",
+                   "profile": candidate.profile(resume["data"], settings["profile"]) if resume else None}
             disabled = set(settings.get("disabled_companies") or [])
             companies = []
             for c in await asyncio.to_thread(load_companies):
@@ -450,8 +451,10 @@ class SearchRunner:
             "optional_hits_json": keywords_present(f"{title}\n{text}", optional),
         }
         if ctx["resume_text"]:
-            sc = await asyncio.to_thread(scoring.score, ctx["resume_text"], text, title, mandatory + optional, company)
-            job.update(match_score=sc["score"], matched_json=sc["matched"], missing_json=sc["missing"])
+            sc = await asyncio.to_thread(scoring.score, ctx["resume_text"], text, title, mandatory + optional, company,
+                                         ctx["profile"])
+            job.update(match_score=sc["score"], matched_json=sc["matched"], missing_json=sc["missing"],
+                       knockouts_json=blocking_knockouts(sc))
         pending.append(job)
         if cand["id"] in known:
             self.state["refreshed"] += 1
@@ -462,18 +465,24 @@ class SearchRunner:
 
 
 # ---------------------------------------------------------------- scoring + view
+def blocking_knockouts(sc) -> list:
+    """What the job list keeps of a score: the hard requirements you don't meet ([{kind, label}])."""
+    return [{"kind": k["kind"], "label": k["label"]} for k in sc.get("knockouts") or [] if k["blocking"]]
+
+
 def rescore_all():
     """Re-score every stored posting against the master resume, in one transaction. Returns the number of jobs."""
     resume = db.get_resume()
     settings = db.get_settings()
     extra = split_keywords(settings["mandatory"]) + split_keywords(settings["optional"])
+    prof = candidate.profile(resume["data"], settings["profile"]) if resume else None
     scores = []
     for j in db.all_jobs(with_text=True):
         if resume:
-            sc = scoring.score(resume["text"], j["description_text"] or "", j["title"], extra, j["company"])
-            scores.append((j["id"], sc["score"], sc["matched"], sc["missing"]))
+            sc = scoring.score(resume["text"], j["description_text"] or "", j["title"], extra, j["company"], prof)
+            scores.append((j["id"], sc["score"], sc["matched"], sc["missing"], blocking_knockouts(sc)))
         else:
-            scores.append((j["id"], None, [], []))
+            scores.append((j["id"], None, [], [], []))
     db.set_scores(scores)
     return len(scores)
 
@@ -555,7 +564,8 @@ def list_jobs(settings):
     rows = db.jobs_for_list(wanted_types, show_hidden=bool(f.get("show_hidden")), remote_only=bool(f.get("remote_only")),
                             min_salary=float(f.get("min_salary") or 0),
                             include_no_salary=f.get("include_no_salary", True) is not False,
-                            kw_sig=keyword_hits_signature(mandatory, optional), posted_since=posted_since)
+                            kw_sig=keyword_hits_signature(mandatory, optional), posted_since=posted_since,
+                            hide_knockouts=bool(f.get("hide_knockouts")))
     aliases = {c["key"]: c["aliases"] for c in load_companies() if c["key"]} if employer else {}
     out = []
     for j in rows:

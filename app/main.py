@@ -9,13 +9,13 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import alerts, apply, db, envfile, master, pipeline, scheduler, scoring, search
+from . import alerts, apply, candidate, db, envfile, master, pipeline, scheduler, scoring, search
 from .config import HOME, HOME_ID, MODELS, PORT, STATIC, ensure_home, session_key
 from .jobparse import split_keywords
 from .resume_io import clean_resume, parse_resume, to_text
-from .schemas import (AlertsSeenIn, CompanyIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn, PathIn,
-                      PreviewIn, ResumeSaveIn, RunIn, SavedSearchIn, SavedSearchPatch, ScoreIn, SettingsPatch,
-                      StageIn, TailoredIn)
+from .schemas import (AlertsSeenIn, CompanyIn, FeedbackIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn,
+                      PathIn, PreviewIn, ResumeSaveIn, RunIn, SavedSearchIn, SavedSearchPatch, ScoreIn,
+                      SettingsPatch, StageIn, TailoredIn)
 
 mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("text/javascript", ".mjs")
@@ -54,6 +54,9 @@ async def lifespan(app):
             print(f"Job Agent: restored {restored} job(s) from your Applications folder", flush=True)
     except Exception as e:
         print(f"Job Agent: could not read the Applications folder: {e!r}", flush=True)
+    if db.get_settings()["scoring_version"] != scoring.VERSION:  # scores mean something new: recompute them
+        db.save_settings({"scoring_version": scoring.VERSION})
+        search.rescorer.request()
     task = asyncio.create_task(_purge_forever())
     schedule.start()
     yield
@@ -198,8 +201,10 @@ def put_settings(body: SettingsPatch):
             values[k] = {**before[k], **values[k]}
     db.save_settings(values)
     after = db.get_settings()
-    if (before["mandatory"], before["optional"]) != (after["mandatory"], after["optional"]):
-        search.rescorer.request()  # the keywords count toward the match score
+    scored = lambda s: (s["mandatory"], s["optional"],  # noqa: E731 - what the match score depends on
+                        *(s["profile"].get(k) for k in ("needs_sponsorship", "us_citizen", "has_clearance")))
+    if scored(before) != scored(after):
+        search.rescorer.request()
     return after
 
 
@@ -412,7 +417,9 @@ def _job_or_404(job_id):
 def _score(j, text):
     settings = db.get_settings()
     extra = split_keywords(settings["mandatory"]) + split_keywords(settings["optional"])
-    return scoring.score(text, j["description_text"] or "", j["title"], extra, j["company"])
+    resume = db.get_resume()
+    prof = candidate.profile(resume["data"], settings["profile"]) if resume else None
+    return scoring.score(text, j["description_text"] or "", j["title"], extra, j["company"], prof)
 
 
 @app.get("/api/jobs/{job_id:path}/detail")
@@ -469,6 +476,14 @@ async def package(job_id: str, body: PackageIn):
             result["launch_error"] = str(e)
     pipeline.write_record(job_id)  # the package rewrote application.json: put the status and timeline back
     return result
+
+
+@app.post("/api/jobs/{job_id:path}/feedback")
+def job_feedback(job_id: str, body: FeedbackIn):
+    """Your verdict on a match (good / bad / cleared): what tools/calibrate.py learns the score weights from."""
+    _job_or_404(job_id)
+    db.update_job(job_id, feedback=body.value or None)
+    return {"feedback": body.value or None}
 
 
 @app.post("/api/jobs/{job_id:path}/applied")

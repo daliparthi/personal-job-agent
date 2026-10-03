@@ -194,6 +194,7 @@ function renderFilters() {
   $("#f-nosalary").checked = f.include_no_salary !== false;
   $("#f-reqopt").checked = !!f.require_optional;
   $("#f-hidden").checked = !!f.show_hidden;
+  $("#f-knockouts").checked = !!f.hide_knockouts;
   const on = new Set(f.types || []);
   $("#f-types").innerHTML = '<span class="flabel">Types</span>' + TYPES.map((t) =>
     `<button class="type-toggle t-${t}${on.has(t) ? "" : " off"}" data-type="${t}" aria-pressed="${on.has(t)}" title="Click to ${on.has(t) ? "omit" : "include"} ${t} roles">${t}</button>`).join("");
@@ -240,6 +241,7 @@ function renderJobs() {
     j.optional_hits.forEach((k) => badges.push(`<span class="badge b-opt">${esc(k)}</span>`));
     if (j.status && j.status !== "new") badges.push(`<span class="badge b-status">${esc(j.status)}</span>`);
     if (isNew(j)) badges.unshift('<span class="badge b-new" title="Found since you last opened Job Agent">new</span>');
+    (j.knockouts || []).forEach((k) => badges.push(`<span class="badge b-ko" title="A hard requirement you don't meet">⛔ ${esc(k.label)}</span>`));
     return `<div class="job${j.id === S.sel ? " active" : ""}${j.hidden ? " is-hidden" : ""}" data-id="${esc(j.id)}" tabindex="0">
       <div class="score ${cls}" title="Match with your master resume">${sc ?? "–"}</div>
       <div class="job-title">${esc(j.title)}</div>
@@ -321,7 +323,9 @@ function renderJD() {
   const link = $("#jd-link");
   link.href = d.url;
   link.hidden = false;
-  const chips = [...a.matched.map((k) => `<span class="kw hit">${esc(k)}</span>`), ...a.missing.map((m) => `<span class="kw miss" title="${esc(m.context)}">${esc(m.keyword)}</span>`)].join("");
+  const where = (k) => a.where?.[k] || "";
+  const chips = [...a.matched.map((k) => `<span class="kw hit w-${esc(where(k))}" title="${esc(WHERE[where(k)] || "")}">${esc(k)}</span>`),
+    ...a.missing.map((m) => `<span class="kw miss w-${esc(m.where || "")}" title="${esc([m.where_label, m.context].filter(Boolean).join(": "))}">${esc(m.keyword)}${m.where === "required" ? '<sup>req</sup>' : ""}</span>`)].join("");
   $("#jd-view").innerHTML = `
     <h1>${esc(d.title)}</h1>
     <dl class="meta">
@@ -333,13 +337,64 @@ function renderJD() {
       <dt>Posted</dt><dd>${esc(d.posted_date)} (${daysAgo(d.posted_date)})</dd>
       <dt>Req ID</dt><dd>${esc(d.req_id)}</dd>
     </dl>
-    <div class="legend"><span class="l-hit">in your resume</span><span class="l-miss">missing</span><span class="l-opt">optional keyword</span></div>
+    ${whyHtml(d)}
+    <div class="legend"><span class="l-hit">in your resume</span><span class="l-miss">missing</span><span class="l-opt">optional keyword</span><span class="hint">faded: only "nice to have" · <sup>req</sup>: required</span></div>
     <div class="kw-chips">${chips || '<span class="hint">No ATS keywords detected.</span>'}</div>
     <div class="jd-body" id="jd-body"></div>`;
   const body = sanitize(d.description_html);
   const holder = $("#jd-body");
   holder.append(...body.childNodes);
   highlightJD(holder, d);
+}
+
+const WHERE = { required: "Required qualification", preferred: "Nice to have", responsibilities: "In the duties",
+  intro: "In the overview", other: "Mentioned" };
+const STATUS_ICON = { met: "✓", partial: "◐", missing: "✗", likely: "≈", unclear: "·" };
+const STATUS_TITLE = { met: "Your resume has every skill this line names", partial: "Your resume has some of the skills this line names",
+  missing: "Your resume names none of the skills on this line", likely: "No named skills; a resume line looks related", unclear: "No named skills to check" };
+
+/** "Why this score": the base factors, every adjustment with its reason, hard requirements, and per-requirement evidence. */
+function whyHtml(d) {
+  const a = d.analysis;
+  if (!a || a.base == null) return "";
+  const bar = (label, v, w) => `<div class="why-bar" title="${label}: ${v}% (weighs ${w}%)"><span>${label}</span><i style="--v:${v}%"></i><b>${v}%</b></div>`;
+  const adj = (a.adjustments || []).map((x) => `<li><b class="down">${x.points}</b> ${esc(x.reason)}</li>`).join("");
+  const kos = (a.knockouts || []).map((k) => `<span class="kw ${k.blocking ? "ko" : "ko-soft"}" title="${esc(k.text || "")}">${k.blocking ? "⛔" : "⚠"} ${esc(k.label)}</span>`).join("");
+  const facts = [];
+  const ex = a.experience;
+  if (ex?.need) facts.push(`Asks for <b>${ex.need}+ years</b>${ex.have != null ? `; your resume shows about <b>${ex.have}</b>` : ""}`);
+  (ex?.skills || []).forEach((s) => facts.push(`${esc(s.skill)}: asks ${s.need}+ yrs${s.have != null ? `, you ~${s.have}` : ""}`));
+  const sen = a.seniority;
+  if (sen) facts.push(`${esc(sen.job_label.replace(/^an? /, "").replace(/^./, (c) => c.toUpperCase()))}; your latest title (${esc(sen.recent_title)}) reads as ${esc(sen.your_label.replace(/^an? /, ""))}`);
+  const ev = a.evidence || [];
+  const met = ev.filter((e) => e.status === "met" || e.status === "likely").length;
+  const evRows = ev.map((e) => `<li class="ev ev-${e.status}" title="${esc(STATUS_TITLE[e.status])}"><span class="ev-icon">${STATUS_ICON[e.status]}</span>
+      <div>${esc(e.text)}${e.kind === "preferred" ? ' <span class="hint">(nice to have)</span>' : ""}
+      ${e.evidence ? `<div class="ev-from">From your resume: “${esc(e.evidence)}”</div>` : ""}</div></li>`).join("");
+  const fb = d.feedback;
+  return `<section class="why" aria-label="Why this match score">
+    <div class="why-head"><b>Match ${a.score}</b><span class="hint">${a.adjustments?.length ? `base ${a.base}, adjusted below` : "keywords, wording and title"}</span>
+      <span class="spacer"></span>
+      <button type="button" class="fb${fb === 1 ? " on" : ""}" data-fb="1" title="A good match: tools/calibrate.py learns the score weights from these">👍</button>
+      <button type="button" class="fb${fb === -1 ? " on" : ""}" data-fb="-1" title="A poor match">👎</button></div>
+    <div class="why-bars">${bar("Keywords", a.coverage, 60)}${bar("Wording", a.similarity, 25)}${bar("Title", a.title_alignment, 15)}</div>
+    ${adj ? `<ul class="why-adj">${adj}</ul>` : ""}
+    ${kos ? `<div class="kw-chips">${kos}</div>` : ""}
+    ${facts.length ? `<div class="why-facts">${facts.map((f) => `<div>${f}</div>`).join("")}</div>` : ""}
+    ${ev.length ? `<details class="why-ev"><summary>Requirements: ${met} of ${ev.length} shown in your resume</summary><ul>${evRows}</ul></details>` : ""}
+    ${a.boilerplate_share ? `<div class="hint">${a.boilerplate_share}% of this posting is about the company, pay and benefits; it doesn't count toward the score.</div>` : ""}
+  </section>`;
+}
+
+async function setFeedback(value) {
+  const d = S.detail;
+  if (!d) return;
+  const next = d.feedback === value ? 0 : value;
+  try {
+    const r = await api(`/api/jobs/${enc(d.id)}/feedback`, { method: "POST", body: { value: next } });
+    d.feedback = r.feedback;
+    renderJD();
+  } catch (e) { toast(e.message); }
 }
 
 // ---------------------------------------------------------------- resume pane
@@ -375,7 +430,8 @@ function renderResumePane() {
     const a = d.analysis;
     const before = d.match_score ?? a.score;
     const after = d.tailored?.score_after;
-    line.title = `Keyword coverage ${a.coverage}% · wording similarity ${a.similarity}% · title alignment ${a.title_alignment}%`;
+    line.title = `Keyword coverage ${a.coverage}% · wording similarity ${a.similarity}% · title alignment ${a.title_alignment}%`
+      + (a.adjustments?.length ? ` · adjustments ${a.adjustments.map((x) => x.points).join(", ")} (see "Why" in the job description pane)` : "");
     const delta = after - before;
     line.innerHTML = `Match <b>${before ?? "–"}</b>` + (after != null ? ` → <b>${after}</b> <span class="${delta >= 0 ? "up" : "down"}">${delta >= 0 ? "+" : ""}${delta}</span>` : "");
   } else line.innerHTML = "";
@@ -694,6 +750,8 @@ const PROFILE_FIELDS = [
   ["country", "Country"], ["linkedin", "LinkedIn URL"], ["website", "Website / portfolio"], ["github", "GitHub URL"],
   ["authorized_us", "Authorized to work in the US?", ["Yes", "No"]], ["needs_sponsorship", "Need visa sponsorship?", ["No", "Yes"]],
   ["previously_employed", "Worked at the company before?", ["No", "Yes"]], ["how_heard", "How did you hear about us?"],
+  ["us_citizen", "US citizen? (blank: don't say)", ["", "Yes", "No"]],
+  ["has_clearance", "Security clearance? (blank: don't say)", ["", "Yes", "No"]],
 ];
 
 function renderAccount() {
@@ -824,6 +882,8 @@ function bindEvents() {
   $("#f-nosalary").onchange = () => saveFilter({ include_no_salary: $("#f-nosalary").checked });
   $("#f-reqopt").onchange = () => saveFilter({ require_optional: $("#f-reqopt").checked });
   $("#f-hidden").onchange = () => saveFilter({ show_hidden: $("#f-hidden").checked });
+  $("#f-knockouts").onchange = () => saveFilter({ hide_knockouts: $("#f-knockouts").checked });
+  $("#jd-view").addEventListener("click", (e) => { const b = e.target.closest("[data-fb]"); if (b) setFeedback(Number(b.dataset.fb)); });
   $("#f-types").onclick = async (e) => {
     const b = e.target.closest("[data-type]");
     if (!b) return;

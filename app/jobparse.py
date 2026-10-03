@@ -244,3 +244,224 @@ def contains_all(text: str, keywords) -> bool:
 
 def keywords_present(text: str, keywords):
     return [k for k in keywords if kw_pattern(k).search(text)]
+
+
+# ---------------------------------------------------------------- job description sections
+# A posting is split by its headings into: intro (before any heading), required, preferred, responsibilities,
+# boilerplate (about the company, benefits, pay, EEO, accommodations...) and other (a heading we don't recognise).
+# The score weighs keywords by where they appear: "required" counts most, boilerplate not at all.
+_H = [
+    ("preferred", r"(preferred|desired|desirable|bonus|helpful|additional|optional)\b.*|nice[- ]to[- ]haves?.*"
+                  r"|(ways to )?stand out.*|even better if.*|it would be (great|nice).*|good to have.*|pluses|a plus"
+                  r"|what (would|will) make you stand out.*|extra credit.*"),
+    ("responsibilities", r"(key |core |main |primary |your )?(responsibilities|duties)( include)?"
+                         r"|what you('ll| will)( actually)?( be)? (do|doing|build|building|own|work on)\b.*"
+                         r"|(about|the) (the )?(role|position|job|opportunity)|role (description|overview|summary)"
+                         r"|job (description|summary|overview)|your (role|impact|day[- ]to[- ]day|mission)"
+                         r"|in this role.*|day[- ]to[- ]day.*|the impact you('ll| will) (make|have)|what's the role"),
+    ("required", r"(minimum|basic|required|essential|key|must[- ]have)\b.*|requirements?|qualifications?"
+                 r"|what we need to see|what you('ll)? need.*|what (you|you'll) bring.*|what we('re| are) looking for.*"
+                 r"|who you are|about you|you (have|bring|are)\b.*|you('re| are) (our|a great|the right) .*\bif\b.*"
+                 r"|(skills|experience)( (and|&) (skills|experience|qualifications))?|the experience( you need)?"
+                 r"|your (skills|experience|background|qualifications)|what you should have|you should have.*"
+                 r"|to (be successful|succeed).*|(experience|skills|qualifications) (required|needed)"
+                 r"|required (experiences?|skills) (&|and) (skills|experiences?)"),
+    ("other", r"about (the|our) team|the team|team (overview|description)"),
+    ("boilerplate", r"about (us|[a-z0-9&.,' -]{2,40})|(our |the )?(benefits|perks|compensation|total rewards)\b.*"
+                    r"|(pay|salary|compensation) (range|transparency|information|details).*|base (pay|salary).*"
+                    r"|(equal (employment )?opportunity|eeo|diversity|inclusion|accommodations?|privacy|disclaimer)\b.*"
+                    r"|why (join|work).*|life at .*|we offer.*|what we offer.*|our (company|culture|commitment|values|mission)"
+                    r"|job (details|category|posting|id)|posting statement|unleash your potential|location|req(uisition)? id"
+                    r"|how to apply|additional information|important information"),
+]
+_HEADINGS = [(kind, re.compile(rx)) for kind, rx in _H]
+# Sentences that are boilerplate wherever they appear (an EEO paragraph without a heading, a pay-range line...).
+_BOILER_LINE = re.compile(
+    r"equal (employment )?opportunity|without regard to|regardless of (race|age|gender|sex|religion|color)"
+    r"|reasonable accommodations?|\b(base )?(pay|salary|compensation) range|\b401\(?k\)?|medical, dental|paid time off"
+    r"|e-?verify|pay transparency|we are proud to be|protected (veteran|characteristic)|background check", re.I)
+WEIGHTLESS = ("boilerplate",)
+
+
+def _heading_kind(line: str):
+    s = line.strip()
+    if not s or len(s) > 80 or s[0] in "•-*·▪" or s.endswith("."):
+        return None  # a bullet or a sentence ("Minimum of five years of experience.") is not a heading
+    if len(s.split()) > (12 if s.endswith(":") else 7):
+        return None
+    t = re.sub(r"[\s:!?.…]+$", "", s.replace("’", "'").replace("‘", "'")).strip().lower()
+    t = re.sub(r"\s+", " ", t)
+    if not t:
+        return None
+    for kind, rx in _HEADINGS:
+        if rx.fullmatch(t):
+            return kind
+    if s.endswith(":") and len(t.split()) <= 8:
+        return "other"
+    return None
+
+
+def jd_sections(text: str):
+    """[(kind, text)] in order. kind: intro, required, preferred, responsibilities, boilerplate or other."""
+    out = []
+    kind = "intro"
+    for line in (text or "").split("\n"):
+        h = _heading_kind(line)
+        if h:
+            kind = h
+            continue
+        if not line.strip():
+            continue
+        k = "boilerplate" if _BOILER_LINE.search(line) else kind
+        if out and out[-1][0] == k:
+            out[-1] = (k, f"{out[-1][1]}\n{line}")
+        else:
+            out.append((k, line))
+    return out
+
+
+def section_text(sections, kinds=None, exclude=WEIGHTLESS) -> str:
+    return "\n".join(t for k, t in sections if (kinds is None or k in kinds) and k not in exclude)
+
+
+def _sentences(text):
+    return [s for s in re.split(r"(?<=[.!?])\s+|\n", text or "") if s.strip()]
+
+
+# "...preferred", "...is a plus": a wish, not a requirement
+_WISH = re.compile(r"\b(preferred|a plus|is a bonus|nice[- ]to[- ]have|desired|desirable|ideally)\b", re.I)
+
+
+# ---------------------------------------------------------------- what the posting requires
+_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+              "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20}
+_N = r"(\d{1,2}|" + "|".join(_NUM_WORDS) + r")"
+YEARS_RE = re.compile(
+    r"(?:(?:at\s+least|minimum(?:\s+of)?|min\.?|over|more\s+than|a\s+minimum\s+of)\s+)?" + _N +
+    r"\s*(?:\+|plus)?\s*(?:(?:-|–|to)\s*" + _N + r"\s*\+?\s*)?(?:\(\s*\d+\s*\)\s*)?(?:years?|yrs?)\b", re.I)
+_EXPERIENCE_WORDS = re.compile(r"experien|\bexp\b|background|track record|working (with|in|on)|hands-on|developing|"
+                               r"building|industry|professional|relevant", re.I)
+
+
+def _num(s):
+    return int(s) if s.isdigit() else _NUM_WORDS.get(s.lower(), 0)
+
+
+def years_required(sections):
+    """Years-of-experience requirements: [{years, kind, text, after}], `after` being the words that follow the
+    number (the caller finds the skill it is about there). Only sentences about experience; never boilerplate."""
+    out = []
+    for kind, text in sections:
+        if kind in WEIGHTLESS:
+            continue
+        for sentence in _sentences(text):
+            for m in YEARS_RE.finditer(sentence):
+                years = _num(m.group(1))
+                if not 1 <= years <= 30:
+                    continue
+                after = sentence[m.end(): m.end() + 120]
+                # "...years of experience", or terse: "5+ years with Kafka", "3 years in Python", "2 years using dbt"
+                if not (_EXPERIENCE_WORDS.search(sentence[max(0, m.start() - 50): m.end() + 90])
+                        or re.match(r"\s*(with|in|using|working)\b", after, re.I)):
+                    continue
+                if re.search(r"\b(ago|old|history|founded|warranty)\b", sentence[m.end(): m.end() + 25], re.I):
+                    continue
+                out.append({"years": years, "kind": kind, "text": sentence.strip()[:240], "after": after})
+    return out
+
+
+DEGREE_LEVELS = [(3, r"ph\.?\s?d\.?|doctorate|doctoral"),
+                 (2, r"master'?s|m\.\s?s\.?|\bms\b|m\.?sc|mba|graduate degree"),
+                 (1, r"bachelor'?s|b\.\s?s\.?|\bbs\b|b\.?sc|b\.\s?a\.?|\bba\b|undergraduate degree|(4|four)[- ]year degree"
+                     r"|b\.?\s?tech|b\.?e\.(?=\s)")]
+DEGREE_NAMES = {1: "a bachelor's degree", 2: "a master's degree", 3: "a PhD"}
+_DEGREE_RX = [(lvl, re.compile(rf"(?<![a-z]){rx}", re.I)) for lvl, rx in DEGREE_LEVELS]
+_EQUIVALENT = re.compile(r"or (equivalent|comparable|related) (practical |work |professional |industry )?experience"
+                         r"|equivalent experience|or equivalent|in lieu of"
+                         r"|experience\W+(\w+\W+){0,3}or\s+(an?\s+)?(master|bachelor|ph\.?\s?d|degree)", re.I)
+
+
+def degree_level(text: str):
+    """Highest degree named in a piece of text (1 bachelor, 2 master, 3 PhD), or None."""
+    found = [lvl for lvl, rx in _DEGREE_RX if rx.search((text or "").replace("’", "'"))]
+    return max(found) if found else None
+
+
+def degree_required(sections):
+    """The lowest degree a posting requires ({level, text}), or None. "...or equivalent experience" doesn't count."""
+    for kind, text in sections:
+        if kind not in ("required", "intro", "other"):
+            continue
+        for sentence in _sentences(text):
+            s = sentence.replace("’", "'")
+            levels = [lvl for lvl, rx in _DEGREE_RX if rx.search(s)]
+            if not levels or not re.search(r"degree|\bin (computer|engineering|math|statistics|science|a related)", s, re.I):
+                continue
+            if _EQUIVALENT.search(s) or _WISH.search(s):
+                continue
+            return {"level": min(levels), "text": sentence.strip()[:240]}
+    return None
+
+
+KNOCKOUT_PATTERNS = [
+    ("sponsorship", re.compile(
+        r"(not|unable to|cannot|can't|won't|will not|does not|doesn't|do not|no)\s+(be\s+)?(able to\s+)?"
+        r"(provide|offer|support|consider)?\s*(employment\s+)?(visa\s+|immigration\s+|work\s+)?sponsor"
+        r"|without (the need for |requiring )?(current or future |future |any )?(employment |visa |immigration )?sponsorship"
+        r"|sponsorship (is |will )?not (be )?(available|offered|provided)|not eligible for (visa )?sponsorship", re.I)),
+    ("citizenship", re.compile(
+        r"(must be|requires?|required to be|only|limited to)\s+(an?\s+)?(u\.?s\.?|united states)\s+citizens?"
+        r"|(u\.?s\.?|united states) citizenship (is )?(required|needed|mandatory)|us citizens only", re.I)),
+    ("clearance", re.compile(
+        r"(active|current|existing|ability to obtain|able to obtain|must (have|hold|possess|obtain|maintain)"
+        r"|eligib\w+ (for|to obtain))\s+(an?\s+)?(u\.?s\.?\s+)?(government\s+)?"
+        r"(secret|top secret|ts/sci|ts|security|public trust|dod)(\s+security)?\s+clearance"
+        r"|(secret|ts/sci|top secret|security) clearance (is )?(required|needed)", re.I)),
+]
+
+
+def knockouts_in(text: str):
+    """Hard requirements a posting states anywhere: [{kind, text}] for sponsorship, citizenship and clearance."""
+    out = []
+    for kind, rx in KNOCKOUT_PATTERNS:
+        for m in rx.finditer(text or ""):
+            start = text.rfind("\n", 0, m.start()) + 1
+            end = text.find("\n", m.end())
+            line = text[start: end if end > 0 else len(text)]
+            # Only the sentence the match is in: "...active security clearance preferred" is a wish.
+            a, b = m.start() - start, m.end() - start
+            s_start = max(line.rfind(". ", 0, a), line.rfind("; ", 0, a)) + 1
+            ends = [i for i in (line.find(". ", b), line.find("; ", b)) if i >= 0]
+            if _WISH.search(line[s_start: min(ends) if ends else len(line)]):
+                continue
+            out.append({"kind": kind, "text": line.strip()[:240]})
+            break
+    return out
+
+
+# ---------------------------------------------------------------- seniority
+SENIORITY_LADDER = [  # checked top-down: "Senior Staff Engineer" is staff, "Associate Director" a director
+    (7, r"\b(vp|svp|evp|vice president|chief|cto|cio|ciso|head of)\b"),
+    (6, r"\bdirector\b"),
+    (5, r"\b(senior|sr\.?) manager\b|\b(principal|distinguished|fellow)\b|\bgroup manager\b"),
+    (4, r"\b(staff|lead|manager|architect)\b"),
+    (3, r"\b(senior|sr\.?|iii|level 3)\b"),
+    (0, r"\b(intern|internship|co-?op|apprentice)\b"),
+    (1, r"\b(junior|jr\.?|entry[- ]level|associate|graduate|new grad|trainee|i)\b"),
+    (2, r"\b(ii|mid[- ]level|intermediate)\b"),
+]
+SENIORITY_NAMES = {0: "an internship", 1: "a junior role", 2: "a mid-level role", 3: "a senior role",
+                   4: "a staff / lead / manager role", 5: "a principal / senior manager role", 6: "a director role",
+                   7: "an executive role"}
+_LADDER = [(lvl, re.compile(rx, re.I)) for lvl, rx in SENIORITY_LADDER]
+
+
+def seniority_level(title: str):
+    """0 intern … 7 executive, from a job title; 2 (mid-level) when the title names no level; None for no title."""
+    t = (title or "").strip()
+    if not t:
+        return None
+    for lvl, rx in _LADDER:
+        if rx.search(t):
+            return lvl
+    return 2

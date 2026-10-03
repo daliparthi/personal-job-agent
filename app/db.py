@@ -111,6 +111,11 @@ MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS alerts_unseen ON alerts(seen, created_at);
     CREATE INDEX IF NOT EXISTS jobs_first_seen ON jobs(first_seen);
     """,
+    # 6: requirement-aware scoring: hard requirements you don't meet, and your thumbs up / down on a match
+    """
+    ALTER TABLE jobs ADD COLUMN knockouts_json TEXT;
+    ALTER TABLE jobs ADD COLUMN feedback INTEGER;
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -254,6 +259,7 @@ DEFAULT_SETTINGS = {
         "include_no_salary": True,
         "require_optional": False,
         "show_hidden": False,
+        "hide_knockouts": False,  # hide postings with a hard requirement you don't meet (sponsorship, degree...)
     },
     "profile": {
         "first_name": "", "last_name": "", "email": "", "phone": "", "phone_type": "Mobile",
@@ -261,6 +267,7 @@ DEFAULT_SETTINGS = {
         "linkedin": "", "website": "", "github": "",
         "authorized_us": "Yes", "needs_sponsorship": "No", "previously_employed": "No",
         "how_heard": "Company Website",
+        "us_citizen": "", "has_clearance": "",  # "", "Yes" or "No": blank never rules a posting out
     },
     "engine": "auto",           # auto = CPU model by default, GPU when this browser has a usable one; "onnx" = CPU only
     "upload_format": "docx",
@@ -268,6 +275,7 @@ DEFAULT_SETTINGS = {
     "keep_new_days": RETENTION_DAYS,  # untouched postings expire after this; jobs you worked on never do
     "ghost_after_days": 21,     # suggest "Ghosted" when an application has had no update for this long
     "last_visit": None,         # when the page was last opened ("new since your last visit")
+    "scoring_version": 1,       # scoring.VERSION the stored match scores were computed with
 }
 
 
@@ -335,12 +343,12 @@ def last_run_overall():
 
 
 # ---------- jobs ----------
-JSON_COLS = ("locations_json", "states_json", "matched_json", "missing_json", "optional_hits_json")
+JSON_COLS = ("locations_json", "states_json", "matched_json", "missing_json", "optional_hits_json", "knockouts_json")
 # What the job list needs: everything but the (large) description columns.
 LIST_COLS = ("id", "company", "company_key", "title", "url", "location", "locations_json", "states_json",
              "remote_type", "employment_type", "worker_sub_type", "time_type", "salary_min", "salary_max",
              "salary_text", "posted_date", "match_score", "hidden", "status", "folder", "optional_hits_json",
-             "first_seen")
+             "first_seen", "knockouts_json", "feedback")
 
 
 def _now():
@@ -430,7 +438,7 @@ PREPARING = ("tailored", "saved", "applying")  # statuses still being worked on 
 
 
 def jobs_for_list(types, show_hidden=False, remote_only=False, min_salary=0, include_no_salary=True,
-                  kw_sig=None, posted_since=None):
+                  kw_sig=None, posted_since=None, hide_knockouts=False):
     """The job list's cheap filters, done in SQL. kw_sig: keep only jobs whose stored keyword check (for this
     keyword set) passed the mandatory keywords. posted_since: older postings are listed only while you are still
     preparing them (applied ones live on the pipeline board)."""
@@ -442,6 +450,8 @@ def jobs_for_list(types, show_hidden=False, remote_only=False, min_salary=0, inc
         where.append("COALESCE(hidden, 0) = 0")
     if remote_only:
         where.append("remote_type = 'Remote'")
+    if hide_knockouts:
+        where.append("(knockouts_json IS NULL OR knockouts_json = '[]')")
     if not include_no_salary:
         where.append("salary_max IS NOT NULL")
     if min_salary:
@@ -477,10 +487,11 @@ def set_keyword_hits(kw_sig, hits):
 
 
 def set_scores(scores):
-    """scores: [(job_id, match_score, matched, missing)] in one transaction."""
+    """scores: [(job_id, match_score, matched, missing, knockouts)] in one transaction."""
     with conn() as c:
-        c.executemany("UPDATE jobs SET match_score = ?, matched_json = ?, missing_json = ? WHERE id = ?",
-                      [(s, json.dumps(m), json.dumps(x), job_id) for job_id, s, m, x in scores])
+        c.executemany("UPDATE jobs SET match_score = ?, matched_json = ?, missing_json = ?, knockouts_json = ? "
+                      "WHERE id = ?", [(s, json.dumps(m), json.dumps(x), json.dumps(k), job_id)
+                                       for job_id, s, m, x, k in scores])
 
 
 def get_job(job_id):
