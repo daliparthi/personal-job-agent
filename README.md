@@ -290,7 +290,24 @@ static/              browser UI
 models/              Qwen2.5-0.5B files (CPU model in 6 parts)    static/vendor/  WebLLM, Transformers.js, ONNX Runtime
 licenses/            third-party license texts (see THIRD_PARTY_NOTICES.md)
 samples/             fictional sample resume for trying the app
+tests/               pytest suite (+ tests/js for the browser checks)
+requirements.txt     packages you edit       requirements.lock  exact, hash-checked versions the start scripts install
 ```
+
+## Development
+
+The tests need no model files and never touch a real Workday site (searches run against recorded JSON in
+`tests/fixtures/`). With the environment the start script created:
+
+```
+.venv\Scripts\python -m pip install -r requirements-dev.txt     (macOS/Linux: .venv-<os>/bin/python ...)
+.venv\Scripts\python -m pytest                                  backend tests
+.venv\Scripts\python -m ruff check .                            lint
+npm test                                                        tailoring checks in static/js (Node 22+)
+```
+
+After changing `requirements.txt`, regenerate `requirements.lock` with the command at the top of that file.
+GitHub Actions (`.github/workflows/ci.yml`) runs all of the above on Windows, macOS and Linux.
 
 ## Troubleshooting
 
