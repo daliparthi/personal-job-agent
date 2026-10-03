@@ -1,0 +1,311 @@
+# Job Agent — Workday job search + local AI resume tailoring
+
+> **⚠️ Use at your own risk.** A master resume / CV contains personally identifiable information, so this tool
+> could **not** be dry-run with a real resume — it was tested only with fictional sample resumes such as
+> `samples/sample_master_resume.txt`. The tailored resume is a **starting point for further editing**, not a
+> finished document. Read every line before you send it anywhere.
+
+Job Agent runs on your own computer. It searches the Workday career sites you list in `companies.yaml`,
+scores every posting against your master resume, and — when you ask — rewrites a copy of your resume for one posting
+at a time with **Qwen2.5‑0.5B running inside your browser** (no cloud AI service, no API keys). It can then open the
+posting, fill the standard Workday fields (and the Create Account / Sign In form from your `.env`), and save everything
+to an `Applications/<Company>/` folder.
+
+---
+
+## Quick start (Windows, macOS, Linux)
+
+Get the code:
+
+```
+git clone --depth 1 https://github.com/daliparthi/personal-job-agent.git
+cd personal-job-agent
+```
+
+(or download the ZIP from GitHub and unzip it). The download is about 1.1 GB because the AI model files are
+included, so nothing has to be downloaded when you start it. You need **Python 3.10 or newer** and **Chrome, Edge or Chromium** (Chrome/Edge recommended for the app; one of the
+three is needed for *Apply with autofill* and PDF export).
+
+| | Start Job Agent | Install Python if needed |
+|---|---|---|
+| **Windows** | double-click **`start.bat`** | [python.org](https://www.python.org/downloads/) (the `py` launcher is used if present) |
+| **macOS** | double-click **`start.command`** in Finder (or run `./start.sh` in Terminal) | [python.org](https://www.python.org/downloads/) or `brew install python` — the built-in 3.9 is too old |
+| **Linux** | run **`./start.sh`** in a terminal | `sudo apt install python3 python3-venv` / `sudo dnf install python3` |
+
+The first run creates a Python environment for that computer (`.venv` on Windows, `.venv-darwin` / `.venv-linux`
+elsewhere, so one folder can be shared between computers) and installs the packages; it reinstalls them whenever
+`requirements.txt` changes. The Qwen2.5‑0.5B model files are already in `models/` (if you delete them, the start
+script downloads them again once). Your browser opens Job Agent on
+`http://localhost:8765/?key=…` (the key is yours, see [Several people on one computer](#several-people-on-one-computer)).
+
+Then:
+
+1. **Upload master resume** (DOCX, PDF, TXT or MD). The local model builds **`master_resume.yaml`** from it; review it
+   and click **Save master resume**.
+2. **Settings** → enter your *current employer* (it is never searched or shown) and your applicant profile.
+   Click **Edit .env** and put your Workday email and password in it (optional, see [Applying](#applying)).
+3. Type **mandatory** keywords (and optional ones), click **Run job search**.
+4. Pick a position → **Tailor my resume for this position only** → approve/reject each missing keyword → watch the
+   resume being edited live → hover any changed line to **Undo** it → **Save package** or **Apply with autofill**.
+
+Manual start: `<environment>/bin/python run.py` (Windows: `.venv\Scripts\python run.py`), options below.
+
+---
+
+## Your personal folder
+
+The project folder holds only code and model files. Everything personal lives in a folder of your own, inside your
+home folder:
+
+```
+<home>/JobAgent/default/     Windows C:\Users\you\JobAgent\default · macOS /Users/you/JobAgent/default
+                             Linux /home/you/JobAgent/default
+  .env                 Workday account email + password (only typed into Workday's sign-up / sign-in form)
+  master_resume.yaml   your master resume as data (built by the model, edit freely)
+  my_companies.yaml    your own Workday sites on top of the shared list (Settings > Add company writes here)
+  jobs.db              settings, profile, postings from the last 7 days, tailored copies
+  browser-profile/     the apply window's browser profile (your Workday logins)
+  Applications/        one folder per company with what you sent
+```
+
+Settings → *Your personal folder* shows the path and opens it. On Windows it is outside OneDrive's Documents folder
+on purpose; on macOS and Linux the folder is made readable only by you (`chmod 700`, `.env` `600`).
+
+### Several people on one computer
+
+* **Each user account** automatically gets their own folder in their own home folder.
+* **Several people on one account**: `.\start.bat --profile Alex` (Windows) / `./start.sh --profile Alex`
+  (macOS, Linux) uses `<home>/JobAgent/Alex`. (Double-clicking takes no options; type the command in a terminal.)
+* **Somewhere else**: `--home "D:\Job data"` / `--home ~/job-data`.
+
+(Windows Command Prompt: type `.\start.bat`, not `start.bat` — the bare name collides with its built-in `start`
+command. Double-clicking is unaffected.)
+
+Each person's Job Agent runs on its own port (8765, 8766, …, picked automatically) and only answers a browser that was
+opened through that person's start link (a per-person key stored in their folder), so one person cannot open another
+person's resume by browsing to `localhost`. Starting the same profile twice simply reopens the running one. Other
+options: `--port 8800`, `--no-browser`.
+
+---
+
+## What it does
+
+| Requirement | How it works |
+|---|---|
+| Search Workday sites of top companies | Uses each site's public Workday JSON API (the same calls the careers page makes). Sites come from the shared `companies.yaml` plus your own `my_companies.yaml`, re-read for every search. |
+| Mandatory keywords | Every mandatory keyword/phrase must appear in the title or description, or the posting is dropped. Comma-separated. |
+| Optional keywords | Can be blank. They never exclude anything by default; they are highlighted (blue), shown as badges, and you can tick *Must match an optional keyword* to refine. If you leave mandatory blank, each optional keyword is searched separately. |
+| First run = last 7 days | The first run for a keyword set looks back 7 days. |
+| Incremental by default | Later runs only pull postings newer than that company's last successful run, and skip jobs already stored. |
+| Full refresh flag | Tick **Full refresh** to ignore the incremental cursor and re-pull/re-parse the whole 7-day window. |
+| New keywords | Changing mandatory keywords starts a fresh 7-day pull for the new set (the cursor is per keyword set). |
+| DB purge | `jobs.db` in your personal folder; anything posted more than 7 days ago is deleted on start-up, before every search, and hourly. Saved application folders are never deleted. |
+| Skip current employer | Settings → *Current employer*. That company is skipped during search and hidden from results. |
+| USA only + state filters | Searches use each site's "United States" filter when it has one, then every posting is checked for a US location. Filter by **state** (multi-select) and **city**. Remote roles with no state stay visible when you pick states. |
+| Contract / Full-time / Temporary | From Workday's *Job Type* (worker sub-type) facet, falling back to the posting text. Colour badges: **Full-time** green, **Contract** amber, **Temporary** purple, **Part-time** blue, Internship grey. Click a type chip to omit it; ✕ on a card hides one posting. |
+| Salary filter | Parsed from pay-transparency text (`$120,000 - $150,000`, `200,000 USD - 322,000 USD`, `$45/hr` → annualised). Set *Min salary*; choose whether to include postings without a salary. |
+| Remote only | Tick **Remote only** (uses Workday's remote type, location names and posting text). |
+| Master resume as YAML | On upload the local model builds `master_resume.yaml` (see below). Tailoring always works on a copy; the master changes only when you upload again or edit it. |
+| Match score before tailoring | ATS-style score (0–100) of your **master** resume vs each posting. |
+| Sort | By match score (high → low), then salary (high → low). |
+| Side-by-side view | Resume (Master / Tailored tabs) next to the job description, with keywords highlighted: green = already in your resume, red = missing. |
+| Tailor for one position | Only the selected posting. Runs Qwen2.5-0.5B locally and streams the edit **word by word** into the resume. |
+| Missing keywords | Before tailoring, a pop-up walks through each missing keyword with where the JD uses it — **Approve** (you really have it) or **Reject**. Only approved keywords can be added. |
+| Undo each change | Hover any line the tailoring changed: **↶ Undo** appears at its end (then **↷ Redo**). Lines the AI wrote but held back offer **Use AI version**. |
+| Help apply | Opens the posting in a separate Chrome, Edge or Chromium window, clicks the posting's *Apply* button, fills Workday's Create Account / Sign In form from `.env`, uploads the tailored resume and fills standard fields. **You click Create Account, Sign In and Submit.** |
+| Applied jobs folder | `Applications/<Company>/<Job title - ReqID>/` in your personal folder: the tailored resume (DOCX, PDF, TXT, `tailored_resume.yaml`), the job description (HTML, TXT) and `application.json`. |
+
+---
+
+## master_resume.yaml
+
+When you upload a resume:
+
+1. Job Agent reads the file and makes a rule-based first draft (sections, jobs, bullets, dates, email/phone/links).
+2. **The local model** reads the top of your resume (name, headline, location) and every job and education heading,
+   and splits them into fields — `title`, `company`, `location`, `degree`, `school`. You watch the YAML fill in live.
+3. **Bullets and the summary are copied word for word** — the model never retypes them. Every value the model returns
+   must appear in the text it came from (otherwise the rule-based guess is kept), so it cannot invent anything; if
+   its fields would drop words from a heading, the heading is kept exactly as written.
+4. You review the YAML (and can edit it), then **Save master resume**.
+
+Later: **Master tab → Edit YAML**, or edit the file in any text editor — Job Agent notices and re-scores. A YAML
+mistake is reported with its line number and the last good copy stays in use. On a CPU the build takes about 30–40
+seconds for a two-page resume; **Skip AI, use quick parse** uses the rule-based draft only.
+
+```yaml
+name: Jordan Avery
+headline: Senior Data Engineer
+contact: {email: …, phone: …, location: Austin, TX, links: [...]}
+sections:
+  - title: Professional Experience
+    kind: experience           # summary, skills, experience, projects, education, certifications, other
+    entries:
+      - title: Senior Data Engineer
+        company: Northwind Analytics
+        location: Austin, TX
+        start: Mar 2021
+        end: Present
+        bullets:
+          - Designed Spark and Airflow pipelines that ...
+```
+
+## The match score
+
+```
+score = 60% keyword coverage   (weighted ATS keywords in the JD that your resume contains)
+      + 25% wording similarity  (cosine similarity of the two texts)
+      + 15% title alignment     (words of the job title found in your resume)
+```
+
+Keywords come from `app/lexicon.py` (≈450 skills, tools, certifications and soft skills — add your own lines), repeated
+acronyms in the posting, and your own keywords. The employer's own name is never counted as a skill. Hover the score
+in the resume pane for the breakdown. After tailoring you see **before → after** (red when an edit lowered it — undo
+lines until it goes back up).
+
+## Tailoring, checks and undo
+
+A 0.5B model is small, so every line it writes is checked:
+
+* **Changes:** professional summary, up to *N* experience/project bullets (Settings → *Max bullets*, default 12),
+  ordering of skills (job-relevant first), plus an `Additional:` skills line with approved keywords not used elsewhere.
+* **Never changes:** name/contact, employers, titles, dates, education — and never `master_resume.yaml` itself.
+* **Applied (green):** the new wording, with new words highlighted and approved keywords underlined.
+* **Applied, check this (amber bar):** reworded heavily, dropped a skill the line had, added words that aren't in your
+  resume, or moved a tool ("migrated *to* Snowflake" no longer says *to Snowflake*). Hover to see why.
+* **Held back (dashed bar):** the AI line added a fact you didn't approve — a new number, a tool or company name your
+  resume doesn't mention, or a keyword you rejected. Your original stays; hover → **Use AI version** if it is true.
+* **Dropped:** garbled output (repeating the instructions, repeating itself, copying the prompt's example) is discarded.
+* **Undo / Redo:** hover any changed line; the control appears at the end of the line. Removed lines (such as an undone
+  `Additional:` line) stay visible struck through so you can redo them. Click any line to edit it yourself — your edit
+  can be undone too. Everything is saved and re-scored as you go.
+
+## The AI engine: CPU by default, GPU when available
+
+The model files are included in `models/` and served from `localhost`; nothing is downloaded while you use the app.
+The 488 MB CPU model is stored as `model_quantized.onnx.part1`–`.part6` (GitHub refuses files over 100 MB) and the
+app joins the parts as it serves the file. Licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+| Engine | Folder | Size | Used when |
+|---|---|---|---|
+| **CPU** (ONNX via WebAssembly, several threads) | `models/onnx/Qwen2.5-0.5B-Instruct` | 500 MB | the default; any browser |
+| GPU (WebLLM via WebGPU) | `models/webllm/Qwen2.5-0.5B-Instruct-q4f16_1-MLC` | 290 MB | the browser has a real GPU with `shader-f16` (e.g. Intel Iris Xe in Chrome/Edge) |
+| GPU (WebLLM via WebGPU) | `models/webllm/Qwen2.5-0.5B-Instruct-q4f32_1-MLC` | 290 MB | a real GPU without `shader-f16` |
+
+*Auto* (Settings → AI engine) uses the GPU only when one is actually usable — no WebGPU, a software-only adapter, a
+load error or a GPU that stops mid-run all fall back to the CPU model automatically (the model chip's tooltip says
+why). *CPU only* never touches the GPU. On Linux, Chrome usually ships with WebGPU switched off, so the CPU model is
+used there; Macs with Apple silicon should get the GPU build in Chrome, Edge or Safari (not tested on a Mac).
+
+Measured on an 8-thread laptop with Intel Iris Xe: CPU — model load 10–25 s, about 20 s per rewritten line, and the
+page pauses a few seconds as each line starts (the model reads its instructions); GPU — model load about 7 s, about
+12 s per line.
+
+To re-download them or slim them down: `python fetch_models.py` (everything), `--webllm q4f16` (one GPU
+build), `--webllm` with nothing after it (CPU model only). Re-running skips files already present. You can delete
+a GPU folder you don't need; keep `models/onnx`.
+
+## Applying
+
+* The apply window uses the browser profile in your personal folder, so Workday logins persist between applications.
+* **Workday account from `.env`** — every company runs its own Workday site, so you need an account per company.
+  When the window reaches Workday's **Create Account** form, Job Agent types `WORKDAY_EMAIL` into the email field and
+  `WORKDAY_PASSWORD` into both password fields; on **Sign In** it fills email and password. It never ticks the terms
+  box and never clicks **Create Account** or **Sign In** — you do. It only fills empty fields, only once per form, and
+  only on the posting's own Workday address (never on a single-sign-on page or any other site). A company-specific
+  login can go in `.env` as `NVIDIA_WORKDAY_EMAIL=` / `NVIDIA_WORKDAY_PASSWORD=` (the first part of its Workday URL).
+  Edits to `.env` apply to the next apply window; no restart needed.
+* It fills: first/last name, email (your profile email, or `WORKDAY_EMAIL` if blank), phone, phone type, address,
+  city, state, ZIP, country, LinkedIn/GitHub/website, *authorized to work in the US*, *need sponsorship*,
+  *previously worked here*, and *how did you hear* (when it is a simple list). It never overwrites something you
+  typed, and **never clicks Next or Submit**.
+* When Workday shows a resume upload it attaches your tailored resume (DOCX by default; Settings → PDF).
+* After you submit, the job is marked *applied* automatically when the confirmation page appears, or click
+  **I submitted — mark as applied** (in the Workday window) / **Mark applied** (in Job Agent).
+* Workday changes its forms often and every company configures its own questions, so autofill is best-effort.
+  Always check each step.
+
+## companies.yaml and my_companies.yaml
+
+* **`companies.yaml` in the program folder** is the shared list for everyone who uses this copy of Job Agent. Edit it
+  any time: it is read fresh for every search and whenever Settings opens, so changes apply without a restart.
+* **`my_companies.yaml` in your personal folder** holds your own additions (Settings → *Add company* writes here). An
+  entry with the same URL as a shared one replaces it for you, e.g. to add `enabled: false` or aliases.
+* **Settings → Companies** lists both (yours are marked *(yours)*). Untick a company to skip it; companies added to
+  either file later are searched automatically.
+
+```yaml
+companies:
+  # --- Technology & software
+  - name: "NVIDIA"
+    url: https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite
+  - name: "Meta"
+    url: https://example.wd1.myworkdayjobs.com/External
+    aliases: [Facebook, Meta Platforms]   # optional: other names, for the current-employer exclusion
+  - name: "Some Company"
+    url: https://tenant.wd1.myworkdayjobs.com/External
+    enabled: false                        # optional: keep the entry but skip it
+```
+
+Find a URL by opening the company's careers page, following it into Workday, and copying the address up to the site
+name (drop `/job/...` and any `en-US/`). Both `*.myworkdayjobs.com/<site>` and `wdN.myworkdaysite.com/recruiting/<tenant>/<site>`
+addresses work. A YAML mistake or a URL that isn't a Workday site shows up in red in Settings and in the search Log.
+
+## Privacy
+
+Everything stays on this computer, in your personal folder. The only network traffic is to the Workday sites you
+list. `.env` holds your Workday password in plain text, protected by your user account like the rest of your
+personal folder (on macOS/Linux Job Agent makes the folder readable only by you) — use a password you don't use anywhere else. The project folder contains no personal data, so it can be
+shared or copied (leave out `.venv/`).
+
+## Limits worth knowing
+
+* One search query pages up to 1,000 results per company and job type; add mandatory keywords if a company hits that.
+* Location, salary, remote and job-type detection are heuristics over what each company publishes. Unknowns are shown
+  as *Unspecified* / *not listed* rather than guessed.
+* Resume parsing works best with a simple one-column resume with standard headings (Summary, Skills, Experience,
+  Education…). Check the YAML before saving.
+* The 0.5B model makes mistakes the checks can't all catch (it once turned "migrated a warehouse *to* Snowflake"
+  around). Read every green line.
+
+## Project layout
+
+```
+start.bat            Windows: one-click setup + launch (passes --profile / --home / --port to run.py)
+start.command        macOS: double-click in Finder (runs start.sh)
+start.sh             macOS / Linux: setup + launch, same options
+run.py               picks your personal folder and a free port, starts the local server
+fetch_models.py      re-downloads the Qwen model files + browser libraries if they are missing
+companies.yaml       the shared list of Workday sites (read fresh for every search)
+app/                 Python backend (FastAPI)
+  config.py          project vs personal paths     master.py   master_resume.yaml: draft, checks, save, sync
+  workday.py         Workday API client            search.py   incremental/full search + filtering
+  jobparse.py        salary/type/remote/state      scoring.py  ATS match score   lexicon.py  keyword dictionary
+  resume_io.py       read files, write DOCX/PDF/TXT apply.py   packages + Playwright apply window + .env sign-up fill
+  envfile.py         reads your .env               autofill.js script injected into Workday application pages
+static/              browser UI
+  js/llm.js          Qwen engine (CPU default, GPU when available)
+  js/resume-parse.js model step that builds master_resume.yaml
+  js/tailor.js       live tailoring + line checks   js/resume-view.js  rendering, diff, undo controls
+models/              Qwen2.5-0.5B files (CPU model in 6 parts)    static/vendor/  WebLLM, Transformers.js, ONNX Runtime
+licenses/            third-party license texts (see THIRD_PARTY_NOTICES.md)
+samples/             fictional sample resume for trying the app
+```
+
+## Troubleshooting
+
+* **"This Job Agent belongs to another person or profile"** — open it with its start script (or the link it prints);
+  bookmarks keep working after that.
+* **The page pauses while tailoring** — normal on the CPU model: a few seconds at the start of each line.
+* **"Model failed to load"** — use Chrome or Edge, or Settings → AI engine → CPU only.
+* **macOS: "start.command can't be opened"** — right-click it → *Open* once. If double-clicking does nothing (the
+  file lost its executable flag when copied), run once in Terminal: `chmod +x start.command start.sh`, or just
+  `bash start.sh`.
+* **Linux: "python3-venv" message** — without admin rights `start.sh` installs pip into its own environment from
+  bootstrap.pypa.io and carries on; with admin rights you can `sudo apt install python3-venv` instead.
+* **`./start.sh: Permission denied`** — run `bash start.sh`, or `chmod +x start.sh` once.
+* **Apply window doesn't open / no PDF** — install Chrome, Edge or Chromium (Linux: `chromium` from your package
+  manager works too), or let Playwright fetch its own: `<environment>/bin/python -m playwright install chromium`
+  (Windows: `.venv\Scripts\python -m playwright install chromium`). The error is shown in the app.
+* **A company returns errors** — check its URL in `companies.yaml` (or your `my_companies.yaml`); the search **Log**
+  shows details.

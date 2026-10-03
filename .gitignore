@@ -1,0 +1,27 @@
+# Personal data lives in <home>/JobAgent/<profile>, outside this folder. These patterns keep any stray copy of
+# it out of the repository.
+.env
+.env.*
+*.db
+*.db-journal
+master_resume.yaml
+tailored_resume.yaml
+my_companies.yaml
+companies.yaml.old
+.session-key
+.port
+browser-profile/
+Applications/
+data/
+
+# The CPU model is kept as model_quantized.onnx.part1..6 (GitHub refuses files over 100 MB). A whole copy
+# re-downloaded by fetch_models.py stays out of git.
+models/onnx/**/model_quantized.onnx
+
+# Machine-specific
+.venv/
+.venv-*/
+__pycache__/
+*.pyc
+*.part
+.DS_Store

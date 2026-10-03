@@ -1,0 +1,235 @@
+# Workday career sites to search. Every URL below was verified against the live Workday API on 2026-09-30.
+#
+# Add any company that uses Workday: open its careers page, copy the URL (it looks like
+# https://<company>.wd<N>.myworkdayjobs.com/<SiteName>), and add an entry - or use the
+# 'Add company' box in Settings > Companies, which checks the URL first (it saves to your my_companies.yaml).
+#   enabled: false   -> keep the entry but skip it
+#   aliases: [...]   -> other names the company goes by (used for the current-employer exclusion)
+# Your current employer (Settings > Current employer) is skipped automatically.
+# A URL that isn't a Workday career site shows up in red in Settings > Companies and in the search Log.
+
+companies:
+  # --- Technology & software
+  - name: "NVIDIA"
+    url: https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite
+  - name: "Salesforce"
+    url: https://salesforce.wd12.myworkdayjobs.com/External_Career_Site
+  - name: "Adobe"
+    url: https://adobe.wd5.myworkdayjobs.com/external_experienced
+  - name: "Intel"
+    url: https://intel.wd1.myworkdayjobs.com/External
+  - name: "HP Inc"
+    url: https://hp.wd5.myworkdayjobs.com/ExternalCareerSite
+  - name: "Workday"
+    url: https://workday.wd5.myworkdayjobs.com/Workday
+  - name: "PayPal"
+    url: https://paypal.wd1.myworkdayjobs.com/jobs
+  - name: "Zoom"
+    url: https://zoom.wd5.myworkdayjobs.com/Zoom
+  - name: "CrowdStrike"
+    url: https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers
+  - name: "Autodesk"
+    url: https://autodesk.wd1.myworkdayjobs.com/Ext
+  - name: "Red Hat"
+    url: https://redhat.wd5.myworkdayjobs.com/jobs
+  - name: "Cisco"
+    url: https://cisco.wd5.myworkdayjobs.com/Cisco_Careers
+  - name: "Micron"
+    url: https://micron.wd1.myworkdayjobs.com/External
+  - name: "Broadcom"
+    url: https://broadcom.wd1.myworkdayjobs.com/External_Career
+  - name: "Analog Devices"
+    url: https://analogdevices.wd1.myworkdayjobs.com/External
+  - name: "eBay"
+    url: https://ebay.wd5.myworkdayjobs.com/apply
+  - name: "Equinix"
+    url: https://equinix.wd1.myworkdayjobs.com/External
+  - name: "Samsung"
+    url: https://sec.wd3.myworkdayjobs.com/Samsung_Careers
+  - name: "Sony"
+    url: https://sonyglobal.wd1.myworkdayjobs.com/SonyGlobalCareers
+  - name: "Kyndryl"
+    url: https://kyndryl.wd5.myworkdayjobs.com/KyndrylProfessionalCareers
+  - name: "Applied Materials"
+    url: https://amat.wd1.myworkdayjobs.com/External
+  - name: "KLA"
+    url: https://kla.wd1.myworkdayjobs.com/Search
+  - name: "Marvell"
+    url: https://marvell.wd1.myworkdayjobs.com/MarvellCareers
+  - name: "Hewlett Packard Enterprise"
+    url: https://hpe.wd5.myworkdayjobs.com/Jobsathpe
+  - name: "Guidewire"
+    url: https://guidewire.wd5.myworkdayjobs.com/external
+  - name: "Snap"
+    url: https://snapchat.wd1.myworkdayjobs.com/snap
+  - name: "Yahoo"
+    url: https://ouryahoo.wd5.myworkdayjobs.com/careers
+  - name: "Zillow"
+    url: https://zillow.wd5.myworkdayjobs.com/Zillow_Group_External
+  - name: "Thomson Reuters"
+    url: https://thomsonreuters.wd5.myworkdayjobs.com/External_Career_Site
+  - name: "Gartner"
+    url: https://gartner.wd5.myworkdayjobs.com/EXT
+  - name: "Motorola Solutions"
+    url: https://motorolasolutions.wd5.myworkdayjobs.com/Careers
+  - name: "Accenture"
+    url: https://accenture.wd103.myworkdayjobs.com/AccentureCareers
+  - name: "PwC"
+    url: https://pwc.wd3.myworkdayjobs.com/Global_Experienced_Careers
+  - name: "Verizon"
+    url: https://verizon.wd12.myworkdayjobs.com/verizon-careers
+  - name: "T-Mobile"
+    url: https://tmobile.wd1.myworkdayjobs.com/External
+  # --- Banking, payments & insurance
+  - name: "Capital One"
+    url: https://capitalone.wd12.myworkdayjobs.com/Capital_One
+  - name: "Mastercard"
+    url: https://mastercard.wd1.myworkdayjobs.com/CorporateCareers
+  - name: "Visa"
+    url: https://visa.wd5.myworkdayjobs.com/Visa
+  - name: "Morgan Stanley"
+    url: https://ms.wd5.myworkdayjobs.com/External
+  - name: "Fidelity Investments"
+    url: https://fmr.wd1.myworkdayjobs.com/FidelityCareers
+  - name: "State Street"
+    url: https://statestreet.wd1.myworkdayjobs.com/Global
+  - name: "Wells Fargo"
+    url: https://wd1.myworkdaysite.com/recruiting/wf/WellsFargoJobs
+  - name: "Bank of America"
+    url: https://ghr.wd1.myworkdayjobs.com/Lateral-US
+  - name: "Citi"
+    url: https://citi.wd5.myworkdayjobs.com/2
+  - name: "BlackRock"
+    url: https://blackrock.wd1.myworkdayjobs.com/BlackRock_Professional
+  - name: "Nasdaq"
+    url: https://nasdaq.wd1.myworkdayjobs.com/Global_External_Site
+  - name: "S&P Global"
+    url: https://spgi.wd5.myworkdayjobs.com/SPGI_Careers
+  - name: "Fannie Mae"
+    url: https://fanniemae.wd1.myworkdayjobs.com/FannieMaeCareers
+  - name: "Freddie Mac"
+    url: https://freddiemac.wd5.myworkdayjobs.com/External
+  - name: "Synchrony"
+    url: https://synchronyfinancial.wd5.myworkdayjobs.com/careers
+  - name: "US Bank"
+    url: https://usbank.wd1.myworkdayjobs.com/US_Bank_Careers
+  - name: "PNC"
+    url: https://pnc.wd5.myworkdayjobs.com/External
+  - name: "Truist"
+    url: https://truist.wd1.myworkdayjobs.com/Careers
+  - name: "TIAA"
+    url: https://tiaa.wd1.myworkdayjobs.com/Search
+  - name: "Prudential"
+    url: https://pru.wd5.myworkdayjobs.com/Careers
+  - name: "Allstate"
+    url: https://allstate.wd5.myworkdayjobs.com/allstate_careers
+  - name: "Nationwide"
+    url: https://nationwide.wd1.myworkdayjobs.com/Nationwide_Career
+  - name: "The Hartford"
+    url: https://thehartford.wd5.myworkdayjobs.com/Careers_External
+  - name: "Travelers"
+    url: https://travelers.wd5.myworkdayjobs.com/External
+  # --- Healthcare & life sciences
+  - name: "Pfizer"
+    url: https://pfizer.wd1.myworkdayjobs.com/PfizerCareers
+  - name: "CVS Health"
+    url: https://cvshealth.wd1.myworkdayjobs.com/CVS_Health_Careers
+  - name: "Humana"
+    url: https://humana.wd5.myworkdayjobs.com/Humana_External_Career_Site
+  - name: "Johnson & Johnson"
+    url: https://jj.wd5.myworkdayjobs.com/JJ
+  - name: "Moderna"
+    url: https://modernatx.wd1.myworkdayjobs.com/M_tx
+  - name: "GE HealthCare"
+    url: https://gehc.wd5.myworkdayjobs.com/GEHC_ExternalSite
+  - name: "Elevance Health"
+    url: https://elevancehealth.wd1.myworkdayjobs.com/ANT
+  - name: "Cigna"
+    url: https://cigna.wd5.myworkdayjobs.com/cignacareers
+  - name: "Medtronic"
+    url: https://medtronic.wd1.myworkdayjobs.com/MedtronicCareers
+  - name: "Abbott"
+    url: https://abbott.wd5.myworkdayjobs.com/abbottcareers
+  - name: "Bristol Myers Squibb"
+    url: https://bristolmyerssquibb.wd5.myworkdayjobs.com/BMS
+  - name: "Gilead"
+    url: https://gilead.wd1.myworkdayjobs.com/gileadcareers
+  - name: "Amgen"
+    url: https://amgen.wd1.myworkdayjobs.com/Careers
+  - name: "Philips"
+    url: https://philips.wd3.myworkdayjobs.com/jobs-and-careers
+  - name: "Vertex Pharmaceuticals"
+    url: https://vrtx.wd501.myworkdayjobs.com/vertex_careers
+  - name: "Novartis"
+    url: https://novartis.wd3.myworkdayjobs.com/Novartis_Careers
+  - name: "Merck"
+    url: https://msd.wd5.myworkdayjobs.com/SearchJobs
+  - name: "Baxter"
+    url: https://baxter.wd1.myworkdayjobs.com/baxter
+  - name: "Stryker"
+    url: https://stryker.wd1.myworkdayjobs.com/StrykerCareers
+  - name: "Centene"
+    url: https://centene.wd5.myworkdayjobs.com/Centene_External
+  - name: "Cardinal Health"
+    url: https://cardinalhealth.wd1.myworkdayjobs.com/EXT
+  - name: "McKesson"
+    url: https://mckesson.wd3.myworkdayjobs.com/External_Careers
+  # --- Aerospace, defense & government services
+  - name: "Boeing"
+    url: https://boeing.wd1.myworkdayjobs.com/EXTERNAL_CAREERS
+  - name: "Northrop Grumman"
+    url: https://ngc.wd1.myworkdayjobs.com/Northrop_Grumman_External_Site
+  - name: "RTX"
+    url: https://globalhr.wd5.myworkdayjobs.com/REC_RTX_Ext_Gateway
+  - name: "GDIT"
+    url: https://gdit.wd5.myworkdayjobs.com/External_Career_Site
+  - name: "Leidos"
+    url: https://leidos.wd5.myworkdayjobs.com/External
+  - name: "Booz Allen Hamilton"
+    url: https://bah.wd1.myworkdayjobs.com/BAH_Jobs
+  - name: "CACI"
+    url: https://caci.wd1.myworkdayjobs.com/External
+  # --- Industrial, energy & automotive
+  - name: "Chevron"
+    url: https://chevron.wd5.myworkdayjobs.com/jobs
+  - name: "GE Vernova"
+    url: https://gevernova.wd5.myworkdayjobs.com/Vernova_ExternalSite
+  - name: "Caterpillar"
+    url: https://cat.wd5.myworkdayjobs.com/CaterpillarCareers
+  - name: "3M"
+    url: https://3m.wd1.myworkdayjobs.com/Search
+  - name: "General Motors"
+    url: https://generalmotors.wd5.myworkdayjobs.com/Careers_GM
+  - name: "Carrier"
+    url: https://carrier.wd5.myworkdayjobs.com/jobs
+  - name: "Johnson Controls"
+    url: https://jci.wd5.myworkdayjobs.com/JCI
+  - name: "Rockwell Automation"
+    url: https://rockwellautomation.wd1.myworkdayjobs.com/External_Rockwell_Automation
+  # --- Retail, consumer & media
+  - name: "Target"
+    url: https://target.wd5.myworkdayjobs.com/targetcareers
+  - name: "Nike"
+    url: https://nike.wd1.myworkdayjobs.com/nke
+  - name: "Home Depot"
+    url: https://homedepot.wd5.myworkdayjobs.com/CareerDepot
+  - name: "Lowe's"
+    url: https://lowes.wd5.myworkdayjobs.com/LWS_External_CS
+  - name: "Chewy"
+    url: https://chewy.wd5.myworkdayjobs.com/External
+  - name: "Gap Inc"
+    url: https://gapinc.wd1.myworkdayjobs.com/GAPINC
+  - name: "Coca-Cola"
+    url: https://coke.wd1.myworkdayjobs.com/coca-cola-careers
+  - name: "Kraft Heinz"
+    url: https://heinz.wd1.myworkdayjobs.com/KraftHeinz_Careers
+  - name: "Procter & Gamble"
+    url: https://pg.wd5.myworkdayjobs.com/1000
+  - name: "Mondelez"
+    url: https://wd3.myworkdaysite.com/recruiting/mdlz/External
+  - name: "Disney"
+    url: https://disney.wd5.myworkdayjobs.com/disneycareer
+  - name: "Warner Bros. Discovery"
+    url: https://warnerbros.wd5.myworkdayjobs.com/global
+  - name: "Fox"
+    url: https://fox.wd1.myworkdayjobs.com/Domestic

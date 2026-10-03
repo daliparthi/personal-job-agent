@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Agent</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 12h14v11H9z' fill='none' stroke='white' stroke-width='2.4'/%3E%3Cpath d='M13 12V9h6v3' fill='none' stroke='white' stroke-width='2.4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <span>Job Agent</span>
+  </div>
+  <div class="chips">
+    <span class="chip" id="chip-profile">Profile</span>
+    <span class="chip" id="chip-model" title="Qwen2.5-0.5B runs in this browser tab: CPU by default, GPU when available">Model: not loaded</span>
+    <span class="chip" id="chip-resume">No master resume</span>
+    <span class="chip" id="chip-jobs">0 jobs</span>
+  </div>
+  <div class="top-actions">
+    <button class="btn" id="btn-load-model">Load model</button>
+    <label class="btn" for="resume-file">Upload master resume</label>
+    <input type="file" id="resume-file" accept=".docx,.pdf,.txt,.md" hidden>
+    <button class="btn" id="btn-applications">Applications</button>
+    <button class="btn" id="btn-settings">Settings</button>
+  </div>
+</header>
+
+<section class="searchbar card">
+  <div class="field grow">
+    <label for="mandatory">Mandatory keywords <span class="hint">every one must appear in the posting</span></label>
+    <input id="mandatory" placeholder="e.g. python, SQL, data engineer" autocomplete="off">
+  </div>
+  <div class="field grow">
+    <label for="optional">Optional keywords <span class="hint">refine and highlight · can be blank</span></label>
+    <input id="optional" placeholder="e.g. spark, airflow, snowflake" autocomplete="off">
+  </div>
+  <div class="run">
+    <label class="check" title="Ignore the incremental cursor and re-pull the full last 7 days">
+      <input type="checkbox" id="full-refresh"> Full refresh
+    </label>
+    <button class="btn primary" id="btn-run">Run job search</button>
+    <button class="btn" id="btn-stop" hidden>Stop</button>
+  </div>
+  <div class="progress" id="progress" hidden>
+    <div class="bar"><span id="progress-bar"></span></div>
+    <span id="progress-text"></span>
+    <button class="linkish" id="btn-log">Log</button>
+  </div>
+  <pre class="log" id="log" hidden></pre>
+</section>
+
+<section class="filters card" aria-label="Filters">
+  <div class="filter">
+    <span class="flabel">Country</span>
+    <select disabled><option>United States</option></select>
+  </div>
+  <div class="filter states">
+    <span class="flabel">States</span>
+    <button class="btn small" id="btn-states" aria-haspopup="true" aria-expanded="false">All states</button>
+    <div class="popover" id="states-pop" hidden></div>
+  </div>
+  <div class="filter">
+    <span class="flabel">City</span>
+    <input id="f-city" class="small-input" placeholder="any">
+  </div>
+  <label class="check"><input type="checkbox" id="f-remote"> Remote only</label>
+  <div class="filter types" id="f-types" role="group" aria-label="Job types"></div>
+  <div class="filter">
+    <span class="flabel">Min salary</span>
+    <input id="f-salary" class="small-input" type="number" min="0" step="5000" placeholder="$ / yr">
+  </div>
+  <label class="check"><input type="checkbox" id="f-nosalary" checked> Include unlisted salary</label>
+  <label class="check"><input type="checkbox" id="f-reqopt"> Must match an optional keyword</label>
+  <label class="check"><input type="checkbox" id="f-hidden"> Show hidden</label>
+</section>
+
+<main class="panes">
+  <section class="pane list-pane" aria-label="Positions">
+    <div class="pane-head">
+      <strong id="list-count">0 positions</strong>
+      <span class="hint">sorted by match, then salary</span>
+    </div>
+    <div class="job-list" id="job-list">
+      <div class="empty">Upload your master resume, enter keywords, then run a job search.</div>
+    </div>
+  </section>
+
+  <section class="pane resume-pane" aria-label="Resume">
+    <div class="pane-head">
+      <div class="tabs" role="tablist">
+        <button role="tab" class="tab active" data-view="master">Master</button>
+        <button role="tab" class="tab" data-view="tailored" id="tab-tailored" disabled>Tailored</button>
+      </div>
+      <div class="score-line" id="score-line"></div>
+    </div>
+    <div class="toolbar">
+      <button class="btn primary" id="btn-tailor" disabled>Tailor my resume for this position only</button>
+      <button class="btn" id="btn-tailor-stop" hidden>Stop</button>
+      <button class="btn" id="btn-package" disabled title="Save tailored resume + job description to Applications/&lt;Company&gt;">Save package</button>
+      <button class="btn" id="btn-apply" disabled title="Opens the posting in a separate browser window and fills standard fields">Apply with autofill</button>
+      <button class="btn" id="btn-applied" disabled>Mark applied</button>
+      <button class="btn" id="btn-edit-yaml" hidden title="View or edit master_resume.yaml">Edit YAML</button>
+    </div>
+    <div class="tailor-status" id="tailor-status" hidden></div>
+    <div class="change-legend" id="change-legend" hidden></div>
+    <div class="paper-wrap"><article class="paper" id="resume-view">
+      <div class="empty">No master resume yet. Use <b>Upload master resume</b> (DOCX, PDF or TXT).</div>
+    </article></div>
+  </section>
+
+  <section class="pane jd-pane" aria-label="Job description">
+    <div class="pane-head"><strong>Job description</strong><a id="jd-link" target="_blank" rel="noopener" hidden>Open posting ↗</a></div>
+    <div class="jd" id="jd-view"><div class="empty">Select a position to see its description.</div></div>
+  </section>
+</main>
+
+<!-- keyword approval -->
+<dialog id="kw-dialog" class="dialog">
+  <form method="dialog" class="dialog-body" id="kw-form">
+    <h2>Approve missing keywords</h2>
+    <p class="hint">These appear in the job description but not in your master resume. Approve only what is true for you — approved keywords can be woven into your summary, bullets and skills. Rejected ones are kept out.</p>
+    <div class="kw-step" id="kw-step"></div>
+    <div class="kw-summary" id="kw-summary"></div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="kw-reject-rest">Reject all remaining</button>
+      <button type="button" class="btn" id="kw-approve-rest">Approve all remaining</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="kw-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="kw-start" disabled>Start tailoring</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- master_resume.yaml: built by the model on upload, or edited by you -->
+<dialog id="yaml-dialog" class="dialog wide">
+  <div class="dialog-body">
+    <h2 id="yaml-title">master_resume.yaml</h2>
+    <p class="hint" id="yaml-intro"></p>
+    <div class="yaml-status" id="yaml-status" role="status" aria-live="polite"></div>
+    <pre class="yaml-live" id="yaml-live" aria-label="master_resume.yaml being built"></pre>
+    <textarea class="yaml-text" id="yaml-text" spellcheck="false" aria-label="master_resume.yaml" hidden></textarea>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="yaml-open" hidden title="Open master_resume.yaml in your text editor">Open in text editor</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="yaml-skip" title="Stop the model and use the quick rule-based parse">Skip AI, use quick parse</button>
+      <button type="button" class="btn" id="yaml-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="yaml-save" hidden>Save master resume</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- settings -->
+<dialog id="settings-dialog" class="dialog wide">
+  <form method="dialog" class="dialog-body" id="settings-form">
+    <h2>Settings</h2>
+    <fieldset>
+      <legend>Your personal folder <span class="hint">your data only; the program folder can be shared</span></legend>
+      <div class="path-row"><code id="home-path"></code><button type="button" class="btn small" id="btn-open-home">Open folder</button></div>
+      <p class="hint">Another person on this computer account can start Job Agent with <code>--profile Name</code> (e.g. <code>.\start.bat --profile Name</code> on Windows or <code>./start.sh --profile Name</code> on macOS/Linux) to get their own folder; each user account gets its own automatically.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Workday account <span class="hint">from your .env file</span></legend>
+      <div class="path-row"><span id="env-status"></span></div>
+      <div class="path-row"><code id="env-path"></code>
+        <button type="button" class="btn small" id="btn-open-env">Edit .env</button>
+        <button type="button" class="btn small" id="btn-env-refresh">Re-check</button></div>
+      <p class="hint">When an apply window reaches Workday's Create Account or Sign In form, Job Agent types this email and password in. You tick any terms box and click <b>Create Account</b> / <b>Sign In</b> yourself. The password never leaves this computer except into that form.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Search</legend>
+      <div class="grid2">
+        <label>Current employer <span class="hint">never shown or searched</span><input name="current_employer"></label>
+        <label>AI engine
+          <select name="engine">
+            <option value="auto">Auto: CPU model, GPU when available</option>
+            <option value="onnx">CPU only</option>
+          </select>
+        </label>
+        <label>Resume file to upload on Workday
+          <select name="upload_format"><option value="docx">DOCX (best for Workday parsing)</option><option value="pdf">PDF</option></select>
+        </label>
+        <label>Max bullets rewritten per job<input name="max_bullets" type="number" min="0" max="40"></label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Applicant profile <span class="hint">used only to fill Workday forms on this computer · a blank email uses WORKDAY_EMAIL</span></legend>
+      <div class="grid3" id="profile-fields"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Companies <span class="hint">untick to skip · file edits apply to the next search, no restart</span></legend>
+      <div class="companies-head"><span class="hint" id="companies-count"></span><span class="spacer"></span>
+        <button type="button" class="linkish" id="co-all">Tick all</button> · <button type="button" class="linkish" id="co-none">Untick all</button></div>
+      <div class="companies" id="companies"></div>
+      <p class="hint">Shared list: <code>companies.yaml</code> in the program folder. Yours: <code>my_companies.yaml</code> in your personal folder (the Add box writes there; an entry with the same URL overrides the shared one).</p>
+      <div class="add-company">
+        <input id="new-co-name" placeholder="Company name">
+        <input id="new-co-url" placeholder="https://tenant.wd5.myworkdayjobs.com/Site">
+        <button type="button" class="btn" id="btn-add-co">Add</button>
+      </div>
+    </fieldset>
+    <div class="dialog-actions">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="settings-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="settings-save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- applications -->
+<dialog id="apps-dialog" class="dialog wide">
+  <div class="dialog-body">
+    <h2>Applications</h2>
+    <p class="hint">Saved in the <code>Applications</code> folder of your personal folder, one folder per company.</p>
+    <div id="apps-list"></div>
+    <div class="dialog-actions"><span class="spacer"></span><button class="btn" id="apps-close">Close</button></div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

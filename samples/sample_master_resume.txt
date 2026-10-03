@@ -1,0 +1,33 @@
+Jordan Avery
+Austin, TX | jordan.avery@example.com | (555) 010-0199 | linkedin.com/in/jordan-avery-example
+
+PROFESSIONAL SUMMARY
+Data engineer with 8 years of experience building batch and streaming data platforms on AWS. Comfortable owning pipelines end to end, from ingestion to dashboards, and partnering with analysts and product teams.
+
+SKILLS
+Languages: Python, SQL, Bash, Scala
+Data: Apache Spark, Airflow, dbt, Snowflake, PostgreSQL, Kafka
+Cloud & DevOps: AWS (S3, EMR, Redshift), Docker, Terraform, GitHub Actions
+BI: Tableau, Looker
+
+PROFESSIONAL EXPERIENCE
+Senior Data Engineer, Northwind Analytics | Austin, TX | 2021 - Present
+- Designed Spark and Airflow pipelines that process 3 TB of clickstream data per day for 40 downstream teams.
+- Migrated a legacy on-prem warehouse to Snowflake, cutting monthly infrastructure cost by 35%.
+- Built data quality checks with dbt tests and alerting, reducing broken dashboards by 60%.
+- Mentored 4 junior engineers and ran weekly design reviews.
+
+Data Engineer, Contoso Retail | Dallas, TX | 2018 - 2021
+- Developed Python ETL jobs loading point-of-sale data into Redshift for nightly reporting.
+- Created Kafka consumers to stream inventory updates into PostgreSQL with sub-minute latency.
+- Automated infrastructure with Terraform and Docker, shortening environment setup from 2 days to 2 hours.
+
+Data Analyst, Fabrikam Health | Houston, TX | 2016 - 2018
+- Wrote SQL reports and Tableau dashboards used by 12 clinic managers.
+- Cleaned and reconciled claims data, improving report accuracy by 20%.
+
+EDUCATION
+B.S. Computer Science, University of Texas at Austin, 2016
+
+CERTIFICATIONS
+AWS Certified Data Analytics - Specialty
