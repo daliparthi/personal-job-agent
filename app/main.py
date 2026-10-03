@@ -5,7 +5,7 @@ import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -13,6 +13,8 @@ from . import apply, db, envfile, master, scoring, search
 from .config import HOME, MODELS, PORT, RETENTION_DAYS, STATIC, ensure_home, session_key
 from .jobparse import split_keywords
 from .resume_io import clean_resume, parse_resume, to_text
+from .schemas import (CompanyIn, HideIn, OpenIn, PackageIn, PathIn, PreviewIn, ResumeSaveIn, RunIn, ScoreIn,
+                      SettingsPatch, TailoredIn)
 
 mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("text/javascript", ".mjs")
@@ -34,7 +36,10 @@ runner = search.SearchRunner()
 
 async def _purge_forever():
     while True:
-        db.purge_old()
+        try:
+            await asyncio.to_thread(db.purge_old)
+        except Exception as e:  # never let one failed purge stop the hourly loop
+            print(f"Job Agent: purge failed: {e!r}", flush=True)
         await asyncio.sleep(3600)
 
 
@@ -44,6 +49,8 @@ async def lifespan(app):
     task = asyncio.create_task(_purge_forever())
     yield
     task.cancel()
+    search.rescorer.wait(10)
+    db.close_all()
 
 
 app = FastAPI(title="Job Agent", lifespan=lifespan)
@@ -143,9 +150,10 @@ def _bundled_models():
 
 
 def _sync_master():
+    """Pick up outside edits of master_resume.yaml; re-scoring then runs in the background."""
     changed, error = master.sync()
     if changed:
-        search.rescore_all()
+        search.rescorer.request()
     return error
 
 
@@ -160,7 +168,8 @@ def status():
     yaml_error = _sync_master()
     resume = db.get_resume()
     return {"resume": {"filename": resume["filename"], "uploaded_at": resume["uploaded_at"]} if resume else None,
-            "master_error": yaml_error, "jobs": len(db.all_jobs()), "last_run": db.last_run_overall(),
+            "master_error": yaml_error, "jobs": db.count_jobs(), "last_run": db.last_run_overall(),
+            "rescoring": search.rescorer.running, "rescore_error": search.rescorer.last_error,
             "retention_days": RETENTION_DAYS, "models": _bundled_models(), "search": runner.state,
             "home": str(HOME), "profile": HOME.name, "account": envfile.status()}
 
@@ -171,12 +180,16 @@ def get_settings():
 
 
 @app.put("/api/settings")
-def put_settings(values: dict = Body(...)):
+def put_settings(body: SettingsPatch):
+    values = body.values()
     before = db.get_settings()
+    for k in ("filters", "profile"):  # partial updates of the nested settings keep the rest
+        if k in values:
+            values[k] = {**before[k], **values[k]}
     db.save_settings(values)
     after = db.get_settings()
     if (before["mandatory"], before["optional"]) != (after["mandatory"], after["optional"]):
-        search.rescore_all()
+        search.rescorer.request()  # the keywords count toward the match score
     return after
 
 
@@ -190,9 +203,9 @@ def companies():
 
 
 @app.post("/api/companies")
-def add_company(body: dict = Body(...)):
+def add_company(body: CompanyIn):
     try:
-        search.append_company(body.get("name", "").strip(), body.get("url", "").strip())
+        search.append_company(body.name.strip(), body.url.strip())
     except ValueError as e:
         raise HTTPException(400, str(e))
     return companies()
@@ -215,25 +228,24 @@ async def parse_upload(file: UploadFile = File(...)):
 
 
 @app.post("/api/resume/preview")
-def preview_master(body: dict = Body(...)):
+def preview_master(body: PreviewIn):
     """Step 2: the YAML exactly as it will be saved, for you to review (and edit) before saving."""
     try:
-        note = master.note_for(body.get("filename") or "upload", body.get("how") or "parsed")
-        return {"yaml": master.dump(body["data"], note)}
-    except (ValueError, KeyError) as e:
+        note = master.note_for(body.filename or "upload", body.how or "parsed")
+        return {"yaml": master.dump(body.data, note)}
+    except ValueError as e:
         raise HTTPException(400, str(e))
 
 
 @app.put("/api/resume")
-def save_master(body: dict = Body(...)):
-    """Step 3 of an upload, or your own edit of master_resume.yaml. Body: {yaml, filename?, new_upload?}."""
+def save_master(body: ResumeSaveIn):
+    """Step 3 of an upload, or your own edit of master_resume.yaml. Postings are re-scored in the background."""
     try:
-        data, text = master.save(yaml_text=body["yaml"], filename=body.get("filename"),
-                                 new_upload=bool(body.get("new_upload")))
-    except (ValueError, KeyError) as e:
+        data, text = master.save(yaml_text=body.yaml, filename=body.filename, new_upload=body.new_upload)
+    except ValueError as e:
         raise HTTPException(400, str(e))
-    rescored = search.rescore_all()
-    return {"data": data, "yaml": text, "rescored": rescored}
+    search.rescorer.request()
+    return {"data": data, "yaml": text, "rescoring": True, "jobs": db.count_jobs()}
 
 
 @app.get("/api/resume")
@@ -246,10 +258,10 @@ def get_resume():
 
 # ---------------------------------------------------------------- search
 @app.post("/api/search/run")
-async def run_search(body: dict = Body(default={})):
-    _sync_master()
+async def run_search(body: RunIn | None = None):
+    await asyncio.to_thread(_sync_master)
     try:
-        runner.start(bool(body.get("full_refresh")))
+        runner.start(bool(body and body.full_refresh))
     except RuntimeError as e:
         raise HTTPException(409, str(e))
     return runner.state
@@ -295,21 +307,21 @@ def job_detail(job_id: str):
 
 
 @app.post("/api/jobs/{job_id:path}/hide")
-def hide_job(job_id: str, body: dict = Body(default={})):
+def hide_job(job_id: str, body: HideIn | None = None):
     _job_or_404(job_id)
-    db.update_job(job_id, hidden=1 if body.get("hidden", True) else 0)
+    db.update_job(job_id, hidden=1 if (body is None or body.hidden) else 0)
     return {"ok": True}
 
 
 @app.post("/api/jobs/{job_id:path}/score")
-def score_resume(job_id: str, body: dict = Body(...)):
-    return _score(_job_or_404(job_id), to_text(clean_resume(body["resume"])))
+def score_resume(job_id: str, body: ScoreIn):
+    return _score(_job_or_404(job_id), to_text(clean_resume(body.resume)))
 
 
 @app.put("/api/jobs/{job_id:path}/tailored")
-def save_tailored(job_id: str, body: dict = Body(...)):
+def save_tailored(job_id: str, body: TailoredIn):
     _job_or_404(job_id)
-    db.save_tailored(job_id, body["doc"], body.get("score_after"), body.get("approved", []), body.get("rejected", []))
+    db.save_tailored(job_id, body.doc, body.score_after, body.approved, body.rejected)
     j = db.get_job(job_id)
     if j["status"] in (None, "new"):
         db.update_job(job_id, status="tailored")
@@ -317,17 +329,17 @@ def save_tailored(job_id: str, body: dict = Body(...)):
 
 
 @app.post("/api/jobs/{job_id:path}/package")
-async def package(job_id: str, body: dict = Body(...)):
+async def package(job_id: str, body: PackageIn):
     """Save the application folder; with launch=true also open the autofill browser."""
     j = _job_or_404(job_id)
     settings = db.get_settings()
     profile = settings["profile"]
-    doc = body["doc"]
-    db.save_tailored(job_id, doc, body.get("score_after"), body.get("approved", []), body.get("rejected", []))
-    result = await apply.save_package(j, doc["resume"], j.get("match_score"), body.get("score_after"),
-                                      body.get("approved", []), body.get("rejected", []), profile)
+    doc = body.doc
+    db.save_tailored(job_id, doc, body.score_after, body.approved, body.rejected)
+    result = await apply.save_package(j, doc["resume"], j.get("match_score"), body.score_after,
+                                      body.approved, body.rejected, profile)
     db.update_job(job_id, folder=result["folder"], status="applied" if j["status"] == "applied" else "saved")
-    if body.get("launch"):
+    if body.launch:
         fmt = settings.get("upload_format", "docx")
         resume_path = result["pdf"] if fmt == "pdf" and result["pdf"] else result["docx"]
         try:
@@ -354,18 +366,18 @@ def applications():
 
 
 @app.post("/api/open-folder")
-def open_folder(body: dict = Body(...)):
+def open_folder(body: PathIn):
     try:
-        apply.open_folder(body["path"])
+        apply.open_folder(body.path)
     except (ValueError, OSError) as e:
         raise HTTPException(400, str(e))
     return {"ok": True}
 
 
 @app.post("/api/open")
-def open_personal(body: dict = Body(...)):
+def open_personal(body: OpenIn):
     try:
-        apply.open_personal(body.get("what", ""))
+        apply.open_personal(body.what)
     except (ValueError, OSError) as e:
         raise HTTPException(400, str(e))
     return {"ok": True}

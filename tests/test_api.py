@@ -3,7 +3,7 @@ from urllib.parse import quote
 import pytest
 from fastapi.testclient import TestClient
 
-from app import apply, config, db, main
+from app import apply, config, db, main, master, search
 from tests.conftest import SAMPLE_MASTER, SAMPLE_RESUME, make_job
 
 JOB = "acme/external:R1"
@@ -61,9 +61,33 @@ def test_status_and_settings(client):
 
 def test_keyword_change_rescores(client):
     db.upsert_job(make_job())
-    db.save_resume("cv", "Python SQL AWS", SAMPLE_MASTER, 0)
+    master.save(data=SAMPLE_MASTER, filename="cv.txt")  # writes master_resume.yaml, which /api/status syncs from
     client.put("/api/settings", json={"optional": "Frobnicator"})
+    assert client.get("/api/status").json()["rescoring"] in (True, False)
+    assert search.rescorer.wait(10)
     assert db.get_job(JOB)["match_score"] is not None
+    assert client.get("/api/status").json()["rescoring"] is False
+
+
+def test_settings_patch_merges_nested_values(client):
+    client.put("/api/settings", json={"filters": {"remote_only": True}, "profile": {"first_name": "Jordan"}})
+    s = client.put("/api/settings", json={"filters": {"city": "Austin"}, "profile": {"last_name": "Avery"}}).json()
+    assert s["filters"]["remote_only"] is True and s["filters"]["city"] == "Austin"
+    assert s["profile"]["first_name"] == "Jordan" and s["profile"]["last_name"] == "Avery"
+
+
+@pytest.mark.parametrize("body", [{"max_bullets": 99}, {"engine": "gpu"}, {"filters": {"min_salary": -1}},
+                                  {"upload_format": "rtf"}])
+def test_settings_validation(client, body):
+    r = client.put("/api/settings", json=body)
+    assert r.status_code == 422 and r.json()["detail"]
+
+
+def test_bodies_are_validated(client):
+    db.upsert_job(make_job())
+    assert client.put(f"{JOB_URL}/tailored", json={"doc": {"changes": {}}}).status_code == 422
+    assert client.post(f"{JOB_URL}/score", json={}).status_code == 422
+    assert client.post("/api/search/run", json={"full_refresh": "maybe"}).status_code == 422
 
 
 def test_add_company(client):

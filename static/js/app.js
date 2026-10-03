@@ -17,7 +17,12 @@ async function api(path, { method = "GET", body } = {}) {
   const r = await fetch(path, opts);
   if (!r.ok) {
     let msg = `${r.status} ${r.statusText}`;
-    try { msg = (await r.json()).detail || msg; } catch { /* not JSON */ }
+    try {
+      const { detail } = await r.json();
+      // 422: FastAPI lists each invalid field as {loc, msg}.
+      msg = Array.isArray(detail) ? detail.map((d) => `${(d.loc || []).slice(1).join(".") || "body"}: ${d.msg}`).join("; ")
+        : detail || msg;
+    } catch { /* not JSON */ }
     throw new Error(msg);
   }
   return r.json();
@@ -49,6 +54,26 @@ async function saveSettings(patch) {
   }
   S.settings = await api("/api/settings", { method: "PUT", body: patch });
   await loadJobs();
+  if ("mandatory" in patch || "optional" in patch) watchRescore(); // keywords count toward the match score
+}
+
+// The server re-scores postings in the background after the keywords or master_resume.yaml change.
+let rescoreTimer = null;
+function watchRescore() {
+  if (rescoreTimer) return;
+  const tick = async () => {
+    let st;
+    try { st = await api("/api/status"); } catch { return; }
+    if (st.rescoring) { $("#chip-jobs").textContent = `Re-scoring ${st.jobs} positions…`; return; }
+    clearInterval(rescoreTimer);
+    rescoreTimer = null;
+    S.status = st;
+    updateChips();
+    if (st.rescore_error) toast(`Re-scoring failed: ${st.rescore_error}`, 8000);
+    await loadJobs();
+  };
+  rescoreTimer = setInterval(tick, 1000);
+  tick();
 }
 const saveKeywords = debounce(() => saveSettings({ mandatory: $("#mandatory").value, optional: $("#optional").value }), 700);
 const saveFilter = (patch) => saveSettings({ filters: { ...S.settings.filters, ...patch } });
@@ -632,7 +657,8 @@ async function saveMasterYaml(yamlText, filename, newUpload) {
     await loadJobs();
     if (S.sel) await selectJob(S.sel);
     else { S.view = "master"; renderResumePane(); }
-    toast(`${newUpload ? "Saved" : "Updated"} master_resume.yaml. ${r.rescored} position(s) re-scored.`);
+    toast(`${newUpload ? "Saved" : "Updated"} master_resume.yaml. Re-scoring ${r.jobs} position(s)…`);
+    watchRescore();
   } catch (e) {
     $("#yaml-status").textContent = e.message;
   } finally {
@@ -854,6 +880,7 @@ async function init() {
   renderResumePane();
   bindEvents();
   await loadJobs();
+  if (S.status.rescoring) watchRescore();
   if (S.status.search?.running) pollSearch();
   else if (S.status.search?.finished_at) renderProgress(S.status.search);
   const m = S.status.models;

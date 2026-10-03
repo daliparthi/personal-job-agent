@@ -1,7 +1,10 @@
 """Search orchestration: incremental/full pulls across the company lists, plus the filtered/sorted job view."""
 import asyncio
+import copy
 import hashlib
+import json
 import re
+import threading
 from datetime import date, datetime, timedelta
 
 import yaml
@@ -64,8 +67,29 @@ def _migrate_old_copy():
     OLD_COMPANIES_COPY.replace(OLD_COMPANIES_COPY.with_name("companies.yaml.old"))
 
 
+_companies_cache = {"key": None, "value": None}
+_companies_lock = threading.Lock()
+
+
+def _mtime(path):
+    try:
+        st = path.stat()
+        return st.st_mtime_ns, st.st_size
+    except OSError:
+        return None
+
+
 def load_companies():
+    """Both company lists merged. Re-read only when either file changed (it is called for every job list)."""
     _migrate_old_copy()
+    key = (str(COMPANIES_SHARED), _mtime(COMPANIES_SHARED), str(MY_COMPANIES), _mtime(MY_COMPANIES))
+    with _companies_lock:
+        if _companies_cache["key"] != key:
+            _companies_cache.update(key=key, value=_load_companies())
+        return copy.deepcopy(_companies_cache["value"])
+
+
+def _load_companies():
     out, index = [], {}
     for c in _read_list(COMPANIES_SHARED, "shared") + _read_list(MY_COMPANIES, "yours"):
         k = c["key"] or f"{c['source']}:{c['url'] or c['name']}"
@@ -114,7 +138,15 @@ def keyword_signature(mandatory, optional):
 
 
 # ---------------------------------------------------------------- runner
+FLUSH_EVERY = 20  # postings written to the database per transaction during a search
+
+
 class SearchRunner:
+    """One search at a time, as an asyncio task on the server's event loop.
+
+    Everything slow that isn't a network call (SQLite, scoring, reading the company files) runs in a worker thread
+    via asyncio.to_thread, so the page stays responsive while a search runs."""
+
     def __init__(self):
         self.task = None
         self.stop_requested = False
@@ -149,21 +181,22 @@ class SearchRunner:
     async def _run(self, full_refresh):
         client = WorkdayClient()
         try:
-            settings = db.get_settings()
+            settings = await asyncio.to_thread(db.get_settings)
             mandatory = split_keywords(settings["mandatory"])
             optional = split_keywords(settings["optional"])
             if not mandatory and not optional:
                 self.log("Enter at least one mandatory or optional keyword before searching.")
                 return
-            purged = db.purge_old()
+            purged = await asyncio.to_thread(db.purge_old)
             if purged:
                 self.log(f"Purged {purged} untouched postings older than {RETENTION_DAYS} days")
-            resume = db.get_resume()
-            resume_text = resume["text"] if resume else ""
-            sig = keyword_signature(mandatory, optional)
+            resume = await asyncio.to_thread(db.get_resume)
+            ctx = {"mandatory": mandatory, "optional": optional, "full_refresh": full_refresh,
+                   "sig": keyword_signature(mandatory, optional), "kw_sig": keyword_hits_signature(mandatory, optional),
+                   "resume_text": resume["text"] if resume else ""}
             disabled = set(settings.get("disabled_companies") or [])
             companies = []
-            for c in load_companies():
+            for c in await asyncio.to_thread(load_companies):
                 if c["error"]:
                     self.state["errors"].append(f"{c['name']}: {c['error']}")
                     continue
@@ -174,12 +207,11 @@ class SearchRunner:
                     continue
                 companies.append(c)
             self.state["total"] = len(companies)
-            queries = [" ".join(mandatory)] if mandatory else optional
+            ctx["queries"] = [" ".join(mandatory)] if mandatory else optional
             self.log(f"{self.state['mode'].title()} run over {len(companies)} companies; "
-                     f"Workday search: {' | '.join(repr(q) for q in queries)}")
+                     f"Workday search: {' | '.join(repr(q) for q in ctx['queries'])}")
             sem = asyncio.Semaphore(COMPANY_CONCURRENCY)
-            await asyncio.gather(*(self._company(client, sem, c, queries, mandatory, optional, sig, full_refresh,
-                                                 resume_text) for c in companies))
+            await asyncio.gather(*(self._company(client, sem, c, ctx) for c in companies))
             self.log(f"Done. {self.state['new_jobs']} new, {self.state['refreshed']} refreshed, "
                      f"{self.state['rejected']} dropped by keyword/location checks.")
         except Exception as e:  # surface anything unexpected in the UI
@@ -191,7 +223,7 @@ class SearchRunner:
             self.state["current"] = []
             self.state["finished_at"] = datetime.now().isoformat(timespec="seconds")
 
-    async def _company(self, client, sem, comp, queries, mandatory, optional, sig, full_refresh, resume_text):
+    async def _company(self, client, sem, comp, ctx):
         async with sem:
             if self.stop_requested:
                 return
@@ -200,23 +232,28 @@ class SearchRunner:
             started = datetime.now()
             try:
                 site = parse_site(name, comp["url"])
-                last = None if full_refresh else db.last_success(site.key, sig)
+                last = None if ctx["full_refresh"] else await asyncio.to_thread(db.last_success, site.key, ctx["sig"])
                 if last:
                     window = min(RETENTION_DAYS, (date.today() - last.date()).days + 1)
                     self.log(f"{name}: incremental — postings from the last {window} day(s)")
                 else:
                     window = RETENTION_DAYS
                     self.log(f"{name}: pulling the last {window} days")
-                candidates = {}
-                for q in queries:
-                    await self._collect(client, site, q, window, full_refresh, candidates)
+                known = await asyncio.to_thread(db.job_ids, site.key)
+                candidates, seen = {}, set()
+                for q in ctx["queries"]:
+                    await self._collect(client, site, q, window, ctx["full_refresh"], candidates, known, seen)
                     if self.stop_requested:
                         break
+                if seen:
+                    await asyncio.to_thread(db.touch_jobs, sorted(seen))
+                pending = []
                 dsem = asyncio.Semaphore(DETAIL_CONCURRENCY)
-                await asyncio.gather(*(self._detail(client, dsem, site, name, cand, mandatory, optional,
-                                                    resume_text) for cand in candidates.values()))
+                await asyncio.gather(*(self._detail(client, dsem, site, name, cand, ctx, known, pending)
+                                       for cand in candidates.values()))
+                await self._flush(pending, force=True)
                 if not self.stop_requested:
-                    db.mark_success(site.key, sig, started)
+                    await asyncio.to_thread(db.mark_success, site.key, ctx["sig"], started)
                 self.log(f"{name}: checked {len(candidates)} new posting(s)")
             except Exception as e:
                 self.state["errors"].append(f"{name}: {e!r}")
@@ -225,7 +262,15 @@ class SearchRunner:
                 self.state["current"].remove(name)
                 self.state["done"] += 1
 
-    async def _collect(self, client, site, query, window, full_refresh, candidates):
+    @staticmethod
+    async def _flush(pending, force=False):
+        """Write finished postings in batches (one transaction each) so they appear in the list as the search goes."""
+        if pending and (force or len(pending) >= FLUSH_EVERY):
+            batch = pending[:]
+            pending.clear()
+            await asyncio.to_thread(db.upsert_jobs, batch)
+
+    async def _collect(self, client, site, query, window, full_refresh, candidates, known, seen):
         first = await client.list_jobs(site, query, {}, 0, 20)
         base = {}
         us = find_us_facet(first.get("facets"))
@@ -264,11 +309,11 @@ class SearchRunner:
                         continue
                     ref = (p.get("bulletFields") or [None])[0] or p.get("externalPath")
                     job_id = f"{site.key}:{ref}"
-                    if job_id in candidates:
+                    if job_id in candidates or job_id in seen:
                         continue
                     self.state["scanned"] += 1
-                    if not full_refresh and db.job_exists(job_id):
-                        db.touch_job(job_id)
+                    if not full_refresh and job_id in known:
+                        seen.add(job_id)  # still listed: refresh last_seen, no detail request
                         continue
                     candidates[job_id] = {"id": job_id, "posting": p, "wst": wst, "days": days}
                 # Without a search term Workday sorts newest-first, so we can stop at the first stale page.
@@ -282,7 +327,7 @@ class SearchRunner:
                 self.log(f"{site.tenant}: stopped after {pages * 20} results for one job type; "
                          f"add more mandatory keywords to narrow the search")
 
-    async def _detail(self, client, dsem, site, company, cand, mandatory, optional, resume_text):
+    async def _detail(self, client, dsem, site, company, cand, ctx, known, pending):
         if self.stop_requested:
             return
         async with dsem:
@@ -305,6 +350,7 @@ class SearchRunner:
         country = (info.get("country") or {}).get("descriptor", "")
         alpha2 = (req_loc.get("country") or {}).get("alpha2Code", "")
         us_ok = alpha2 == "US" or "united states" in country.lower() or any(is_us_location(l) for l in locations[1:])
+        mandatory, optional = ctx["mandatory"], ctx["optional"]
         if not us_ok or (mandatory and not contains_all(f"{title}\n{text}", mandatory)):
             self.state["rejected"] += 1
             return
@@ -336,29 +382,93 @@ class SearchRunner:
             "worker_sub_type": cand["wst"] or "", "time_type": info.get("timeType") or "",
             "salary_min": smin, "salary_max": smax, "salary_text": stext,
             "posted_date": posted.isoformat(), "description_html": html, "description_text": text,
+            "kw_sig": ctx["kw_sig"], "mandatory_ok": 1,
+            "optional_hits_json": keywords_present(f"{title}\n{text}", optional),
         }
-        if resume_text:
-            sc = scoring.score(resume_text, text, title, mandatory + optional, company)
+        if ctx["resume_text"]:
+            sc = await asyncio.to_thread(scoring.score, ctx["resume_text"], text, title, mandatory + optional, company)
             job.update(match_score=sc["score"], matched_json=sc["matched"], missing_json=sc["missing"])
-        existed = db.job_exists(cand["id"])
-        db.upsert_job(job)
-        self.state["refreshed" if existed else "new_jobs"] += 1
+        pending.append(job)
+        self.state["refreshed" if cand["id"] in known else "new_jobs"] += 1
+        await self._flush(pending)
 
 
 # ---------------------------------------------------------------- scoring + view
 def rescore_all():
+    """Re-score every stored posting against the master resume, in one transaction. Returns the number of jobs."""
     resume = db.get_resume()
     settings = db.get_settings()
     extra = split_keywords(settings["mandatory"]) + split_keywords(settings["optional"])
-    n = 0
+    scores = []
     for j in db.all_jobs(with_text=True):
         if resume:
             sc = scoring.score(resume["text"], j["description_text"] or "", j["title"], extra, j["company"])
-            db.update_job(j["id"], match_score=sc["score"], matched=sc["matched"], missing=sc["missing"])
+            scores.append((j["id"], sc["score"], sc["matched"], sc["missing"]))
         else:
-            db.update_job(j["id"], match_score=None, matched=[], missing=[])
-        n += 1
-    return n
+            scores.append((j["id"], None, [], []))
+    db.set_scores(scores)
+    return len(scores)
+
+
+class Rescorer:
+    """Runs rescore_all() in a background thread. A request made while it runs queues one more pass afterwards,
+    so the latest change always wins and two passes never run at once."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._pending = False
+        self._idle = threading.Event()
+        self._idle.set()
+        self.running = False
+        self.last_error = None
+
+    def request(self):
+        with self._lock:
+            self._pending = True
+            if self.running:
+                return
+            self.running = True
+            self._idle.clear()
+        threading.Thread(target=self._loop, name="rescore", daemon=True).start()
+
+    def _loop(self):
+        while True:
+            with self._lock:
+                if not self._pending:
+                    self.running = False
+                    self._idle.set()
+                    return
+                self._pending = False
+            try:
+                rescore_all()
+                self.last_error = None
+            except Exception as e:  # shown in /api/status; the next request tries again
+                self.last_error = repr(e)
+
+    def wait(self, timeout=None) -> bool:
+        """Block until no pass is running or queued (tests, shutdown)."""
+        return self._idle.wait(timeout)
+
+
+rescorer = Rescorer()
+
+
+def keyword_hits_signature(mandatory, optional) -> str:
+    """Identifies the keyword set a job's stored mandatory/optional check was made for."""
+    return hashlib.sha1(json.dumps([mandatory, optional]).encode()).hexdigest()[:16]
+
+
+def refresh_keyword_hits(mandatory, optional) -> int:
+    """Re-check the keywords only for jobs stored under a different keyword set. Returns how many were updated."""
+    sig = keyword_hits_signature(mandatory, optional)
+    rows = db.jobs_needing_keywords(sig)
+    if rows:
+        hits = []
+        for r in rows:
+            hay = f"{r['title']}\n{r['description_text'] or ''}"
+            hits.append((r["id"], contains_all(hay, mandatory), keywords_present(hay, optional)))
+        db.set_keyword_hits(sig, hits)
+    return len(rows)
 
 
 def list_jobs(settings):
@@ -366,26 +476,22 @@ def list_jobs(settings):
     mandatory = split_keywords(settings["mandatory"])
     optional = split_keywords(settings["optional"])
     employer = settings.get("current_employer")
-    wanted_types = set(f.get("types") or [])
+    wanted_types = list(f.get("types") or [])
+    if not wanted_types:
+        return []
     wanted_states = set(f.get("states") or [])
     city = (f.get("city") or "").strip().lower()
-    min_salary = float(f.get("min_salary") or 0)
+    refresh_keyword_hits(mandatory, optional)
+    rows = db.jobs_for_list(wanted_types, show_hidden=bool(f.get("show_hidden")), remote_only=bool(f.get("remote_only")),
+                            min_salary=float(f.get("min_salary") or 0),
+                            include_no_salary=f.get("include_no_salary", True) is not False,
+                            kw_sig=keyword_hits_signature(mandatory, optional))
     aliases = {c["key"]: c["aliases"] for c in load_companies() if c["key"]} if employer else {}
     out = []
-    for j in db.all_jobs():
-        if j["hidden"] and not f.get("show_hidden"):
-            continue
+    for j in rows:
         if is_current_employer(j["company"], j["company_key"], employer, aliases.get(j["company_key"], ())):
             continue
-        hay = f"{j['title']}\n{j['description_text'] or ''}"
-        if mandatory and not contains_all(hay, mandatory):
-            continue
-        hits = keywords_present(hay, optional)
-        if f.get("require_optional") and optional and not hits:
-            continue
-        if j["employment_type"] not in wanted_types:
-            continue
-        if f.get("remote_only") and j["remote_type"] != "Remote":
+        if f.get("require_optional") and optional and not j["optional_hits"]:
             continue
         if wanted_states:
             if j["states"]:
@@ -395,13 +501,5 @@ def list_jobs(settings):
                 continue
         if city and city not in " ".join(j["locations"]).lower():
             continue
-        if j["salary_max"] is None:
-            if not f.get("include_no_salary", True):
-                continue
-        elif min_salary and j["salary_max"] < min_salary:
-            continue
-        j.pop("description_text", None)
-        j["optional_hits"] = hits
         out.append(j)
-    out.sort(key=lambda j: (-(j["match_score"] if j["match_score"] is not None else -1), -(j["salary_max"] or 0)))
-    return out
+    return out  # already sorted by the query: best match first, then salary

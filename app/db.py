@@ -1,5 +1,12 @@
 """SQLite storage. Untouched postings older than RETENTION_DAYS are purged automatically; jobs you worked on
-(tailored, saved, applying, applied) are kept forever."""
+(tailored, saved, applying, applied) are kept forever.
+
+Connections: each thread keeps one connection to jobs.db (WAL mode, so readers never wait for a writer). Writes run
+inside `conn()`, an IMMEDIATE transaction, so two writers queue on SQLite's own lock instead of failing half-way.
+
+Schema: versioned with PRAGMA user_version. MIGRATIONS[n] upgrades a database from version n to n + 1; a database
+made before migrations existed (version 0) upgrades in place without losing anything.
+"""
 import json
 import sqlite3
 import threading
@@ -7,8 +14,6 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
 from .config import DB_PATH, RETENTION_DAYS
-
-_lock = threading.RLock()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -44,26 +49,97 @@ CREATE TABLE IF NOT EXISTS resume (
 );
 """
 
+MIGRATIONS = [
+    # 1: the original tables (IF NOT EXISTS: a database from before migrations keeps its data)
+    SCHEMA,
+    # 2: indexes for the job list and the per-company search bookkeeping
+    """
+    CREATE INDEX IF NOT EXISTS jobs_company ON jobs(company_key);
+    CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
+    CREATE INDEX IF NOT EXISTS jobs_list ON jobs(hidden, employment_type);
+    """,
+    # 3: the keyword checks stored with each job, so listing jobs never re-reads every description
+    """
+    ALTER TABLE jobs ADD COLUMN kw_sig TEXT;
+    ALTER TABLE jobs ADD COLUMN mandatory_ok INTEGER;
+    ALTER TABLE jobs ADD COLUMN optional_hits_json TEXT;
+    CREATE INDEX IF NOT EXISTS jobs_kw ON jobs(kw_sig);
+    """,
+]
+SCHEMA_VERSION = len(MIGRATIONS)
+
+# ---------------------------------------------------------------- connections
+_local = threading.local()
+_registry_lock = threading.Lock()
+_open = set()      # every connection handed out, so close_all() can close them
+_generation = 0    # bumped by close_all(); a thread whose connection is older reconnects
+
+
+def _connect():
+    c = getattr(_local, "c", None)
+    if c is None or _local.gen != _generation:
+        c = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None, check_same_thread=False)
+        c.row_factory = sqlite3.Row
+        c.execute("PRAGMA synchronous=NORMAL")  # safe with WAL; much faster commits
+        c.execute("PRAGMA foreign_keys=ON")
+        with _registry_lock:
+            _open.add(c)
+        _local.c, _local.gen = c, _generation
+    return c
+
+
+def close_all():
+    """Close every thread's connection (shutdown, tests). Threads reconnect on their next call."""
+    global _generation
+    with _registry_lock:
+        _generation += 1
+        conns = list(_open)
+        _open.clear()
+    for c in conns:
+        try:
+            c.close()
+        except sqlite3.Error:
+            pass
+
 
 @contextmanager
 def conn():
-    with _lock:
-        c = sqlite3.connect(DB_PATH, timeout=30)
-        c.row_factory = sqlite3.Row
-        c.execute("PRAGMA synchronous=NORMAL")  # safe with WAL; much faster commits
-        try:
-            yield c
-            c.commit()
-        finally:
-            c.close()
+    """A write transaction on this thread's connection. Nested use joins the outer transaction."""
+    c = _connect()
+    if c.in_transaction:
+        yield c
+        return
+    c.execute("BEGIN IMMEDIATE")
+    try:
+        yield c
+    except BaseException:
+        c.execute("ROLLBACK")
+        raise
+    c.execute("COMMIT")
+
+
+def read():
+    """This thread's connection, for reads (WAL: never waits for a writer)."""
+    return _connect()
 
 
 def init():
-    with conn() as c:
-        # Write-ahead logging (stored in the file, so set once): the search and the web page can read while the
-        # other writes, instead of waiting on each other's locks.
-        c.execute("PRAGMA journal_mode=WAL")
-        c.executescript(SCHEMA)
+    c = _connect()
+    # Write-ahead logging is stored in the file (set once) and can't change inside a transaction.
+    c.execute("PRAGMA journal_mode=WAL")
+    version = c.execute("PRAGMA user_version").fetchone()[0]
+    # A newer Job Agent may have added tables or columns; this version simply doesn't use them.
+    for n in range(version, SCHEMA_VERSION):
+        try:
+            c.executescript(f"BEGIN IMMEDIATE;\n{MIGRATIONS[n]}\nPRAGMA user_version = {n + 1};\nCOMMIT;")
+        except BaseException:
+            if c.in_transaction:
+                c.execute("ROLLBACK")
+            raise
+
+
+def schema_version() -> int:
+    return read().execute("PRAGMA user_version").fetchone()[0]
 
 
 def purge_old() -> int:
@@ -112,8 +188,7 @@ DEFAULT_SETTINGS = {
 
 
 def get_settings() -> dict:
-    with conn() as c:
-        rows = c.execute("SELECT key, value FROM settings").fetchall()
+    rows = read().execute("SELECT key, value FROM settings").fetchall()
     stored = {r["key"]: json.loads(r["value"]) for r in rows}
     out = json.loads(json.dumps(DEFAULT_SETTINGS))
     for k, v in stored.items():
@@ -134,8 +209,7 @@ def save_settings(values: dict):
 
 # ---------- resume ----------
 def get_resume():
-    with conn() as c:
-        r = c.execute("SELECT * FROM resume WHERE id = 1").fetchone()
+    r = read().execute("SELECT * FROM resume WHERE id = 1").fetchone()
     if not r:
         return None
     return {"filename": r["filename"], "text": r["text"], "data": json.loads(r["data"]),
@@ -159,9 +233,8 @@ def clear_resume():
 
 # ---------- incremental-run bookkeeping ----------
 def last_success(company_key, sig):
-    with conn() as c:
-        r = c.execute("SELECT last_success FROM company_runs WHERE company_key = ? AND sig = ?",
-                      (company_key, sig)).fetchone()
+    r = read().execute("SELECT last_success FROM company_runs WHERE company_key = ? AND sig = ?",
+                       (company_key, sig)).fetchone()
     return datetime.fromisoformat(r["last_success"]) if r else None
 
 
@@ -173,40 +246,65 @@ def mark_success(company_key, sig, when: datetime):
 
 
 def last_run_overall():
-    with conn() as c:
-        r = c.execute("SELECT MAX(last_success) AS m FROM company_runs").fetchone()
+    r = read().execute("SELECT MAX(last_success) AS m FROM company_runs").fetchone()
     return r["m"] if r else None
 
 
 # ---------- jobs ----------
-JSON_COLS = ("locations_json", "states_json", "matched_json", "missing_json")
+JSON_COLS = ("locations_json", "states_json", "matched_json", "missing_json", "optional_hits_json")
+# What the job list needs: everything but the (large) description columns.
+LIST_COLS = ("id", "company", "company_key", "title", "url", "location", "locations_json", "states_json",
+             "remote_type", "employment_type", "worker_sub_type", "time_type", "salary_min", "salary_max",
+             "salary_text", "posted_date", "match_score", "hidden", "status", "folder", "optional_hits_json")
+
+
+def _now():
+    return datetime.now().isoformat(timespec="seconds")
 
 
 def job_exists(job_id) -> bool:
-    with conn() as c:
-        return c.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone() is not None
+    return read().execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone() is not None
+
+
+def job_ids(company_key) -> set:
+    """IDs of the stored postings of one company (one query instead of one per posting during a search)."""
+    return {r[0] for r in read().execute("SELECT id FROM jobs WHERE company_key = ?", (company_key,))}
+
+
+def count_jobs() -> int:
+    return read().execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
 
 
 def touch_job(job_id):
+    touch_jobs([job_id])
+
+
+def touch_jobs(ids):
+    now = _now()
     with conn() as c:
-        c.execute("UPDATE jobs SET last_seen = ? WHERE id = ?", (datetime.now().isoformat(timespec="seconds"), job_id))
+        c.executemany("UPDATE jobs SET last_seen = ? WHERE id = ?", [(now, i) for i in ids])
 
 
 def upsert_job(job: dict):
-    now = datetime.now().isoformat(timespec="seconds")
-    row = dict(job)
-    for k in JSON_COLS:
-        if k in row and not isinstance(row[k], str):
-            row[k] = json.dumps(row[k])
-    row.setdefault("first_seen", now)
-    row["last_seen"] = now
-    cols = list(row.keys())
-    # Keep user-owned fields (hidden/status/folder/first_seen) when a job is refreshed.
+    upsert_jobs([job])
+
+
+def upsert_jobs(jobs):
+    """Insert or refresh postings in one transaction. Your own fields (hidden/status/folder/first_seen) are kept."""
+    now = _now()
     keep = {"hidden", "status", "folder", "first_seen"}
-    updates = ", ".join(f"{k} = excluded.{k}" for k in cols if k not in keep and k != "id")
     with conn() as c:
-        c.execute(f"INSERT INTO jobs({', '.join(cols)}) VALUES({', '.join('?' for _ in cols)}) "
-                  f"ON CONFLICT(id) DO UPDATE SET {updates}", [row[k] for k in cols])
+        for job in jobs:
+            row = dict(job)
+            for k in JSON_COLS:
+                if k in row and not isinstance(row[k], str):
+                    row[k] = json.dumps(row[k])
+            row.setdefault("first_seen", now)
+            row["last_seen"] = now
+            cols = list(row.keys())
+            updates = ", ".join(f"{k} = excluded.{k}" for k in cols if k not in keep and k != "id")
+            c.execute(f"INSERT INTO jobs({', '.join(cols)}) VALUES({', '.join('?' for _ in cols)}) "
+                      f"ON CONFLICT(id) DO UPDATE SET {updates}", [row[k] for k in cols])
 
 
 def _decode(r) -> dict:
@@ -217,19 +315,84 @@ def _decode(r) -> dict:
     return d
 
 
+def _json_list(v):
+    return [] if not v or v == "[]" else json.loads(v)
+
+
+def _list_rows(sql, params):
+    """Rows for the job list as dicts, decoded with plain tuples (thousands of rows: this is the hot path)."""
+    cur = read().cursor()
+    cur.row_factory = None
+    cur.execute(sql, params)
+    names = [d[0] for d in cur.description]
+    keys = [n[:-5] if n in JSON_COLS else n for n in names]
+    json_at = [i for i, n in enumerate(names) if n in JSON_COLS]
+    out = []
+    for row in cur.fetchall():
+        d = dict(zip(keys, row))
+        for i in json_at:
+            d[keys[i]] = _json_list(row[i])
+        out.append(d)
+    return out
+
+
 def all_jobs(with_text=False):
-    cols = "*" if with_text else ", ".join([
-        "id", "company", "company_key", "title", "url", "location", "locations_json", "states_json",
-        "remote_type", "employment_type", "worker_sub_type", "time_type", "salary_min", "salary_max",
-        "salary_text", "posted_date", "match_score", "hidden", "status", "folder", "description_text"])
+    cols = "*" if with_text else ", ".join(LIST_COLS)
+    return [_decode(r) for r in read().execute(f"SELECT {cols} FROM jobs").fetchall()]
+
+
+def jobs_for_list(types, show_hidden=False, remote_only=False, min_salary=0, include_no_salary=True,
+                  kw_sig=None):
+    """The job list's cheap filters, done in SQL. kw_sig: keep only jobs whose stored keyword check (for this
+    keyword set) passed the mandatory keywords."""
+    where, params = [f"employment_type IN ({', '.join('?' for _ in types)})"], list(types)
+    if not show_hidden:
+        where.append("COALESCE(hidden, 0) = 0")
+    if remote_only:
+        where.append("remote_type = 'Remote'")
+    if not include_no_salary:
+        where.append("salary_max IS NOT NULL")
+    if min_salary:
+        where.append("(salary_max IS NULL OR salary_max >= ?)")
+        params.append(min_salary)
+    if kw_sig is not None:
+        where.append("kw_sig = ? AND mandatory_ok = 1")
+        params.append(kw_sig)
+    # Best match first (unscored last), then the highest salary.
+    sql = (f"SELECT {', '.join(LIST_COLS)} FROM jobs WHERE {' AND '.join(where)} "
+           "ORDER BY COALESCE(match_score, -1) DESC, COALESCE(salary_max, 0) DESC")
+    return _list_rows(sql, params)
+
+
+def jobs_needing_keywords(kw_sig):
+    """(id, title, description_text) of jobs whose stored keyword check is for a different keyword set."""
+    c = read()
+    # The kw_sig index answers "is anything stale?" without reading the large job rows.
+    stale = [r[0] for r in c.execute("SELECT rowid FROM jobs INDEXED BY jobs_kw WHERE kw_sig IS NOT ?", (kw_sig,))]
+    if not stale:
+        return []
+    if len(stale) > 500:
+        return c.execute("SELECT id, title, description_text FROM jobs WHERE kw_sig IS NOT ?", (kw_sig,)).fetchall()
+    return c.execute(f"SELECT id, title, description_text FROM jobs WHERE rowid IN ({', '.join('?' * len(stale))})",
+                     stale).fetchall()
+
+
+def set_keyword_hits(kw_sig, hits):
+    """hits: [(job_id, mandatory_ok, optional_hits)]"""
     with conn() as c:
-        rows = c.execute(f"SELECT {cols} FROM jobs").fetchall()
-    return [_decode(r) for r in rows]
+        c.executemany("UPDATE jobs SET kw_sig = ?, mandatory_ok = ?, optional_hits_json = ? WHERE id = ?",
+                      [(kw_sig, int(ok), json.dumps(opt), job_id) for job_id, ok, opt in hits])
+
+
+def set_scores(scores):
+    """scores: [(job_id, match_score, matched, missing)] in one transaction."""
+    with conn() as c:
+        c.executemany("UPDATE jobs SET match_score = ?, matched_json = ?, missing_json = ? WHERE id = ?",
+                      [(s, json.dumps(m), json.dumps(x), job_id) for job_id, s, m, x in scores])
 
 
 def get_job(job_id):
-    with conn() as c:
-        r = c.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    r = read().execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
     return _decode(r) if r else None
 
 
@@ -244,8 +407,7 @@ def update_job(job_id, **fields):
 
 
 def get_tailored(job_id):
-    with conn() as c:
-        r = c.execute("SELECT * FROM tailored WHERE job_id = ?", (job_id,)).fetchone()
+    r = read().execute("SELECT * FROM tailored WHERE job_id = ?", (job_id,)).fetchone()
     if not r:
         return None
     return {"doc": json.loads(r["doc"]), "score_after": r["score_after"],
@@ -260,5 +422,4 @@ def save_tailored(job_id, doc, score_after, approved, rejected):
                   "VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(job_id) DO UPDATE SET doc=excluded.doc, "
                   "score_after=excluded.score_after, approved_json=excluded.approved_json, "
                   "rejected_json=excluded.rejected_json, updated_at=excluded.updated_at",
-                  (job_id, json.dumps(doc), score_after, json.dumps(approved), json.dumps(rejected),
-                   datetime.now().isoformat(timespec="seconds")))
+                  (job_id, json.dumps(doc), score_after, json.dumps(approved), json.dumps(rejected), _now()))

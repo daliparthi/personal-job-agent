@@ -25,9 +25,17 @@ FIXTURES = Path(__file__).parent / "fixtures"
 SAMPLE_RESUME = ROOT / "samples" / "sample_master_resume.txt"
 
 
+def _release_db():
+    """Let background re-scoring finish and close every SQLite connection (Windows can't delete an open file)."""
+    from app import search
+    search.rescorer.wait(30)
+    db.close_all()
+
+
 @pytest.fixture(autouse=True)
 def fresh_home():
     """An empty personal folder and database for every test."""
+    _release_db()
     for name in ("jobs.db", "jobs.db-wal", "jobs.db-shm", "my_companies.yaml", "master_resume.yaml", ".env",
                  "companies.yaml", "companies.yaml.old"):
         (config.HOME / name).unlink(missing_ok=True)
@@ -35,9 +43,11 @@ def fresh_home():
     config.ensure_home()
     db.init()
     yield config.HOME
+    _release_db()
 
 
 def pytest_sessionfinish(session, exitstatus):
+    db.close_all()
     shutil.rmtree(HOME, ignore_errors=True)
 
 
