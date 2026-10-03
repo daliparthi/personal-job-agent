@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 import httpx
 import yaml
 
-from . import db, pipeline, scoring
+from . import alerts, db, pipeline, scoring
 from .config import (COMPANIES_SHARED, COMPANY_CONCURRENCY, DETAIL_CONCURRENCY, MAX_PAGES_PER_QUERY,
                      MY_COMPANIES, OLD_COMPANIES_COPY, RETENTION_DAYS)
 from .jobparse import (classify_employment, classify_remote, contains_all, html_to_text, is_us_location,
@@ -152,23 +152,31 @@ class SearchRunner:
     def __init__(self):
         self.task = None
         self.stop_requested = False
+        self.spec = None      # the saved search being run, or None for the keywords in Settings
+        self.new_ids = []     # postings first stored by this run (alerts are made from these)
         self.state = self._blank()
 
     @staticmethod
     def _blank():
-        return {"running": False, "mode": None, "started_at": None, "finished_at": None, "total": 0, "done": 0,
-                "current": [], "scanned": 0, "new_jobs": 0, "refreshed": 0, "rejected": 0, "log": [], "errors": []}
+        return {"running": False, "mode": None, "trigger": None, "search": None, "started_at": None,
+                "finished_at": None, "total": 0, "done": 0, "current": [], "scanned": 0, "new_jobs": 0,
+                "refreshed": 0, "rejected": 0, "alerts": 0, "log": [], "errors": []}
 
     def log(self, msg):
         self.state["log"].append(f"{datetime.now():%H:%M:%S}  {msg}")
         self.state["log"] = self.state["log"][-300:]
 
-    def start(self, full_refresh: bool):
+    def start(self, full_refresh: bool, spec: dict | None = None, trigger: str = "manual"):
+        """spec: a saved search ({id, name, mandatory, optional, notify_min_score}); None = the Settings keywords.
+        trigger: manual (Run button), schedule (the server's scheduler) or headless (run.py --run-searches)."""
         if self.state["running"]:
             raise RuntimeError("A search is already running")
         self.stop_requested = False
+        self.spec = spec
+        self.new_ids = []
         self.state = self._blank()
-        self.state.update(running=True, mode="full refresh" if full_refresh else "incremental",
+        self.state.update(running=True, mode="full refresh" if full_refresh else "incremental", trigger=trigger,
+                          search=spec["name"] if spec else None,
                           started_at=datetime.now().isoformat(timespec="seconds"))
         try:
             self.task = asyncio.get_running_loop().create_task(self._run(full_refresh))
@@ -184,8 +192,11 @@ class SearchRunner:
         client = WorkdayClient()
         try:
             settings = await asyncio.to_thread(db.get_settings)
-            mandatory = split_keywords(settings["mandatory"])
-            optional = split_keywords(settings["optional"])
+            source = self.spec or settings
+            mandatory = split_keywords(source["mandatory"])
+            optional = split_keywords(source["optional"])
+            if self.spec:
+                self.log(f"Saved search \"{self.spec['name']}\"")
             if not mandatory and not optional:
                 self.log("Enter at least one mandatory or optional keyword before searching.")
                 return
@@ -222,9 +233,38 @@ class SearchRunner:
             self.log(f"Search failed: {e!r}")
         finally:
             await client.close()
-            self.state["running"] = False
             self.state["current"] = []
             self.state["finished_at"] = datetime.now().isoformat(timespec="seconds")
+            try:
+                self.state["alerts"] = await asyncio.to_thread(self._finish)
+            except Exception as e:
+                self.state["errors"].append(f"Saving the run failed: {e!r}")
+            self.state["running"] = False
+
+    def _finish(self) -> int:
+        """Record the run in the history, mark the saved search as run, and raise alerts for strong new matches
+        (scheduled and headless runs of a saved search with an alert threshold). Returns the number of alerts."""
+        st, spec = self.state, self.spec
+        db.record_run({"search_id": spec and spec.get("id"), "search_name": spec and spec.get("name"), "mode": st["mode"],
+                       "trigger": st["trigger"], "started": st["started_at"], "finished": st["finished_at"],
+                       "new_jobs": st["new_jobs"], "refreshed": st["refreshed"], "rejected": st["rejected"],
+                       "errors": st["errors"], "log_text": "\n".join(st["log"])})
+        if not spec or not spec.get("id"):
+            return 0
+        db.mark_search_ran(spec["id"], st["started_at"])
+        threshold = spec.get("notify_min_score")
+        if threshold is None or st["trigger"] == "manual" or not self.new_ids:
+            return 0
+        rows = []
+        for job_id in self.new_ids:
+            job = db.get_job(job_id)
+            if job and job.get("match_score") is not None and job["match_score"] >= threshold:
+                rows.append((job_id, spec["id"], job["match_score"]))
+        made = db.add_alerts(rows) if rows else 0
+        if made:
+            alerts.write_digest()
+            self.log(f"{made} new match(es) scored {threshold} or more")
+        return made
 
     async def _company(self, client, sem, comp, ctx):
         async with sem:
@@ -413,7 +453,11 @@ class SearchRunner:
             sc = await asyncio.to_thread(scoring.score, ctx["resume_text"], text, title, mandatory + optional, company)
             job.update(match_score=sc["score"], matched_json=sc["matched"], missing_json=sc["missing"])
         pending.append(job)
-        self.state["refreshed" if cand["id"] in known else "new_jobs"] += 1
+        if cand["id"] in known:
+            self.state["refreshed"] += 1
+        else:
+            self.state["new_jobs"] += 1
+            self.new_ids.append(cand["id"])
         await self._flush(pending)
 
 

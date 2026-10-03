@@ -1,5 +1,6 @@
 import asyncio
 import hmac
+from datetime import datetime
 import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,12 +9,13 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import apply, db, envfile, master, pipeline, scoring, search
+from . import alerts, apply, db, envfile, master, pipeline, scheduler, scoring, search
 from .config import HOME, HOME_ID, MODELS, PORT, STATIC, ensure_home, session_key
 from .jobparse import split_keywords
 from .resume_io import clean_resume, parse_resume, to_text
-from .schemas import (CompanyIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn, PathIn, PreviewIn,
-                      ResumeSaveIn, RunIn, ScoreIn, SettingsPatch, StageIn, TailoredIn)
+from .schemas import (AlertsSeenIn, CompanyIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn, PathIn,
+                      PreviewIn, ResumeSaveIn, RunIn, SavedSearchIn, SavedSearchPatch, ScoreIn, SettingsPatch,
+                      StageIn, TailoredIn)
 
 mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("text/javascript", ".mjs")
@@ -31,6 +33,7 @@ ensure_home()
 SESSION_KEY = session_key()
 COOKIE = f"jobagent_{PORT}"  # cookies are shared across localhost ports, so the name carries the port
 runner = search.SearchRunner()
+schedule = scheduler.Scheduler(runner)
 
 
 async def _purge_forever():
@@ -52,7 +55,9 @@ async def lifespan(app):
     except Exception as e:
         print(f"Job Agent: could not read the Applications folder: {e!r}", flush=True)
     task = asyncio.create_task(_purge_forever())
+    schedule.start()
     yield
+    schedule.stop()
     task.cancel()
     search.rescorer.wait(10)
     db.close_all()
@@ -294,11 +299,90 @@ def get_resume():
 @app.post("/api/search/run")
 async def run_search(body: RunIn | None = None):
     await asyncio.to_thread(_sync_master)
+    spec = None
+    if body and body.search_id is not None:
+        spec = db.get_saved_search(body.search_id)
+        if not spec:
+            raise HTTPException(404, "That saved search no longer exists")
     try:
-        runner.start(bool(body and body.full_refresh))
+        runner.start(bool(body and body.full_refresh), spec=spec)
     except RuntimeError as e:
         raise HTTPException(409, str(e))
     return runner.state
+
+
+@app.get("/api/search/runs")
+def search_runs(limit: int = 30):
+    return db.search_runs(max(1, min(limit, db.KEEP_RUNS)))
+
+
+# ---------------------------------------------------------------- saved searches + alerts
+def _search_out(s):
+    return {**s, "enabled": bool(s["enabled"]), "next_run_at": scheduler.next_run_at(s)}
+
+
+@app.get("/api/searches")
+def list_searches():
+    return [_search_out(s) for s in db.saved_searches()]
+
+
+@app.post("/api/searches")
+def create_search(body: SavedSearchIn):
+    values = body.model_dump()
+    values["enabled"] = int(values["enabled"])
+    return _search_out(db.get_saved_search(db.create_saved_search(values)))
+
+
+def _search_or_404(search_id):
+    s = db.get_saved_search(search_id)
+    if not s:
+        raise HTTPException(404, "Saved search not found")
+    return s
+
+
+@app.put("/api/searches/{search_id}")
+def update_search(search_id: int, body: SavedSearchPatch):
+    before = _search_or_404(search_id)
+    values = body.values()
+    if "enabled" in values:
+        values["enabled"] = int(bool(values["enabled"]))
+    after = {**before, **values}
+    if not ((after["mandatory"] or "").strip() or (after["optional"] or "").strip()):
+        raise HTTPException(400, "A saved search needs at least one mandatory or optional keyword")
+    db.update_saved_search(search_id, values)
+    return _search_out(db.get_saved_search(search_id))
+
+
+@app.delete("/api/searches/{search_id}")
+def delete_search(search_id: int):
+    _search_or_404(search_id)
+    db.delete_saved_search(search_id)
+    return {"ok": True}
+
+
+@app.get("/api/schedule/help")
+def schedule_help():
+    return scheduler.schedule_help()
+
+
+@app.get("/api/alerts")
+def list_alerts():
+    today = alerts.digest_path()
+    return {"alerts": db.alerts(unseen_only=True), "digest": str(today) if today.exists() else None}
+
+
+@app.post("/api/alerts/seen")
+def alerts_seen(body: AlertsSeenIn):
+    db.mark_alerts_seen(body.ids)
+    return {"ok": True}
+
+
+@app.post("/api/visit")
+def visit():
+    """The page opened: returns when it was last opened (jobs first seen after that are "new") and records now."""
+    previous = db.get_settings().get("last_visit")
+    db.save_settings({"last_visit": datetime.now().isoformat(timespec="seconds")})
+    return {"previous": previous}
 
 
 @app.post("/api/search/stop")

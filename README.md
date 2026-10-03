@@ -67,6 +67,7 @@ home folder:
   jobs.db              settings, profile, postings (new ones from the last 7 days; jobs you worked on are kept), tailored copies
   browser-profile/     the apply window's browser profile (your Workday logins)
   Applications/        one folder per company with what you sent
+  Alerts/              daily pages of new matches found by scheduled searches
 ```
 
 Settings → *Your personal folder* shows the path and opens it. On Windows it is outside OneDrive's Documents folder
@@ -231,6 +232,22 @@ a GPU folder you don't need; keep `models/onnx`.
 * Workday changes its forms often and every company configures its own questions, so autofill is best-effort.
   Always check each step.
 
+## Saved searches, schedules and alerts
+
+* **Save…** (next to the keyword boxes) names the current keywords. Pick a saved search from the list to load its
+  keywords; each one keeps its own incremental cursor, so switching between them never re-pulls everything.
+* A saved search can **run on its own** (every hour … once a week) while Job Agent is open, and can **alert** you
+  about new postings that score at or above a threshold. Alerts show as a 🔔 chip at the top (click to see them),
+  as desktop notifications once you allow them (Manage → *Allow desktop notifications*), and in a daily page in your
+  personal folder: `Alerts/new-matches-YYYY-MM-DD.html`. Runs you start yourself never alert.
+* **While Job Agent is closed:** `run.py --run-searches` runs whatever is due and exits. Manage (or
+  `run.py --schedule-help`) shows the one-line command that registers it with Windows Task Scheduler or cron.
+  If Job Agent is open at the time, the command does nothing (Job Agent already runs them).
+* **Manage** lists your saved searches (edit, run now) and the last runs with their logs, which are kept across
+  restarts.
+* Postings found since you last opened Job Agent are marked **new**; *N new since your last visit* above the list
+  shows only those.
+
 ## Pipeline
 
 **Pipeline** (top bar) shows every job you worked on, in columns: *Preparing* (tailored, saved, apply window
@@ -315,12 +332,14 @@ app/                 Python backend (FastAPI)
   resume_io.py       read files, write DOCX/PDF/TXT apply.py   packages + Playwright apply window + .env sign-up fill
   envfile.py         .env + OS keychain passwords  autofill.js script injected into Workday application pages
   pipeline.py        statuses, timeline, follow-ups, board + statistics, recovery from Applications/
+  scheduler.py       saved searches on a schedule   alerts.py  new-match alerts + daily digest
   schemas.py         request bodies of the local API
 static/              browser UI
   js/llm.js          Qwen engine (CPU default, GPU when available)
   js/resume-parse.js model step that builds master_resume.yaml
   js/tailor.js       live tailoring + line checks   js/resume-view.js  rendering, diff, undo controls
   js/pipeline.js     the Pipeline board
+  js/searches.js     saved searches, run history, alerts
 models/              Qwen2.5-0.5B files (CPU model in 6 parts)    static/vendor/  WebLLM, Transformers.js, ONNX Runtime
 licenses/            third-party license texts (see THIRD_PARTY_NOTICES.md)
 samples/             fictional sample resume for trying the app

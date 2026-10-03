@@ -346,3 +346,15 @@ legend { font-weight: 600; padding: 0 4px; }
   .pl-board { flex: none; }
   .pl-detail { flex: none; border-left: 0; padding-left: 0; overflow: visible; }
 }
+
+/* ---------------------------------------------------------------- saved searches + alerts */
+.saved-field { min-width: 0; }
+.saved-row { display: flex; gap: 6px; align-items: center; }
+.saved-row select { max-width: 230px; }
+#search-form > label:not(.check) { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
+.alert-chip { cursor: pointer; background: var(--good-soft); color: var(--good); border-color: transparent; font-weight: 600; }
+.al-row { cursor: pointer; align-items: center; }
+.al-row:hover { background: var(--panel-2); }
+.sm-h3 { margin: 4px 0 0; font-size: 14px; }
+.badge.b-new { background: var(--accent); color: var(--accent-ink); }
+#list-new { font-size: 12px; }

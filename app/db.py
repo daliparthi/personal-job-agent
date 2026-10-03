@@ -84,6 +84,33 @@ MIGRATIONS = [
                status, 'status before the pipeline tracker existed'
         FROM jobs WHERE COALESCE(status, 'new') <> 'new';
     """,
+    # 5: saved searches (named keyword sets, optionally on a schedule), the run history, and new-match alerts
+    """
+    CREATE TABLE IF NOT EXISTS saved_searches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        mandatory TEXT NOT NULL DEFAULT '', optional TEXT NOT NULL DEFAULT '',
+        every_hours INTEGER,          -- NULL: only when you click Run
+        notify_min_score INTEGER,     -- NULL: no alerts
+        enabled INTEGER NOT NULL DEFAULT 1,
+        last_run_at TEXT, created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS search_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        search_id INTEGER, search_name TEXT, mode TEXT, trigger TEXT,
+        started TEXT, finished TEXT, new_jobs INTEGER, refreshed INTEGER, rejected INTEGER,
+        errors_json TEXT, log_text TEXT
+    );
+    CREATE INDEX IF NOT EXISTS search_runs_started ON search_runs(started);
+    CREATE TABLE IF NOT EXISTS alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT NOT NULL, search_id INTEGER, score INTEGER,
+        created_at TEXT NOT NULL, seen INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (job_id, search_id)
+    );
+    CREATE INDEX IF NOT EXISTS alerts_unseen ON alerts(seen, created_at);
+    CREATE INDEX IF NOT EXISTS jobs_first_seen ON jobs(first_seen);
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -174,8 +201,14 @@ def purge_old(keep_days: int = RETENTION_DAYS) -> int:
                       "AND id NOT IN (SELECT job_id FROM tailored) "
                       "AND id NOT IN (SELECT job_id FROM job_events)", (cutoff,)).rowcount
         c.execute("DELETE FROM tailored WHERE job_id NOT IN (SELECT id FROM jobs)")
+        c.execute("DELETE FROM alerts WHERE job_id NOT IN (SELECT id FROM jobs)")
         c.execute("DELETE FROM company_runs WHERE last_success < ?", (stale_run,))
+        c.execute("DELETE FROM search_runs WHERE id NOT IN (SELECT id FROM search_runs ORDER BY id DESC LIMIT ?)",
+                  (KEEP_RUNS,))
     return n
+
+
+KEEP_RUNS = 200  # search runs kept in the history
 
 
 # ---------- settings ----------
@@ -206,6 +239,7 @@ DEFAULT_SETTINGS = {
     "max_bullets": 12,
     "keep_new_days": RETENTION_DAYS,  # untouched postings expire after this; jobs you worked on never do
     "ghost_after_days": 21,     # suggest "Ghosted" when an application has had no update for this long
+    "last_visit": None,         # when the page was last opened ("new since your last visit")
 }
 
 
@@ -277,7 +311,8 @@ JSON_COLS = ("locations_json", "states_json", "matched_json", "missing_json", "o
 # What the job list needs: everything but the (large) description columns.
 LIST_COLS = ("id", "company", "company_key", "title", "url", "location", "locations_json", "states_json",
              "remote_type", "employment_type", "worker_sub_type", "time_type", "salary_min", "salary_max",
-             "salary_text", "posted_date", "match_score", "hidden", "status", "folder", "optional_hits_json")
+             "salary_text", "posted_date", "match_score", "hidden", "status", "folder", "optional_hits_json",
+             "first_seen")
 
 
 def _now():
@@ -455,7 +490,7 @@ def save_tailored(job_id, doc, score_after, approved, rejected):
 
 
 # ---------- pipeline ----------
-PIPELINE_COLS = (*LIST_COLS, "status_at", "next_action_at", "next_action", "closed_at", "req_id", "first_seen")
+PIPELINE_COLS = (*LIST_COLS, "status_at", "next_action_at", "next_action", "closed_at", "req_id")
 
 
 def tracked_jobs():
@@ -508,3 +543,95 @@ def set_checked(job_id, at, closed=False):
             c.execute("UPDATE jobs SET checked_at = ?, closed_at = ? WHERE id = ?", (at, at, job_id))
         else:
             c.execute("UPDATE jobs SET checked_at = ? WHERE id = ?", (at, job_id))
+
+
+# ---------- saved searches, run history, alerts ----------
+SEARCH_FIELDS = ("name", "mandatory", "optional", "every_hours", "notify_min_score", "enabled")
+
+
+def saved_searches():
+    rows = read().execute("SELECT * FROM saved_searches ORDER BY name COLLATE NOCASE, id").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_saved_search(search_id):
+    r = read().execute("SELECT * FROM saved_searches WHERE id = ?", (search_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def create_saved_search(values: dict) -> int:
+    cols = [k for k in SEARCH_FIELDS if k in values]
+    with conn() as c:
+        cur = c.execute(f"INSERT INTO saved_searches({', '.join(cols)}, created_at) "
+                        f"VALUES({', '.join('?' for _ in cols)}, ?)", [values[k] for k in cols] + [_now()])
+        return cur.lastrowid
+
+
+def update_saved_search(search_id, values: dict):
+    cols = [k for k in SEARCH_FIELDS if k in values]
+    if cols:
+        with conn() as c:
+            c.execute(f"UPDATE saved_searches SET {', '.join(f'{k} = ?' for k in cols)} WHERE id = ?",
+                      [values[k] for k in cols] + [search_id])
+
+
+def delete_saved_search(search_id):
+    with conn() as c:
+        c.execute("DELETE FROM saved_searches WHERE id = ?", (search_id,))
+        c.execute("DELETE FROM alerts WHERE search_id = ?", (search_id,))
+
+
+def mark_search_ran(search_id, at):
+    with conn() as c:
+        c.execute("UPDATE saved_searches SET last_run_at = ? WHERE id = ?", (at, search_id))
+
+
+def record_run(run: dict) -> int:
+    with conn() as c:
+        cur = c.execute("INSERT INTO search_runs(search_id, search_name, mode, trigger, started, finished, new_jobs, "
+                        "refreshed, rejected, errors_json, log_text) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (run.get("search_id"), run.get("search_name"), run.get("mode"), run.get("trigger"),
+                         run.get("started"), run.get("finished"), run.get("new_jobs", 0), run.get("refreshed", 0),
+                         run.get("rejected", 0), json.dumps(run.get("errors") or []), run.get("log_text", "")))
+        return cur.lastrowid
+
+
+def search_runs(limit=30):
+    rows = read().execute("SELECT * FROM search_runs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["errors"] = json.loads(d.pop("errors_json") or "[]")
+        out.append(d)
+    return out
+
+
+def add_alerts(rows):
+    """rows: [(job_id, search_id, score)]; a job already alerted for that search is not alerted again."""
+    now = _now()
+    with conn() as c:
+        cur = c.executemany("INSERT OR IGNORE INTO alerts(job_id, search_id, score, created_at) VALUES(?, ?, ?, ?)",
+                            [(j, s, sc, now) for j, s, sc in rows])
+        return cur.rowcount
+
+
+def alerts(unseen_only=True, since=None, limit=200):
+    where, params = [], []
+    if unseen_only:
+        where.append("a.seen = 0")
+    if since:
+        where.append("a.created_at >= ?")
+        params.append(since)
+    sql = ("SELECT a.id, a.job_id, a.search_id, a.score, a.created_at, a.seen, s.name AS search_name, "
+           "j.title, j.company, j.location, j.url, j.salary_min, j.salary_max FROM alerts a "
+           "JOIN jobs j ON j.id = a.job_id LEFT JOIN saved_searches s ON s.id = a.search_id "
+           f"{'WHERE ' + ' AND '.join(where) if where else ''} ORDER BY a.score DESC, a.id DESC LIMIT ?")
+    return [dict(r) for r in read().execute(sql, (*params, limit)).fetchall()]
+
+
+def mark_alerts_seen(ids=None):
+    with conn() as c:
+        if ids is None:
+            c.execute("UPDATE alerts SET seen = 1 WHERE seen = 0")
+        else:
+            c.executemany("UPDATE alerts SET seen = 1 WHERE id = ?", [(i,) for i in ids])

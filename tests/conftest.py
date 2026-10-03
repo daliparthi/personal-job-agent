@@ -69,6 +69,7 @@ def fresh_home():
                  "companies.yaml", "companies.yaml.old", ".keychain-entries"):
         (config.HOME / name).unlink(missing_ok=True)
     shutil.rmtree(config.APPLICATIONS, ignore_errors=True)
+    shutil.rmtree(config.ALERTS, ignore_errors=True)
     config.ensure_home()
     db.init()
     yield config.HOME

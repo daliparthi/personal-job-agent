@@ -5,7 +5,7 @@ Unknown fields are ignored, so a page that is a version ahead or behind the serv
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class _Body(BaseModel):
@@ -86,6 +86,7 @@ class ResumeSaveIn(_Body):
 
 class RunIn(_Body):
     full_refresh: bool = False
+    search_id: int | None = None  # run a saved search (else the keywords in Settings)
 
 
 class StageIn(_Body):
@@ -113,3 +114,36 @@ class PathIn(_Body):
 
 class OpenIn(_Body):
     what: str = ""
+
+
+class SavedSearchIn(_Body):
+    name: str = Field(..., min_length=1, max_length=80)
+    mandatory: str = Field("", max_length=500)
+    optional: str = Field("", max_length=500)
+    every_hours: int | None = Field(None, ge=1, le=168)        # None: only when you click Run
+    notify_min_score: int | None = Field(None, ge=0, le=100)   # None: no alerts
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def _has_keywords(self):
+        if not (self.mandatory.strip() or self.optional.strip()):
+            raise ValueError("a saved search needs at least one mandatory or optional keyword")
+        return self
+
+
+class SavedSearchPatch(_Body):
+    name: str | None = Field(None, min_length=1, max_length=80)
+    mandatory: str | None = Field(None, max_length=500)
+    optional: str | None = Field(None, max_length=500)
+    every_hours: int | None = Field(None, ge=1, le=168)
+    notify_min_score: int | None = Field(None, ge=0, le=100)
+    enabled: bool | None = None
+
+    def values(self) -> dict:
+        # Only the schedule and the alert threshold can be cleared: every_hours: null turns the schedule off.
+        clearable = {"every_hours", "notify_min_score"}
+        return {k: v for k, v in self.model_dump(exclude_unset=True).items() if v is not None or k in clearable}
+
+
+class AlertsSeenIn(_Body):
+    ids: list[int] | None = None  # None: all

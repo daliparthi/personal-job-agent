@@ -3,6 +3,7 @@ import { refineWithModel, yamlHtml } from "./resume-parse.js";
 import { changeSummary, esc, getAt, renderResume, setAt, textOf, updateBlock, valueFromText } from "./resume-view.js";
 import { tailorResume } from "./tailor.js";
 import { initPipeline, openPipeline } from "./pipeline.js";
+import { initSearches, selectedSearch, syncPicker } from "./searches.js";
 
 // ---------------------------------------------------------------- helpers
 const $ = (s, r = document) => r.querySelector(s);
@@ -47,6 +48,7 @@ const STATES = { AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA:
 const S = {
   settings: null, status: null, jobs: [], sel: null, detail: null, master: null, masterYaml: "", tailored: null,
   view: "master", approved: [], rejected: [], tailoring: false, abort: null,
+  lastVisit: null, onlyNew: false, // postings first seen after lastVisit are "new since your last visit"
 };
 const llm = new LocalLLM();
 
@@ -78,7 +80,10 @@ function watchRescore() {
   rescoreTimer = setInterval(tick, 1000);
   tick();
 }
-const saveKeywords = debounce(() => saveSettings({ mandatory: $("#mandatory").value, optional: $("#optional").value }), 700);
+const saveKeywords = debounce(async () => {
+  await saveSettings({ mandatory: $("#mandatory").value, optional: $("#optional").value });
+  syncPicker(); // typed keywords may now match a saved search, or no longer do
+}, 700);
 const saveFilter = (patch) => saveSettings({ filters: { ...S.settings.filters, ...patch } });
 const saveFilterSoon = debounce(saveFilter, 500);
 
@@ -131,11 +136,14 @@ function fillSearchInputs() {
   $("#optional").value = S.settings.optional || "";
 }
 
-async function runSearch() {
+/** Run the keywords in the boxes; when they are a saved search's, the run is recorded under it. */
+async function runSearch(searchId) {
   await saveSettings({ mandatory: $("#mandatory").value, optional: $("#optional").value });
   if (!S.settings.mandatory.trim() && !S.settings.optional.trim()) return toast("Enter at least one keyword first.");
+  syncPicker();
+  const search_id = typeof searchId === "number" ? searchId : selectedSearch()?.id ?? null;
   try {
-    await api("/api/search/run", { method: "POST", body: { full_refresh: $("#full-refresh").checked } });
+    await api("/api/search/run", { method: "POST", body: { full_refresh: $("#full-refresh").checked, search_id } });
     $("#full-refresh").checked = false;
     pollSearch();
   } catch (e) { toast(e.message); }
@@ -208,13 +216,21 @@ function daysAgo(iso) {
   return d <= 0 ? "today" : d === 1 ? "1 day ago" : `${d} days ago`;
 }
 
+const isNew = (j) => !!(S.lastVisit && j.first_seen && j.first_seen > S.lastVisit);
+
 function renderJobs() {
-  $("#list-count").textContent = `${S.jobs.length} position${S.jobs.length === 1 ? "" : "s"}`;
-  if (!S.jobs.length) {
+  const fresh = S.jobs.filter(isNew).length;
+  if (!fresh) S.onlyNew = false;
+  const shown = S.onlyNew ? S.jobs.filter(isNew) : S.jobs;
+  $("#list-count").textContent = `${shown.length} position${shown.length === 1 ? "" : "s"}`;
+  const nb = $("#list-new");
+  nb.hidden = !fresh;
+  nb.textContent = S.onlyNew ? "show all" : `${fresh} new since your last visit`;
+  if (!shown.length) {
     $("#job-list").innerHTML = `<div class="empty">${S.status?.jobs ? "No positions match the current filters." : "Upload your master resume, enter keywords, then run a job search."}</div>`;
     return;
   }
-  $("#job-list").innerHTML = S.jobs.map((j) => {
+  $("#job-list").innerHTML = shown.map((j) => {
     const sc = j.match_score;
     const cls = sc == null ? "lo" : sc >= 45 ? "hi" : sc >= 25 ? "mid" : "lo";
     const where = j.states.length ? j.states.join(", ") : j.location;
@@ -223,6 +239,7 @@ function renderJobs() {
     if (j.salary_max) badges.push(`<span class="badge b-salary">${money(j.salary_min)}–${money(j.salary_max)}</span>`);
     j.optional_hits.forEach((k) => badges.push(`<span class="badge b-opt">${esc(k)}</span>`));
     if (j.status && j.status !== "new") badges.push(`<span class="badge b-status">${esc(j.status)}</span>`);
+    if (isNew(j)) badges.unshift('<span class="badge b-new" title="Found since you last opened Job Agent">new</span>');
     return `<div class="job${j.id === S.sel ? " active" : ""}${j.hidden ? " is-hidden" : ""}" data-id="${esc(j.id)}" tabindex="0">
       <div class="score ${cls}" title="Match with your master resume">${sc ?? "–"}</div>
       <div class="job-title">${esc(j.title)}</div>
@@ -781,7 +798,8 @@ async function openApplications() {
 
 // ---------------------------------------------------------------- events
 function bindEvents() {
-  $("#btn-run").onclick = runSearch;
+  $("#btn-run").onclick = () => runSearch();
+  $("#list-new").onclick = () => { S.onlyNew = !S.onlyNew; renderJobs(); };
   $("#btn-stop").onclick = () => api("/api/search/stop", { method: "POST" });
   $("#btn-log").onclick = () => { $("#log").hidden = !$("#log").hidden; };
   $("#mandatory").addEventListener("input", saveKeywords);
@@ -921,6 +939,19 @@ async function init() {
   updateChips();
   renderResumePane();
   bindEvents();
+  try { S.lastVisit = (await api("/api/visit", { method: "POST" })).previous; } catch { /* no "new" badges */ }
+  await initSearches({
+    api, toast,
+    getKeywords: () => ({ mandatory: $("#mandatory").value, optional: $("#optional").value }),
+    setKeywords: async (mandatory, optional) => {
+      $("#mandatory").value = mandatory;
+      $("#optional").value = optional;
+      await saveSettings({ mandatory, optional });
+    },
+    runSearch: (id) => runSearch(id),
+    selectJob: (id) => selectJob(id),
+    onSearchRunning: () => pollSearch(),
+  });
   initPipeline({
     api, toast,
     onShowJob: (id) => selectJob(id),

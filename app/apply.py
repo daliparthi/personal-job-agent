@@ -21,7 +21,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import db, envfile, pipeline
-from .config import APPLICATIONS, BROWSER_PROFILE, ENV_FILE, HOME, MASTER_YAML
+from .config import ALERTS, APPLICATIONS, BROWSER_PROFILE, ENV_FILE, HOME, MASTER_YAML
 from .master import TAILORED_HEADER, dump
 from .resume_io import clean_resume, to_docx, to_html, to_text
 from .workday import is_workday_host
@@ -347,9 +347,12 @@ def open_folder(path: str):
 
 
 def open_personal(what: str):
-    """Open your personal folder, or your .env / master_resume.yaml in a text editor."""
+    """Open your personal folder or its Alerts folder, or your .env / master_resume.yaml in a text editor."""
     if what == "home":
         return _reveal(HOME)
+    if what == "alerts":
+        ALERTS.mkdir(parents=True, exist_ok=True)
+        return _reveal(ALERTS)
     target = {"env": ENV_FILE, "master": MASTER_YAML}.get(what)
     if not target or not target.exists():
         raise ValueError("Nothing to open")

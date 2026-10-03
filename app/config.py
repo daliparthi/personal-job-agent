@@ -43,6 +43,7 @@ HOME_ID = hashlib.sha1(str(HOME).lower().encode()).hexdigest()[:16]  # names thi
 DB_PATH = HOME / "jobs.db"
 BROWSER_PROFILE = HOME / "browser-profile"
 APPLICATIONS = HOME / "Applications"
+ALERTS = HOME / "Alerts"  # daily digests of strong new matches found by scheduled searches
 MY_COMPANIES = HOME / "my_companies.yaml"
 OLD_COMPANIES_COPY = HOME / "companies.yaml"  # stale copy made by earlier versions; migrated away
 MASTER_YAML = HOME / "master_resume.yaml"

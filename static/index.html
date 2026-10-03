@@ -18,6 +18,7 @@
     <span class="chip" id="chip-model" title="Qwen2.5-0.5B runs in this browser tab: CPU by default, GPU when available">Model: not loaded</span>
     <span class="chip" id="chip-resume">No master resume</span>
     <span class="chip" id="chip-jobs">0 jobs</span>
+    <button type="button" class="chip alert-chip" id="chip-alerts" hidden title="Strong new matches found by your scheduled searches"></button>
   </div>
   <div class="top-actions">
     <button class="btn" id="btn-load-model">Load model</button>
@@ -30,6 +31,14 @@
 </header>
 
 <section class="searchbar card">
+  <div class="field saved-field">
+    <label for="saved-search">Saved search <span class="hint">named keywords, can run on a schedule</span></label>
+    <div class="saved-row">
+      <select id="saved-search"><option value="">Current keywords</option></select>
+      <button type="button" class="btn small" id="btn-save-search" title="Save these keywords as a named search, optionally on a schedule with alerts">Save…</button>
+      <button type="button" class="btn small" id="btn-manage-searches" title="Saved searches, run history, searching while Job Agent is closed">Manage</button>
+    </div>
+  </div>
   <div class="field grow">
     <label for="mandatory">Mandatory keywords <span class="hint">every one must appear in the posting</span></label>
     <input id="mandatory" placeholder="e.g. python, SQL, data engineer" autocomplete="off">
@@ -82,6 +91,7 @@
   <section class="pane list-pane" aria-label="Positions">
     <div class="pane-head">
       <strong id="list-count">0 positions</strong>
+      <button type="button" class="linkish" id="list-new" hidden title="Show only postings found since you last opened Job Agent"></button>
       <span class="hint">sorted by match, then salary</span>
     </div>
     <div class="job-list" id="job-list">
@@ -228,6 +238,75 @@
     <p class="hint">Saved in the <code>Applications</code> folder of your personal folder, one folder per company.</p>
     <div id="apps-list"></div>
     <div class="dialog-actions"><span class="spacer"></span><button class="btn" id="apps-close">Close</button></div>
+  </div>
+</dialog>
+
+<!-- save / edit a saved search -->
+<dialog id="search-dialog" class="dialog" aria-labelledby="ss-title">
+  <form method="dialog" class="dialog-body" id="search-form">
+    <h2 id="ss-title">Save search</h2>
+    <label>Name<input name="name" maxlength="80" required placeholder="e.g. Data engineering, Austin"></label>
+    <label>Mandatory keywords<input name="mandatory" maxlength="500" placeholder="every one must appear"></label>
+    <label>Optional keywords<input name="optional" maxlength="500" placeholder="refine and highlight"></label>
+    <div class="grid2">
+      <label>Run on its own
+        <select name="every_hours">
+          <option value="">Only when I click Run</option><option value="1">Every hour</option>
+          <option value="3">Every 3 hours</option><option value="6">Every 6 hours</option>
+          <option value="12">Every 12 hours</option><option value="24">Once a day</option>
+          <option value="168">Once a week</option>
+        </select></label>
+      <label>Alert me about new matches scoring
+        <select name="notify_min_score">
+          <option value="">No alerts</option><option value="40">40 or more</option><option value="50">50 or more</option>
+          <option value="60">60 or more</option><option value="70">70 or more</option><option value="80">80 or more</option>
+        </select></label>
+    </div>
+    <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
+    <p class="hint">Scheduled searches run while Job Agent is open (Manage shows how to run them while it is closed).
+      Alerts appear at the top of the page, as desktop notifications if you allow them, and in a daily page in your
+      personal folder's <code>Alerts</code> folder. Companies, your current employer and filters come from Settings.</p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="ss-delete" hidden>Delete</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="ss-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="ss-save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- manage saved searches + run history -->
+<dialog id="searches-dialog" class="dialog wide" aria-labelledby="sm-title">
+  <div class="dialog-body">
+    <h2 id="sm-title">Saved searches</h2>
+    <div id="sm-list"></div>
+    <fieldset>
+      <legend>While Job Agent is closed</legend>
+      <p class="hint" id="sm-how"></p>
+      <pre class="log" id="sm-register"></pre>
+      <div class="path-row"><button type="button" class="btn small" id="sm-copy">Copy command</button>
+        <button type="button" class="btn small" id="sm-notify">Allow desktop notifications</button>
+        <button type="button" class="btn small" id="sm-open-alerts">Open Alerts folder</button></div>
+      <p class="hint" id="sm-note"></p>
+    </fieldset>
+    <h3 class="sm-h3">Recent runs</h3>
+    <div id="sm-runs"></div>
+    <div class="dialog-actions"><span class="spacer"></span><button type="button" class="btn" id="sm-close">Close</button></div>
+  </div>
+</dialog>
+
+<!-- new-match alerts -->
+<dialog id="alerts-dialog" class="dialog wide" aria-labelledby="al-title">
+  <div class="dialog-body">
+    <h2 id="al-title">New matches</h2>
+    <p class="hint">Found by your scheduled searches. Click one to open it.</p>
+    <div id="al-list"></div>
+    <div class="dialog-actions">
+      <button type="button" class="btn small" id="al-folder">Open Alerts folder</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="al-seen">Mark all as seen</button>
+      <button type="button" class="btn" id="al-close">Close</button>
+    </div>
   </div>
 </dialog>
 
