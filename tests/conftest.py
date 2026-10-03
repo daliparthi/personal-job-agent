@@ -54,19 +54,20 @@ SAMPLE_RESUME = ROOT / "samples" / "sample_master_resume.txt"
 
 
 def _release_db():
-    """Let background re-scoring finish and close every SQLite connection (Windows can't delete an open file)."""
+    """Let background re-scoring finish before the database is reset."""
     from app import search
     search.rescorer.wait(30)
-    db.close_all()
 
 
 @pytest.fixture(autouse=True)
 def fresh_home():
-    """An empty personal folder and database for every test."""
+    """An empty personal folder and database for every test. The database is emptied, not deleted: other threads
+    (the test client's workers) may still hold connections to it, and Windows can't delete an open file."""
     _release_db()
     KEYCHAIN.store.clear()
-    for name in ("jobs.db", "jobs.db-wal", "jobs.db-shm", "my_companies.yaml", "master_resume.yaml", ".env",
-                 "companies.yaml", "companies.yaml.old", ".keychain-entries"):
+    db.wipe()
+    for name in ("my_companies.yaml", "master_resume.yaml", ".env", "companies.yaml", "companies.yaml.old",
+                 ".keychain-entries"):
         (config.HOME / name).unlink(missing_ok=True)
     shutil.rmtree(config.APPLICATIONS, ignore_errors=True)
     shutil.rmtree(config.ALERTS, ignore_errors=True)

@@ -13,10 +13,8 @@ from tests.conftest import FIXTURES, make_job
 
 
 def _legacy_db():
-    """Replace jobs.db with one made by Job Agent before migrations existed."""
-    db.close_all()
-    for suffix in ("", "-wal", "-shm"):
-        (config.HOME / f"jobs.db{suffix}").unlink(missing_ok=True)
+    """Turn jobs.db into one made by Job Agent before migrations existed (user_version 0, the original tables)."""
+    db.wipe()
     c = sqlite3.connect(config.DB_PATH)
     c.executescript((FIXTURES / "legacy_jobs_db.sql").read_text(encoding="utf-8"))
     c.commit()

@@ -117,35 +117,63 @@ SCHEMA_VERSION = len(MIGRATIONS)
 # ---------------------------------------------------------------- connections
 _local = threading.local()
 _registry_lock = threading.Lock()
-_open = set()      # every connection handed out, so close_all() can close them
-_generation = 0    # bumped by close_all(); a thread whose connection is older reconnects
+_open = {}         # connection -> the thread that owns it
+_generation = 0    # bumped by close_all(); a thread whose connection is older replaces it on its next call
+
+
+def _close(c):
+    try:
+        c.close()
+    except sqlite3.Error:
+        pass
 
 
 def _connect():
     c = getattr(_local, "c", None)
-    if c is None or _local.gen != _generation:
+    if c is not None and _local.gen != _generation:  # close_all() ran: drop our old connection (we own it)
+        with _registry_lock:
+            _open.pop(c, None)
+        _close(c)
+        c = None
+    if c is None:
         c = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None, check_same_thread=False)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA synchronous=NORMAL")  # safe with WAL; much faster commits
         c.execute("PRAGMA foreign_keys=ON")
         with _registry_lock:
-            _open.add(c)
+            _open[c] = threading.current_thread()
         _local.c, _local.gen = c, _generation
     return c
 
 
 def close_all():
-    """Close every thread's connection (shutdown, tests). Threads reconnect on their next call."""
+    """Close this thread's connection and those of threads that have ended (shutdown, tests).
+
+    A connection still owned by a running thread is never closed from here, as that could pull it out from under a
+    query in progress (a native crash); that thread closes it itself on its next database call."""
     global _generation
+    mine = getattr(_local, "c", None)
     with _registry_lock:
         _generation += 1
-        conns = list(_open)
-        _open.clear()
-    for c in conns:
-        try:
-            c.close()
-        except sqlite3.Error:
-            pass
+        done = [c for c, owner in _open.items() if c is mine or not owner.is_alive()]
+        for c in done:
+            del _open[c]
+    for c in done:
+        _close(c)
+    if mine is not None:
+        _local.c = None
+
+
+def wipe():
+    """Drop every table (tests): the next init() builds the schema from scratch. Works while other threads still
+    hold connections, unlike deleting the file (which Windows refuses)."""
+    c = _connect()
+    tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
+                                      "AND name NOT LIKE 'sqlite_%'")]
+    with conn() as w:
+        for name in tables:
+            w.execute(f'DROP TABLE IF EXISTS "{name}"')
+        w.execute("PRAGMA user_version = 0")
 
 
 @contextmanager
