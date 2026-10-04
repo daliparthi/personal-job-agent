@@ -23,7 +23,8 @@ from urllib.parse import urlsplit
 from . import db, envfile, pipeline
 from .config import ALERTS, APPLICATIONS, BROWSER_PROFILE, ENV_FILE, HOME, MASTER_YAML
 from .master import TAILORED_HEADER, dump
-from .resume_io import clean_resume, to_docx, to_html, to_text
+from .resume_io import (answers_text, clean_letter, clean_resume, letter_docx, letter_html, letter_text, to_docx,
+                        to_html, to_text)
 from .workday import is_workday_host
 
 AUTOFILL_JS = (Path(__file__).parent / "autofill.js").read_text(encoding="utf-8")
@@ -52,6 +53,36 @@ def trusted_frame(frame) -> bool:
         return is_workday_host(urlsplit(frame.url).hostname)
     except Exception:
         return False
+
+
+# The text that labels a file input: its <label>, aria label, or the Workday form field around it.
+UPLOAD_LABEL_JS = """el => {
+  const parts = [...(el.labels || [])].map((l) => l.innerText);
+  for (const id of (el.getAttribute("aria-labelledby") || "").split(/\\s+/)) {
+    const n = id && document.getElementById(id);
+    if (n) parts.push(n.innerText);
+  }
+  parts.push(el.getAttribute("aria-label") || "", el.getAttribute("name") || "", el.id || "");
+  let p = el.parentElement;
+  for (let i = 0; p && i < 8; i++, p = p.parentElement) {
+    const aid = p.getAttribute("data-automation-id") || "";
+    if (/^formField|fileUpload|attachments/i.test(aid) || ["FIELDSET", "SECTION"].includes(p.tagName)
+        || p.getAttribute("role") === "group") { parts.push((p.innerText || "").slice(0, 300)); break; }
+  }
+  return parts.join(" ").slice(0, 600);
+}"""
+
+_RESUME_WORDS = re.compile(r"\b(resume|résumé|cv|curriculum vitae)\b", re.I)
+_COVER_WORDS = re.compile(r"cover[\s_-]*letter|letter of (interest|motivation)|motivation(al)? letter", re.I)
+
+
+def upload_kind(label: str) -> str:
+    """What a file upload control wants, from its label: "resume", "cover_letter" or "other"."""
+    if _RESUME_WORDS.search(label or ""):
+        return "resume"
+    if _COVER_WORDS.search(label or ""):
+        return "cover_letter"
+    return "other"
 
 
 def safe_name(s: str, limit=80) -> str:
@@ -155,7 +186,7 @@ class BrowserWorker:
             return True
         return None
 
-    async def _open(self, job_id, url, profile, resume_path, folder, account):
+    async def _open(self, job_id, url, profile, resume_path, folder, account, cover_path=None):
         ctx = await self._context()
         page = await ctx.new_page()
         page_profile = {**profile, "email": profile.get("email") or account["email"],
@@ -170,7 +201,7 @@ class BrowserWorker:
             await page.locator('[data-automation-id="adventureButton"]').first.click(timeout=15000)
         except Exception:
             pass
-        asyncio.ensure_future(self._upload_loop(page, urlsplit(url).hostname, resume_path))
+        asyncio.ensure_future(self._upload_loop(page, urlsplit(url).hostname, resume_path, cover_path))
         asyncio.ensure_future(self._account_loop(page, urlsplit(url).hostname, account))
         return True
 
@@ -203,31 +234,44 @@ class BrowserWorker:
                 pass
             await asyncio.sleep(1.5)
 
-    async def _upload_loop(self, page, host, resume_path):
-        """Attach the tailored resume whenever Workday shows a resume upload control.
+    async def _upload_loop(self, page, host, resume_path, cover_path=None):
+        """Attach the tailored resume whenever Workday shows a resume upload control, and the cover letter when an
+        upload control's label asks for one.
 
         Only on the posting's own Workday host (or another Workday career-site host), never on any other site."""
-        done = set()
+        done = set()  # (page address, "resume" | "cover_letter")
         while not page.is_closed():
             try:
                 current = urlsplit(page.url).hostname
                 if current == host or is_workday_host(current):
-                    inputs = page.locator('input[type="file"][data-automation-id="file-upload-input-ref"]')
-                    if not await inputs.count():
-                        inputs = page.locator('input[type="file"]')
-                    existing = await page.locator('[data-automation-id="file-upload-item"], '
-                                                  '[data-automation-id="fileUploadItem"]').count()
-                    key = page.url.split("?")[0]
-                    if await inputs.count() and not existing and key not in done:
-                        await inputs.first.set_input_files(str(resume_path))
-                        done.add(key)
+                    await self._attach_files(page, resume_path, cover_path, done)
             except Exception:
                 pass
             await asyncio.sleep(2)
 
-    async def open_application(self, job_id, url, profile, resume_path, folder, tenant):
+    @staticmethod
+    async def _attach_files(page, resume_path, cover_path, done):
+        inputs = page.locator('input[type="file"]')
+        n = min(await inputs.count(), 8)
+        if not n:
+            return
+        key = page.url.split("?")[0]
+        kinds = [upload_kind(await inputs.nth(i).evaluate(UPLOAD_LABEL_JS)) for i in range(n)]
+        if (key, "resume") not in done:
+            existing = await page.locator('[data-automation-id="file-upload-item"], '
+                                          '[data-automation-id="fileUploadItem"]').count()
+            # the control labelled resume/CV, else the first one that isn't for something else (a cover letter)
+            at = kinds.index("resume") if "resume" in kinds else kinds.index("other") if "other" in kinds else None
+            if at is not None and not existing:
+                await inputs.nth(at).set_input_files(str(resume_path))
+                done.add((key, "resume"))
+        if cover_path and (key, "cover_letter") not in done and "cover_letter" in kinds:
+            await inputs.nth(kinds.index("cover_letter")).set_input_files(str(cover_path))
+            done.add((key, "cover_letter"))
+
+    async def open_application(self, job_id, url, profile, resume_path, folder, tenant, cover_path=None):
         account = envfile.account_for(tenant)
-        return await self.call(self._open, job_id, url, profile, resume_path, folder, account)
+        return await self.call(self._open, job_id, url, profile, resume_path, folder, account, cover_path)
 
 
 worker = BrowserWorker()
@@ -249,12 +293,12 @@ th{{text-align:left;padding-right:16px;color:#555;font-weight:600}}table{{margin
 <body><h1>{htmllib.escape(job['title'])}</h1><table>{rows}</table><hr>{job.get('description_html') or ''}</body></html>"""
 
 
-def _resume_basename(profile):
+def _resume_basename(profile, what="Resume"):
     first, last = (profile.get("first_name") or "").strip(), (profile.get("last_name") or "").strip()
-    return safe_name(f"{first}_{last}_Resume") if first or last else "Tailored_Resume"
+    return safe_name(f"{first}_{last}_{what}") if first or last else f"Tailored_{what}"
 
 
-async def save_package(job, resume, score_before, score_after, approved, rejected, profile):
+async def save_package(job, resume, score_before, score_after, approved, rejected, profile, letter=None):
     folder = APPLICATIONS / safe_name(job["company"], 60) / safe_name(f"{job['title']} - {job.get('req_id') or ''}", 90)
     folder.mkdir(parents=True, exist_ok=True)
     resume = clean_resume(resume)
@@ -271,6 +315,10 @@ async def save_package(job, resume, score_before, score_after, approved, rejecte
         await worker.render_pdf(to_html(resume, title=base), pdf_path)
     except Exception as e:
         pdf_error = str(e)
+    letter = clean_letter(letter)
+    cover = None
+    if letter:
+        cover = await _save_letter(folder, letter, resume, job, _resume_basename(profile, "Cover_Letter"))
     (folder / "job_description.html").write_text(_jd_html(job), encoding="utf-8")
     (folder / "job_description.txt").write_text(f"{job['title']}\n{job['company']}\n{job.get('url')}\n\n"
                                                 f"{job.get('description_text') or ''}", encoding="utf-8")
@@ -286,11 +334,33 @@ async def save_package(job, resume, score_before, score_after, approved, rejecte
         "status": meta["status"] if pipeline.rank(meta.get("status")) >= pipeline.rank("applied") else "prepared",
         "prepared_at": datetime.now().isoformat(timespec="seconds"),
         "files": {"resume_docx": docx_path.name, "resume_pdf": pdf_path.name if not pdf_error else None,
-                  "resume_yaml": "tailored_resume.yaml", "job_description": "job_description.html"},
+                  "resume_yaml": "tailored_resume.yaml", "job_description": "job_description.html",
+                  "cover_letter_docx": cover and Path(cover["docx"]).name,
+                  "cover_letter_pdf": cover and cover["pdf"] and Path(cover["pdf"]).name,
+                  "cover_letter_txt": cover and Path(cover["txt"]).name,
+                  "short_answers": cover and cover["answers"] and Path(cover["answers"]).name},
     })
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return {"folder": str(folder), "docx": str(docx_path), "pdf": None if pdf_error else str(pdf_path),
-            "pdf_error": pdf_error}
+            "pdf_error": pdf_error, "cover_letter": cover}
+
+
+async def _save_letter(folder, letter, resume, job, base):
+    """Cover_Letter .docx / .txt / .pdf (and Short_Answers.txt) next to the resume. Returns their paths."""
+    docx_path, txt_path, pdf_path = (folder / f"{base}{ext}" for ext in (".docx", ".txt", ".pdf"))
+    letter_docx(letter, resume, docx_path)
+    txt_path.write_text(letter_text(letter, resume), encoding="utf-8")
+    pdf_error = None
+    try:
+        await worker.render_pdf(letter_html(letter, resume, title=base), pdf_path)
+    except Exception as e:
+        pdf_error = str(e)
+    answers = None
+    if letter["answers"]:
+        answers = folder / "Short_Answers.txt"
+        answers.write_text(answers_text(letter, job), encoding="utf-8")
+    return {"docx": str(docx_path), "txt": str(txt_path), "pdf": None if pdf_error else str(pdf_path),
+            "pdf_error": pdf_error, "answers": answers and str(answers)}
 
 
 APPLIED_HOW = {"manual": "marked as applied", "detected": "submission confirmed on Workday"}

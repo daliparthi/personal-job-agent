@@ -328,6 +328,44 @@ def _sentences(text):
     return [s for s in re.split(r"(?<=[.!?])\s+|\n", text or "") if s.strip()]
 
 
+_NOT_ABOUT = re.compile(r"\b(apply|applying|application|applicants?|candidates?|please|click|resume|cv|recruit\w*)\b", re.I)
+
+
+_ABOUT_HEADING = re.compile(r"^\W*(about\b|who we are|our (company|mission|story|team)|the (company|team)\b|"
+                            r"company (overview|description|profile))", re.I)
+
+
+def _about_text(text: str) -> str:
+    """The text before the first heading, plus any "About <company>" / "Who we are" section (which scoring counts
+    as boilerplate)."""
+    out, take = [], True
+    for line in (text or "").split("\n"):
+        if _heading_kind(line):
+            take = bool(_ABOUT_HEADING.match(line))
+        elif take:
+            out.append(line)
+    return "\n".join(out)
+
+
+def jd_digest(text: str, about=3, duties=4) -> dict:
+    """The posting's own words for the cover letter and short answers: the first sentences about the company (or
+    team), and the first listed duties. Pay, benefits, EEO text and how-to-apply instructions are left out."""
+    out = {"about": [], "duties": []}
+    for s in _sentences(_about_text(text)):
+        s = s.strip(" •-*·▪\t")
+        if 40 <= len(s) <= 300 and s[-1:] in ".!" and not _BOILER_LINE.search(s) and not _NOT_ABOUT.search(s):
+            out["about"].append(s)
+            if len(out["about"]) >= about:
+                break
+    for line in section_text(jd_sections(text), ("responsibilities",)).split("\n"):
+        line = line.strip(" •-*·▪\t")
+        if 15 <= len(line) <= 240 and not line.endswith(":"):
+            out["duties"].append(line)
+            if len(out["duties"]) >= duties:
+                break
+    return out
+
+
 # "...preferred", "...is a plus": a wish, not a requirement
 _WISH = re.compile(r"\b(preferred|a plus|is a bonus|nice[- ]to[- ]have|desired|desirable|ideally)\b", re.I)
 

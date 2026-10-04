@@ -11,19 +11,6 @@ JOB_URL = "/api/jobs/" + "/".join(quote(p, safe=":") for p in JOB.split("/"))
 
 
 @pytest.fixture
-def anon():
-    with TestClient(main.app) as c:
-        yield c
-
-
-@pytest.fixture
-def client(anon):
-    r = anon.get(f"/?key={main.SESSION_KEY}", follow_redirects=False)
-    assert r.status_code == 303 and main.COOKIE in r.cookies
-    return anon
-
-
-@pytest.fixture
 def fake_pdf(monkeypatch):
     async def render(html, out_path):
         out_path.write_bytes(b"%PDF-1.4 test")

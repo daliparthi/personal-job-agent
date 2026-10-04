@@ -17,6 +17,7 @@ Writing (text / HTML for PDF / DOCX) renders the master_resume.yaml schema (see 
 import html
 import io
 import re
+from datetime import date
 
 SECTION_WORDS = {
     "summary": ["summary", "professional summary", "profile", "professional profile", "objective",
@@ -361,3 +362,126 @@ def to_docx(res: dict, path):
         else:
             doc.add_paragraph(text)
     doc.save(path)
+
+
+# ---------------------------------------------------------------- cover letter (written next to the resume)
+def clean_letter(letter):
+    """The cover letter the page saved ({greeting, paragraphs, signoff, name, date, answers, changes}) reduced to
+    the text that is written out, or None when there is no letter."""
+    if not isinstance(letter, dict):
+        return None
+    paragraphs = [p.strip() for p in letter.get("paragraphs") or [] if isinstance(p, str) and p.strip()]
+    if not paragraphs:
+        return None
+    answers = []
+    for a in letter.get("answers") or []:
+        if isinstance(a, dict) and str(a.get("text") or "").strip():
+            answers.append({"question": str(a.get("question") or "").strip(), "text": str(a["text"]).strip()})
+    return {"greeting": str(letter.get("greeting") or "").strip(), "paragraphs": paragraphs,
+            "signoff": str(letter.get("signoff") or "Sincerely,").strip(), "name": str(letter.get("name") or "").strip(),
+            "date": str(letter.get("date") or "").strip(), "answers": answers}
+
+
+def long_date(iso: str) -> str:
+    """'2026-10-04' -> 'October 4, 2026' (anything else is kept as it is)."""
+    try:
+        d = date.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return iso or ""
+    return f"{d:%B} {d.day}, {d.year}"
+
+
+def letter_layout(letter: dict, res: dict):
+    """(kind, text) items: the resume's name and contact lines, then date, greeting, paragraphs and signature."""
+    items = [it for it in layout(res) if it[0] in ("name", "contact")]
+    if letter.get("date"):
+        items.append(("date", long_date(letter["date"])))
+    if letter.get("greeting"):
+        items.append(("greeting", letter["greeting"]))
+    items += [("p", t) for t in letter["paragraphs"]]
+    items.append(("signoff", letter.get("signoff") or "Sincerely,"))
+    name = letter.get("name") or (res or {}).get("name")
+    if name:
+        items.append(("signature", name))
+    return items
+
+
+def letter_text(letter: dict, res: dict) -> str:
+    out, prev = [], None
+    for kind, text in letter_layout(letter, res):
+        if prev and not (prev in ("name", "contact") and kind == "contact") and not (prev == "signoff"):
+            out.append("")
+        out.append(text)
+        prev = kind
+    return "\n".join(out).strip() + "\n"
+
+
+def letter_html(letter: dict, res: dict, title="Cover letter") -> str:
+    parts = []
+    for kind, text in letter_layout(letter, res):
+        t = html.escape(text)
+        if kind == "name":
+            parts.append(f"<h1>{t}</h1>")
+        elif kind == "contact":
+            parts.append(f'<p class="contact">{t}</p>')
+        elif kind == "signoff":
+            parts.append(f'<p class="signoff">{t}</p>')
+        elif kind == "signature":
+            parts.append(f'<p class="signature">{t}</p>')
+        else:
+            parts.append(f'<p class="{kind}">{t}</p>')
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>{html.escape(title)}</title>
+<style>
+ body {{ font-family: Calibri, Arial, Helvetica, sans-serif; font-size: 11pt; color: #111; margin: 0; line-height: 1.4;
+        font-variant-ligatures: none; font-feature-settings: "liga" 0, "clig" 0, "dlig" 0; }}
+ h1 {{ font-size: 18pt; margin: 0 0 2pt; text-align: center; }}
+ .contact {{ text-align: center; margin: 0; font-size: 9.5pt; }}
+ .date {{ margin: 22pt 0 14pt; }}
+ p {{ margin: 0 0 10pt; }}
+ .signoff {{ margin: 16pt 0 2pt; }}
+</style></head><body>{''.join(parts)}</body></html>"""
+
+
+def letter_docx(letter: dict, res: dict, path):
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Inches, Pt
+
+    doc = Document()
+    for sec in doc.sections:
+        sec.left_margin = sec.right_margin = Inches(0.9)
+        sec.top_margin = sec.bottom_margin = Inches(0.8)
+    normal = doc.styles["Normal"]
+    normal.font.name = "Calibri"
+    normal.font.size = Pt(11)
+    normal.paragraph_format.space_after = Pt(8)
+    for kind, text in letter_layout(letter, res):
+        if kind == "name":
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            r = p.add_run(text)
+            r.bold = True
+            r.font.size = Pt(16)
+            p.paragraph_format.space_after = Pt(0)
+        elif kind == "contact":
+            p = doc.add_paragraph(text)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.space_after = Pt(0)
+        elif kind == "date":
+            p = doc.add_paragraph(text)
+            p.paragraph_format.space_before = Pt(18)
+        elif kind == "signoff":
+            p = doc.add_paragraph(text)
+            p.paragraph_format.space_before = Pt(10)
+            p.paragraph_format.space_after = Pt(0)
+        else:
+            doc.add_paragraph(text)
+    doc.save(path)
+
+
+def answers_text(letter: dict, job: dict) -> str:
+    """The short answers, ready to paste into an application form."""
+    out = [f"Short answers for {job.get('title')} at {job.get('company')}", ""]
+    for a in letter.get("answers") or []:
+        out += [a["question"], a["text"], ""]
+    return "\n".join(out).strip() + "\n"

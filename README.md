@@ -46,7 +46,8 @@ Then:
    Click **Edit .env** and put your Workday email and password in it (optional, see [Applying](#applying)).
 3. Type **mandatory** keywords (and optional ones), click **Run job search**.
 4. Pick a position → **Tailor my resume for this position only** → approve/reject each missing keyword → watch the
-   resume being edited live → hover any changed line to **Undo** it → **Save package** or **Apply with autofill**.
+   resume being edited live → hover any changed line to **Undo** it → optionally **Write cover letter** →
+   **Save package** or **Apply with autofill**.
 
 Manual start: `<environment>/bin/python run.py` (Windows: `.venv\Scripts\python run.py`), options below.
 
@@ -115,8 +116,9 @@ options: `--port 8800`, `--no-browser`.
 | Tailor for one position | Only the selected posting. Runs Qwen2.5-0.5B locally and streams the edit **word by word** into the resume. |
 | Missing keywords | Before tailoring, a pop-up walks through each missing keyword with where the JD uses it — **Approve** (you really have it) or **Reject**. Only approved keywords can be added. |
 | Undo each change | Hover any line the tailoring changed: **↶ Undo** appears at its end (then **↷ Redo**). Lines the AI wrote but held back offer **Use AI version**. |
-| Help apply | Opens the posting in a separate Chrome, Edge or Chromium window, clicks the posting's *Apply* button, fills Workday's Create Account / Sign In form from `.env`, uploads the tailored resume and fills standard fields. **You click Create Account, Sign In and Submit.** |
-| Applied jobs folder | `Applications/<Company>/<Job title - ReqID>/` in your personal folder: the tailored resume (DOCX, PDF, TXT, `tailored_resume.yaml`), the job description (HTML, TXT) and `application.json`. |
+| Cover letter + short answers | **Write cover letter** (after tailoring) drafts a letter and answers to three common application questions from your tailored resume, with the same checks and undo as the resume. See [Cover letters and short answers](#cover-letters-and-short-answers). |
+| Help apply | Opens the posting in a separate Chrome, Edge or Chromium window, clicks the posting's *Apply* button, fills Workday's Create Account / Sign In form from `.env`, uploads the tailored resume (and the cover letter where a field asks for one) and fills standard fields. **You click Create Account, Sign In and Submit.** |
+| Applied jobs folder | `Applications/<Company>/<Job title - ReqID>/` in your personal folder: the tailored resume (DOCX, PDF, TXT, `tailored_resume.yaml`), the cover letter (DOCX, PDF, TXT) and `Short_Answers.txt` when you wrote them, the job description (HTML, TXT) and `application.json`. |
 
 ---
 
@@ -198,6 +200,28 @@ A 0.5B model is small, so every line it writes is checked:
 * **Undo / Redo:** hover any changed line; the control appears at the end of the line. Removed lines (such as an undone
   `Additional:` line) stay visible struck through so you can redo them. Click any line to edit it yourself — your edit
   can be undone too. Everything is saved and re-scored as you go.
+
+## Cover letters and short answers
+
+**Write cover letter** (resume pane, after tailoring) opens the **Cover letter** tab and writes:
+
+* **Opening and closing** from fixed templates: the position and company, your summary's first sentence as an
+  introduction ("I am a data engineer with 8 years of …"), and up to three skills your resume and the posting share.
+* **One or two body paragraphs**, each about the job or project whose bullets best match the posting. Each starts as
+  a plain paragraph made only of your bullets ("As Senior Data Engineer at Northwind, I designed … I also migrated …");
+  the AI then rewrites it.
+* **Short answers** to *Why are you interested in this role?*, *Why do you want to work at …?* and *What relevant
+  experience do you have?*, written from your bullets and the posting's own words about the company and the role.
+  Make the "why this company" one personal. **Copy** puts an answer on the clipboard.
+
+The AI versions get the same checks as tailored resume lines: a new number, a tool or company your resume doesn't
+mention, or a keyword you didn't approve keeps the plain version and offers **Use AI version**; an unfinished or
+garbled reply is dropped; a paragraph that adds more than a few words of its own is marked amber. Undo, redo and
+editing work as in the tailored resume, and everything is saved with the tailored resume.
+
+**Save package** then also writes `<First>_<Last>_Cover_Letter.docx` / `.pdf` / `.txt` and `Short_Answers.txt`, and
+the apply window attaches the cover letter when a Workday upload field is labelled *Cover letter* (a field labelled
+*Resume/CV*, or an unlabelled one, gets the resume as before).
 
 ## The AI engine: CPU by default, GPU when available
 
@@ -380,6 +404,7 @@ static/              browser UI
   js/llm.js          Qwen engine (CPU default, GPU when available)
   js/resume-parse.js model step that builds master_resume.yaml
   js/tailor.js       live tailoring + line checks   js/resume-view.js  rendering, diff, undo controls
+  js/coverletter.js  cover letter + short answers (plain versions from your bullets, AI rewrites, checks)
   js/pipeline.js     the Pipeline board
   js/searches.js     saved searches, run history, alerts
 models/              Qwen2.5-0.5B files (CPU model in 6 parts)    static/vendor/  WebLLM, Transformers.js, ONNX Runtime

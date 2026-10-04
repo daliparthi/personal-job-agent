@@ -105,13 +105,15 @@
       <div class="tabs" role="tablist">
         <button role="tab" class="tab active" data-view="master">Master</button>
         <button role="tab" class="tab" data-view="tailored" id="tab-tailored" disabled>Tailored</button>
+        <button role="tab" class="tab" data-view="letter" id="tab-letter" disabled>Cover letter</button>
       </div>
       <div class="score-line" id="score-line"></div>
     </div>
     <div class="toolbar">
       <button class="btn primary" id="btn-tailor" disabled>Tailor my resume for this position only</button>
       <button class="btn" id="btn-tailor-stop" hidden>Stop</button>
-      <button class="btn" id="btn-package" disabled title="Save tailored resume + job description to Applications/&lt;Company&gt;">Save package</button>
+      <button class="btn" id="btn-letter" disabled title="Drafts a cover letter and short answers from your tailored resume; saved with the package">Write cover letter</button>
+      <button class="btn" id="btn-package" disabled title="Save tailored resume, cover letter + job description to Applications/&lt;Company&gt;">Save package</button>
       <button class="btn" id="btn-apply" disabled title="Opens the posting in a separate browser window and fills standard fields">Apply with autofill</button>
       <button class="btn" id="btn-applied" disabled>Mark applied</button>
       <button class="btn" id="btn-edit-yaml" hidden title="View or edit master_resume.yaml">Edit YAML</button>

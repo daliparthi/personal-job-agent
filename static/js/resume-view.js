@@ -187,3 +187,35 @@ export function changeSummary(changes) {
     undone: recs.filter((r) => r.state === "orig" && !r.held).length,
   };
 }
+
+const longDate = (iso) => {
+  const d = iso ? new Date(`${iso}T12:00:00`) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : iso || "";
+};
+
+/**
+ * The cover letter (see coverletter.js) under the resume's name and contact line, then the short answers.
+ * opts as for renderResume, with opts.changes = letter.changes. Lines carry data-row/data-path like the resume.
+ */
+export function renderLetter(root, letter, res, opts = {}) {
+  if (!letter) {
+    root.innerHTML = '<div class="empty">No cover letter yet. <b>Write cover letter</b> drafts one from your tailored resume, plus short answers to common application questions.</div>';
+    return;
+  }
+  let h = res?.name ? `<h1>${esc(res.name)}</h1>` : "";
+  const c = res?.contact || {};
+  const line = [c.location, c.phone, c.email, ...(c.links || [])].filter(Boolean).join(" | ");
+  if (line) h += `<p class="contact">${esc(line)}</p>`;
+  h += `<div class="letter"><p class="lt-date">${esc(longDate(letter.date))}</p>`;
+  h += row("p", "greeting", letter.greeting, opts);
+  (letter.paragraphs || []).forEach((p, i) => { h += row("p", `paragraphs.${i}`, p, opts); });
+  h += `<p class="lt-sign">${esc(letter.signoff)}<br>${esc(letter.name)}</p></div>`;
+  if (letter.answers?.length) {
+    h += "<h2>SHORT ANSWERS</h2>";
+    letter.answers.forEach((a, i) => {
+      h += `<div class="qa"><p class="qa-q"><b>${esc(a.question)}</b><button type="button" class="linkish qa-copy" data-copy="${i}">Copy</button></p>`
+        + `${a.hint ? `<p class="hint">${esc(a.hint)}</p>` : ""}${row("p", `answers.${i}.text`, a.text, opts)}</div>`;
+    });
+  }
+  root.innerHTML = h;
+}

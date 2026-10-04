@@ -77,6 +77,25 @@ def fresh_home():
     _release_db()
 
 
+@pytest.fixture
+def anon():
+    """The local API without the start link's cookie."""
+    from fastapi.testclient import TestClient
+
+    from app import main
+    with TestClient(main.app) as c:
+        yield c
+
+
+@pytest.fixture
+def client(anon):
+    """The local API, opened through the start link (?key=...) like the browser does."""
+    from app import main
+    r = anon.get(f"/?key={main.SESSION_KEY}", follow_redirects=False)
+    assert r.status_code == 303 and main.COOKIE in r.cookies
+    return anon
+
+
 def pytest_sessionfinish(session, exitstatus):
     db.close_all()
     shutil.rmtree(HOME, ignore_errors=True)

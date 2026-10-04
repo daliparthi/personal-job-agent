@@ -192,6 +192,14 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 @media (hover: none) { .chg-ctl { opacity: 1; } }
 .row.warn { box-shadow: inset 3px 0 0 var(--warn); padding-left: 6px; }
 .row.held, .row.undone { border-left: 2px dashed var(--ink-3); padding-left: 6px; }
+/* cover letter */
+.letter { margin-top: 14px; }
+.letter > p, .letter > .row { margin: 0 0 10px; }
+.lt-date { margin: 0 0 14px; }
+.lt-sign { margin-top: 16px; }
+.qa { margin: 0 0 12px; }
+.qa-q { margin: 0 0 2px; display: flex; gap: 8px; align-items: baseline; }
+.qa-copy { font-size: 11px; }
 .row.undone s { color: var(--ink-3); }
 .change-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 6px 12px; font-size: 12px;
   border-bottom: 1px solid var(--line); }

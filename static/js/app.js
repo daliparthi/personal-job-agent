@@ -1,7 +1,8 @@
 import { LocalLLM } from "./llm.js";
 import { refineWithModel, yamlHtml } from "./resume-parse.js";
-import { changeSummary, esc, getAt, renderResume, setAt, textOf, updateBlock, valueFromText } from "./resume-view.js";
+import { changeSummary, esc, getAt, renderLetter, renderResume, setAt, textOf, updateBlock, valueFromText } from "./resume-view.js";
 import { tailorResume } from "./tailor.js";
+import { draftLetter } from "./coverletter.js";
 import { initPipeline, openPipeline } from "./pipeline.js";
 import { initSearches, selectedSearch, syncPicker } from "./searches.js";
 
@@ -47,7 +48,9 @@ const isWorkday = (j) => !j?.source || j.source === "workday";
 const APPLIED_OR_LATER = new Set(["applied", "screening", "interviewing", "offer", "rejected", "withdrawn", "ghosted"]);
 const STATES = { AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California", CO: "Colorado", CT: "Connecticut", DE: "Delaware", DC: "District of Columbia", FL: "Florida", GA: "Georgia", HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa", KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland", MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey", NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio", OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", PR: "Puerto Rico", RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont", VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming" };
 
-// master = master_resume.yaml data (never changed by tailoring); tailored = { resume: copy, changes: {path: rec} }
+// master = master_resume.yaml data (never changed by tailoring);
+// tailored = { resume: copy, changes: {path: rec}, letter?: cover letter + short answers (coverletter.js) }
+// view = "master" | "tailored" | "letter"
 const S = {
   settings: null, status: null, jobs: [], sel: null, detail: null, master: null, masterYaml: "", tailored: null,
   view: "master", approved: [], rejected: [], tailoring: false, abort: null,
@@ -402,14 +405,20 @@ async function setFeedback(value) {
 }
 
 // ---------------------------------------------------------------- resume pane
-const viewOpts = () => ({ diff: true, changes: S.tailored?.changes, editable: !S.tailoring, approved: S.approved });
+const viewOpts = () => ({ diff: true, changes: S.view === "letter" ? S.tailored?.letter?.changes : S.tailored?.changes,
+  editable: !S.tailoring, approved: S.approved });
+// The document the lines on screen belong to: the tailored resume, or the cover letter (which holds its own changes).
+const editTarget = () => (S.view === "letter"
+  ? { data: S.tailored.letter, changes: S.tailored.letter.changes }
+  : { data: S.tailored.resume, changes: S.tailored.changes });
+const editableView = () => (S.view === "tailored" || (S.view === "letter" && !!S.tailored?.letter)) && !!S.tailored && !S.tailoring;
 
 function renderLegend() {
   const el = $("#change-legend");
-  const on = S.view === "tailored" && S.tailored && !S.tailoring;
+  const on = editableView();
   el.hidden = !on;
   if (!on) return;
-  const c = changeSummary(S.tailored.changes);
+  const c = changeSummary(editTarget().changes);
   const parts = [`<span class="lg-chg">${c.applied} change${c.applied === 1 ? "" : "s"}</span>`];
   if (c.check) parts.push(`<span class="lg-warn">${c.check} to check</span>`);
   if (c.held) parts.push(`<span class="lg-held">${c.held} AI version${c.held === 1 ? "" : "s"} held back</span>`);
@@ -420,9 +429,13 @@ function renderLegend() {
 function renderResumePane() {
   const d = S.detail;
   $("#tab-tailored").disabled = !S.tailored;
+  $("#tab-letter").disabled = !S.tailored;
+  if (S.view !== "master" && !S.tailored) S.view = "master";
   $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === S.view));
   const view = $("#resume-view");
-  if (S.view === "tailored" && S.tailored) {
+  if (S.view === "letter" && S.tailored) {
+    renderLetter(view, S.tailored.letter, S.tailored.resume, viewOpts());
+  } else if (S.view === "tailored" && S.tailored) {
     renderResume(view, S.tailored.resume, viewOpts());
   } else {
     renderResume(view, S.master);
@@ -443,6 +456,8 @@ function renderResumePane() {
   $("#btn-tailor").disabled = !ready || S.tailoring;
   $("#btn-tailor").textContent = S.tailored ? "Re-tailor for this position" : "Tailor my resume for this position only";
   $("#btn-tailor-stop").hidden = !S.tailoring;
+  $("#btn-letter").disabled = !S.tailored || S.tailoring;
+  $("#btn-letter").textContent = S.tailored?.letter ? "Rewrite cover letter" : "Write cover letter";
   $("#btn-package").disabled = !S.tailored || S.tailoring;
   $("#btn-apply").disabled = !S.tailored || S.tailoring;
   $("#btn-apply").textContent = isWorkday(d) ? "Apply with autofill" : "Open posting";
@@ -464,25 +479,27 @@ const persistEdits = debounce(async () => {
 
 /** Undo puts your master wording back; Redo / "Use AI version" puts the tailored wording in. */
 function toggleChange(path) {
-  const rec = S.tailored?.changes[path];
+  if (!S.tailored) return;
+  const { data, changes } = editTarget();
+  const rec = changes[path];
   if (!rec) return;
   const toOrig = rec.state === "alt";
   rec.state = toOrig ? "orig" : "alt";
-  setAt(S.tailored.resume, path, structuredClone(toOrig ? rec.orig : rec.alt));
+  setAt(data, path, structuredClone(toOrig ? rec.orig : rec.alt));
   if (!toOrig && rec.held) { rec.warn = `you chose the AI version, which ${rec.held.replace(/^adds/, "added").replace(/^uses/, "used")}`; delete rec.held; }
-  if (!updateBlock($("#resume-view"), path, S.tailored.resume, viewOpts())) renderResumePane();
+  if (!updateBlock($("#resume-view"), path, data, viewOpts())) renderResumePane();
   renderLegend();
   persistEdits();
 }
 
-/** You typed in a line of the tailored resume. */
+/** You typed in a line of the tailored resume or the cover letter. */
 function onLineEdited(path, text) {
-  const doc = S.tailored;
+  const { data, changes } = editTarget();
   const value = valueFromText(path, text);
-  let rec = doc.changes[path];
-  if (!rec) rec = doc.changes[path] = { orig: structuredClone(getAt(doc.resume, path)), alt: value, state: "alt" };
-  setAt(doc.resume, path, value);
-  if (textOf(value) === textOf(rec.orig)) delete doc.changes[path];
+  let rec = changes[path];
+  if (!rec) rec = changes[path] = { orig: structuredClone(getAt(data, path)), alt: value, state: "alt" };
+  setAt(data, path, value);
+  if (textOf(value) === textOf(rec.orig)) delete changes[path];
   else Object.assign(rec, { alt: value, state: "alt", edited: true, held: undefined, warn: undefined });
   persistEdits();
 }
@@ -572,13 +589,14 @@ async function onTailor() {
   S.abort = new AbortController();
   S.view = "tailored";
   const view = $("#resume-view");
+  const letter = S.tailored?.letter; // a cover letter already written stays (rewrite it for the new resume if you like)
   let result;
   try {
     result = await tailorResume({
       llm, master: S.master, job, analysis: job.analysis, approved: S.approved,
       maxBullets: Number(S.settings.max_bullets ?? 12), signal: S.abort.signal,
       ui: {
-        onRender: (res, changes) => { S.tailored = { resume: res, changes }; renderResumePane(); },
+        onRender: (res, changes) => { S.tailored = { resume: res, changes, ...(letter ? { letter } : {}) }; renderResumePane(); },
         onBlock: (path) => { if (!updateBlock(view, path, S.tailored.resume, viewOpts())) renderResumePane(); },
         onStatus: (t) => setTailorStatus(llm.backend === "onnx" ? `${t} (CPU model: the page pauses a few seconds as each line starts)` : t),
         onTokens: (st) => {
@@ -594,7 +612,7 @@ async function onTailor() {
     return toast(`Tailoring failed: ${e.message || e}`, 8000);
   }
   S.tailoring = false;
-  const doc = { resume: result.res, changes: result.changes };
+  const doc = { resume: result.res, changes: result.changes, ...(letter ? { letter } : {}) };
   S.tailored = doc;
   const sc = await api(`/api/jobs/${enc(job.id)}/score`, { method: "POST", body: { resume: doc.resume } });
   await api(`/api/jobs/${enc(job.id)}/tailored`, { method: "PUT", body: { doc, score_after: sc.score, approved: S.approved, rejected: S.rejected } });
@@ -608,6 +626,61 @@ async function onTailor() {
   toast(`Match ${job.match_score} → ${sc.score}. Review the green edits before applying.`);
 }
 
+// ---------------------------------------------------------------- cover letter + short answers
+async function onWriteLetter() {
+  if (!S.detail || !S.tailored || S.tailoring) return;
+  if (S.tailored.letter && Object.values(S.tailored.letter.changes || {}).some((r) => r.edited)
+      && !confirm("Rewrite the cover letter? Your edits to the current one will be replaced.")) return;
+  if (llm.state !== "ready") {
+    setTailorStatus("Loading Qwen2.5‑0.5B from the bundled model files…");
+    await loadModel();
+    if (llm.state !== "ready") return setTailorStatus("");
+  }
+  const job = S.detail;
+  S.tailoring = true;
+  S.abort = new AbortController();
+  S.view = "letter";
+  const view = $("#resume-view");
+  let result;
+  try {
+    result = await draftLetter({
+      llm, resume: S.tailored.resume, job, analysis: job.analysis, approved: S.approved, digest: job.digest || {},
+      signal: S.abort.signal,
+      ui: {
+        onRender: (letter) => { S.tailored.letter = letter; renderResumePane(); },
+        onBlock: (path) => { if (!updateBlock(view, path, S.tailored.letter, viewOpts())) renderResumePane(); },
+        onStatus: (t) => setTailorStatus(llm.backend === "onnx" ? `${t} (CPU model: the page pauses a few seconds as each paragraph starts)` : t),
+        onTokens: (st) => {
+          const r = $("#tok-rate");
+          if (r) r.textContent = `${st.tokens} tokens · ${(st.tokens / ((performance.now() - st.started) / 1000)).toFixed(1)} tok/s`;
+        },
+      },
+    });
+  } catch (e) {
+    S.tailoring = false;
+    setTailorStatus("");
+    renderResumePane();
+    return toast(`Writing the cover letter failed: ${e.message || e}`, 8000);
+  }
+  S.tailoring = false;
+  S.tailored.letter = result.letter;
+  await api(`/api/jobs/${enc(job.id)}/tailored`, { method: "PUT", body: { doc: S.tailored, score_after: job.tailored?.score_after, approved: S.approved, rejected: S.rejected } });
+  job.tailored = { ...(job.tailored || {}), doc: S.tailored };
+  const st = result.stats;
+  const extra = [st.flagged ? `${st.flagged} marked amber to check` : "", st.held ? `${st.held} AI version(s) held back because they added facts` : ""].filter(Boolean).join(", ");
+  setTailorStatus(`Done in ${st.seconds.toFixed(0)}s — the AI wrote ${st.rewritten} paragraph(s) and answer(s)${extra ? ` (${extra})` : ""}. The rest is built from your resume lines. Saved with the package.`, false);
+  renderResumePane();
+}
+
+async function copyAnswer(i) {
+  const a = S.tailored?.letter?.answers?.[i];
+  if (!a) return;
+  try {
+    await navigator.clipboard.writeText(a.text);
+    toast("Answer copied.");
+  } catch { toast("Copy failed: select the text and copy it yourself."); }
+}
+
 // ---------------------------------------------------------------- package / apply
 async function onPackage(launch) {
   if (!S.detail || !S.tailored) return;
@@ -618,7 +691,7 @@ async function onPackage(launch) {
       method: "POST",
       body: { doc: S.tailored, score_after: S.detail.tailored?.score_after, approved: S.approved, rejected: S.rejected, launch },
     });
-    let msg = `Saved to ${r.folder}`;
+    let msg = `Saved to ${r.folder}${r.cover_letter ? " (with the cover letter)" : ""}`;
     if (r.pdf_error) msg += ` (PDF skipped: ${r.pdf_error})`;
     if (launch) msg = !r.launched ? `Saved the package, but the browser could not open: ${r.launch_error}`
       : isWorkday(S.detail) ? "Opened the posting in a separate browser window. Sign in if asked; standard fields fill automatically. Review, then click Submit yourself."
@@ -935,6 +1008,7 @@ function bindEvents() {
   $$(".tab").forEach((t) => (t.onclick = () => { if (!t.disabled) { S.view = t.dataset.view; renderResumePane(); } }));
   $("#btn-tailor").onclick = onTailor;
   $("#btn-tailor-stop").onclick = () => { S.abort?.abort(); llm.interrupt(); };
+  $("#btn-letter").onclick = onWriteLetter;
   $("#btn-package").onclick = () => onPackage(false);
   $("#btn-apply").onclick = () => onPackage(true);
   $("#btn-applied").onclick = onMarkApplied;
@@ -942,20 +1016,22 @@ function bindEvents() {
   // Keep focus where it is so the line isn't repainted under the pointer before the click lands.
   rv.addEventListener("mousedown", (e) => { if (e.target.closest(".chg-ctl")) e.preventDefault(); });
   rv.addEventListener("click", (e) => {
+    const copy = e.target.closest(".qa-copy");
+    if (copy) return copyAnswer(Number(copy.dataset.copy));
     const b = e.target.closest(".chg-ctl");
-    if (!b || S.view !== "tailored" || !S.tailored || S.tailoring) return;
+    if (!b || !editableView()) return;
     e.preventDefault();
     toggleChange(b.closest("[data-row]").dataset.row);
   });
   rv.addEventListener("input", (e) => {
     const el = e.target.closest("[data-path]");
-    if (!el || S.view !== "tailored" || !S.tailored || S.tailoring) return;
+    if (!el || !editableView()) return;
     onLineEdited(el.dataset.path, el.innerText.replace(/\s+/g, " ").trim());
   });
   rv.addEventListener("focusout", (e) => {
     const el = e.target.closest?.("[data-path]");
-    if (!el || S.view !== "tailored" || !S.tailored || S.tailoring) return;
-    updateBlock(rv, el.dataset.path, S.tailored.resume, viewOpts());
+    if (!el || !editableView()) return;
+    updateBlock(rv, el.dataset.path, editTarget().data, viewOpts());
     renderLegend();
   });
 

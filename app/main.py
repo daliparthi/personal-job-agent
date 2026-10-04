@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import alerts, apply, candidate, db, envfile, master, pipeline, scheduler, scoring, search
 from .config import HOME, HOME_ID, MODELS, PORT, STATIC, ensure_home, session_key
-from .jobparse import split_keywords
+from .jobparse import jd_digest, split_keywords
 from .resume_io import clean_resume, parse_resume, to_text
 from .schemas import (AlertsSeenIn, CompanyIn, FeedbackIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn,
                       PathIn, PreviewIn, ResumeSaveIn, RunIn, SavedSearchIn, SavedSearchPatch, ScoreIn,
@@ -427,6 +427,7 @@ def job_detail(job_id: str):
     j = _job_or_404(job_id)
     resume = db.get_resume()
     j["analysis"] = _score(j, resume["text"] if resume else "")
+    j["digest"] = jd_digest(j.get("description_text") or "")  # for the cover letter and short answers
     j["tailored"] = db.get_tailored(job_id)
     j["events"] = db.job_events(job_id)
     return j
@@ -461,14 +462,17 @@ async def package(job_id: str, body: PackageIn):
     doc = body.doc
     db.save_tailored(job_id, doc, body.score_after, body.approved, body.rejected)
     result = await apply.save_package(j, doc["resume"], j.get("match_score"), body.score_after,
-                                      body.approved, body.rejected, profile)
+                                      body.approved, body.rejected, profile, letter=doc.get("letter"))
     db.update_job(job_id, folder=result["folder"])
     pipeline.advance(job_id, "saved", "application package saved")
     if body.launch:
         fmt = settings.get("upload_format", "docx")
         resume_path = result["pdf"] if fmt == "pdf" and result["pdf"] else result["docx"]
+        cover = result.get("cover_letter") or {}
+        cover_path = cover.get("pdf") if fmt == "pdf" and cover.get("pdf") else cover.get("docx")
         try:
-            await apply.worker.open_application(job_id, j["url"], profile, resume_path, result["folder"], j["tenant"])
+            await apply.worker.open_application(job_id, j["url"], profile, resume_path, result["folder"], j["tenant"],
+                                                cover_path)
             pipeline.advance(job_id, "applying", "apply window opened")
             result["launched"] = True
         except Exception as e:

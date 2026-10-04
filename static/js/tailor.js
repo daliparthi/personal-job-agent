@@ -14,7 +14,7 @@ import { getAt, setAt } from "./resume-view.js";
 
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const kwRe = (alias, flags = "i") => new RegExp(`(?<![A-Za-z0-9])${escRe(alias)}(?![A-Za-z0-9+#])`, flags);
-const hasAny = (aliases, text) => aliases.some((a) => kwRe(a).test(text));
+export const hasAny = (aliases, text) => aliases.some((a) => kwRe(a).test(text));
 const STOP = new Set("a an and the of for to in on with by at from as or is are was were be been this that their our your it its into over per via using use used across within".split(" "));
 const contentWords = (s) => (s.toLowerCase().match(/[a-z][a-z0-9+#.]*/g) || []).filter((w) => !STOP.has(w) && w.length > 2);
 // Standalone numbers only: digits inside a name ("K8s", "S3", "EC2", "OAuth2") are part of the name, not a claim.
@@ -71,7 +71,7 @@ const FREE = new Set(["develop", "design", "build", "built", "creat", "deliv", "
  * hard: adds unapproved facts or is unusable -> held back (your original stays).
  * soft: worth a second look -> applied, marked amber.
  */
-const PROMPT_LABEL = /\b(target job|job keywords|must include|original (bullet|summary)|rewritten bullet|tailored summary|candidate's (roles|skills)|role)\s*:/i;
+const PROMPT_LABEL = /\b(target job|job keywords|must include|original (bullet|summary)|rewritten bullet|tailored summary|candidate's (roles|skills)|role|facts|keywords to mention|question)\s*:/i;
 const EXAMPLE_TEXT = [...BULLET_EXAMPLES, ...SUMMARY_EXAMPLES].filter((m) => m.role === "assistant").map((m) => m.content).join(" ");
 const ngrams = (s, n) => {
   const w = s.toLowerCase().match(/[a-z0-9+#]+/g) || [];
@@ -90,8 +90,13 @@ function nameTokens(s) {
   return out;
 }
 
-export function validate(original, out, { forbidden, kind, allowed = [], extraContext = "", required = [] }) {
+/** kind: "bullet", "summary", "letter" (a cover-letter paragraph: retells your bullets, so new words are flagged
+ *  sooner) or "answer" (a short answer to an application question). Letters and answers reword freely.
+ *  examples: the worked examples given to the model, so copying one is caught (tailoring's own are built in). */
+export function validate(original, out, { forbidden, kind, allowed = [], extraContext = "", required = [], examples = "" }) {
   const soft = [];
+  const loose = kind === "summary" || kind === "letter" || kind === "answer";
+  const prose = kind === "letter" || kind === "answer";
   if (!out) return { hard: "empty output", soft };
   if (PROMPT_LABEL.test(out)) return { hard: "garbled (repeated the instructions)", soft };
   if (out.length < Math.min(25, original.length * 0.5)) return { hard: "too short", soft };
@@ -102,7 +107,7 @@ export function validate(original, out, { forbidden, kind, allowed = [], extraCo
     if (seen.has(g) && !origGrams.has(g)) return { hard: "garbled (repeats itself)", soft };
     seen.add(g);
   }
-  const exampleGrams = new Set(ngrams(EXAMPLE_TEXT, 4));
+  const exampleGrams = new Set(ngrams(`${EXAMPLE_TEXT} ${examples}`, 4));
   const ownGrams = new Set(ngrams(`${original} ${extraContext}`, 4));
   if (ngrams(out, 4).some((g) => exampleGrams.has(g) && !ownGrams.has(g))) return { hard: "garbled (copied the example)", soft };
   const origNums = new Set(numbersIn(original));
@@ -115,11 +120,11 @@ export function validate(original, out, { forbidden, kind, allowed = [], extraCo
   const knownTight = knownText.replace(/\s+/g, "");
   const newName = nameTokens(out).find((t) => !knownText.includes(t.toLowerCase()) && !knownTight.includes(t.toLowerCase()));
   if (newName) return { hard: `adds “${newName}”, which is not in your resume`, soft };
-  if (kind !== "summary" && out.length > original.length * 1.8 + 80) soft.push("much longer than the original");
+  if (!loose && out.length > original.length * 1.8 + 80) soft.push("much longer than the original");
   // "migrated a warehouse to Snowflake" must not become "migrated Snowflake to a warehouse": a named tool that
   // followed to/into/from/on... in the original should still follow the same word.
   const PREP = /\b(to|into|from|on|onto|in|with|using|via|for)\s+(?:the\s+|a\s+|an\s+)?([A-Z][\w+#.-]*|[\w]+[+#/][\w+#/]*)/g;
-  for (const [, prep, rawName] of original.matchAll(PREP)) {
+  for (const [, prep, rawName] of prose ? [] : original.matchAll(PREP)) {
     const name = rawName.replace(/[.,;:-]+$/, ""); // "...to Snowflake." names Snowflake, not "Snowflake."
     if (!name) continue;
     const re = new RegExp(`\\b${prep}\\s+(?:the\\s+|a\\s+|an\\s+)?${escRe(name)}(?![\\w+#])`, "i");
@@ -129,13 +134,13 @@ export function validate(original, out, { forbidden, kind, allowed = [], extraCo
   const ow = new Set(contentWords(original));
   if (ow.size >= 4) {
     const kept = [...ow].filter((w) => out.toLowerCase().includes(w)).length;
-    if (kept / ow.size < (kind === "summary" ? 0.25 : 0.35)) soft.push("reworded heavily");
+    if (kept / ow.size < (loose ? 0.25 : 0.35)) soft.push("reworded heavily");
   }
   // New claims: content words in neither the original, the approved keywords, nor (for the summary) the
   // candidate's roles and skills. A few rewording words are fine; more means a look is needed.
   const known = new Set([...contentWords(`${original} ${allowed.join(" ")} ${extraContext}`)].map(stem));
   const added = [...new Set(contentWords(out).map(stem))].filter((w) => !known.has(w) && !FREE.has(w));
-  if (added.length > (kind === "summary" ? 10 : 2)) soft.push(`adds words not in your resume (${added.slice(0, 3).join(", ")}…)`);
+  if (added.length > (kind === "letter" ? 4 : loose ? 10 : 2)) soft.push(`adds words not in your resume (${added.slice(0, 3).join(", ")}…)`);
   return { hard: null, soft };
 }
 
