@@ -1,5 +1,5 @@
-# Career sites to search. Every Workday URL below was verified against the live Workday API on 2026-09-30, and
-# the other job boards (at the end) on 2026-10-04.
+# Career sites to search. Every Workday URL below was verified against the live Workday API on 2026-09-30 or
+# 2026-10-04, and the other job boards (at the end) on 2026-10-04.
 #
 # Add any company that uses Workday: open its careers page, copy the URL (it looks like
 # https://<company>.wd<N>.myworkdayjobs.com/<SiteName>), and add an entry - or use the
@@ -86,6 +86,17 @@ companies:
     url: https://verizon.wd12.myworkdayjobs.com/verizon-careers
   - name: "T-Mobile"
     url: https://tmobile.wd1.myworkdayjobs.com/External
+  - name: "Palo Alto Networks"
+    url: https://paloaltonetworks.wd5.myworkdayjobs.com/panwexternalcareers
+  - name: "Cadence"
+    url: https://cadence.wd1.myworkdayjobs.com/External_Careers
+    aliases: ["Cadence Design Systems"]
+  - name: "Comcast"
+    url: https://comcast.wd115.myworkdayjobs.com/Comcast_Careers
+    aliases: ["Xfinity"]
+  - name: "Expedia Group"
+    url: https://expedia.wd108.myworkdayjobs.com/search
+    aliases: ["Expedia"]
   # --- Banking, payments & insurance
   - name: "Capital One"
     url: https://capitalone.wd12.myworkdayjobs.com/Capital_One
@@ -135,6 +146,17 @@ companies:
     url: https://thehartford.wd5.myworkdayjobs.com/Careers_External
   - name: "Travelers"
     url: https://travelers.wd5.myworkdayjobs.com/External
+  - name: "Fiserv"
+    url: https://fiserv.wd5.myworkdayjobs.com/EXT
+  - name: "FIS"
+    url: https://fis.wd5.myworkdayjobs.com/SearchJobs
+    aliases: ["Fidelity National Information Services"]
+  - name: "Northern Trust"
+    url: https://ntrs.wd1.myworkdayjobs.com/northerntrust
+  - name: "T. Rowe Price"
+    url: https://troweprice.wd5.myworkdayjobs.com/TRowePrice
+  - name: "USAA"
+    url: https://usaa.wd1.myworkdayjobs.com/USAAJOBSWD
   # --- Healthcare & life sciences
   - name: "Pfizer"
     url: https://pfizer.wd1.myworkdayjobs.com/PfizerCareers
@@ -180,6 +202,36 @@ companies:
     url: https://cardinalhealth.wd1.myworkdayjobs.com/EXT
   - name: "McKesson"
     url: https://mckesson.wd3.myworkdayjobs.com/External_Careers
+  - name: "Eli Lilly"
+    url: https://lilly.wd115.myworkdayjobs.com/LLY
+    aliases: ["Lilly"]
+  - name: "Thermo Fisher Scientific"
+    url: https://thermofisher.wd5.myworkdayjobs.com/ThermoFisherCareers
+    aliases: ["Thermo Fisher"]
+  - name: "Danaher"
+    url: https://danaher.wd1.myworkdayjobs.com/DanaherJobs
+  - name: "AstraZeneca"
+    url: https://astrazeneca.wd3.myworkdayjobs.com/Careers
+  - name: "Sanofi"
+    url: https://sanofi.wd3.myworkdayjobs.com/SanofiCareers
+  - name: "GSK"
+    url: https://gsk.wd5.myworkdayjobs.com/GSKCareers
+    aliases: ["GlaxoSmithKline"]
+  - name: "Takeda"
+    url: https://takeda.wd502.myworkdayjobs.com/External
+  - name: "Regeneron"
+    url: https://regeneron.wd1.myworkdayjobs.com/Careers
+  - name: "Biogen"
+    url: https://biibhr.wd3.myworkdayjobs.com/external
+  - name: "BD"
+    url: https://bdx.wd1.myworkdayjobs.com/EXTERNAL_CAREER_SITE_USA
+    aliases: ["Becton Dickinson", "Becton, Dickinson"]
+  - name: "Edwards Lifesciences"
+    url: https://edwards.wd5.myworkdayjobs.com/edwardscareers
+  - name: "Illumina"
+    url: https://illumina.wd1.myworkdayjobs.com/illumina-careers
+  - name: "Zoetis"
+    url: https://zoetis.wd5.myworkdayjobs.com/zoetis
   # --- Aerospace, defense & government services
   - name: "Boeing"
     url: https://boeing.wd1.myworkdayjobs.com/EXTERNAL_CAREERS
@@ -195,6 +247,10 @@ companies:
     url: https://bah.wd1.myworkdayjobs.com/BAH_Jobs
   - name: "CACI"
     url: https://caci.wd1.myworkdayjobs.com/External
+  - name: "GE Aerospace"
+    url: https://geaerospace.wd5.myworkdayjobs.com/GE_ExternalSite
+  - name: "Blue Origin"
+    url: https://blueorigin.wd5.myworkdayjobs.com/BlueOrigin
   # --- Industrial, energy & automotive
   - name: "Chevron"
     url: https://chevron.wd5.myworkdayjobs.com/jobs
@@ -212,7 +268,16 @@ companies:
     url: https://jci.wd5.myworkdayjobs.com/JCI
   - name: "Rockwell Automation"
     url: https://rockwellautomation.wd1.myworkdayjobs.com/External_Rockwell_Automation
+  - name: "Dow"
+    url: https://dow.wd1.myworkdayjobs.com/ExternalCareers
+  - name: "Otis"
+    url: https://otis.wd504.myworkdayjobs.com/REC_Ext_Gateway
+    aliases: ["Otis Elevator"]
+  - name: "Boston Dynamics"
+    url: https://bostondynamics.wd1.myworkdayjobs.com/Boston_Dynamics
   # --- Retail, consumer & media
+  - name: "Walmart"
+    url: https://walmart.wd504.myworkdayjobs.com/WalmartExternal
   - name: "Target"
     url: https://target.wd5.myworkdayjobs.com/targetcareers
   - name: "Nike"
@@ -241,19 +306,167 @@ companies:
     url: https://fox.wd1.myworkdayjobs.com/Domestic
 
   # --- Other job boards (Greenhouse, Lever, Ashby, SmartRecruiters), filtered with the same keyword and US checks
-  - name: "Airbnb"
-    url: https://job-boards.greenhouse.io/airbnb
-  - name: "Databricks"
-    url: https://job-boards.greenhouse.io/databricks
-  - name: "Spotify"
-    url: https://jobs.lever.co/spotify
-  - name: "Palantir"
-    url: https://jobs.lever.co/palantir
+  # AI
   - name: "OpenAI"
     url: https://jobs.ashbyhq.com/openai
+  - name: "Anthropic"
+    url: https://job-boards.greenhouse.io/anthropic
+  - name: "xAI"
+    url: https://job-boards.greenhouse.io/xai
+  - name: "Scale AI"
+    url: https://job-boards.greenhouse.io/scaleai
+  - name: "Perplexity"
+    url: https://jobs.ashbyhq.com/perplexity
+  - name: "Cohere"
+    url: https://jobs.ashbyhq.com/cohere
+  - name: "Cursor"
+    url: https://jobs.ashbyhq.com/cursor
+    aliases: ["Anysphere"]
+  - name: "Harvey"
+    url: https://jobs.ashbyhq.com/harvey
+  - name: "Sierra"
+    url: https://jobs.ashbyhq.com/sierra
+  - name: "Glean"
+    url: https://job-boards.greenhouse.io/gleanwork
+  # Software, data & developer tools
+  - name: "Databricks"
+    url: https://job-boards.greenhouse.io/databricks
+  - name: "Palantir"
+    url: https://jobs.lever.co/palantir
   - name: "Notion"
     url: https://jobs.ashbyhq.com/notion
-  - name: "Bosch"
-    url: https://jobs.smartrecruiters.com/BoschGroup
   - name: "ServiceNow"
     url: https://jobs.smartrecruiters.com/ServiceNow
+  - name: "Snowflake"
+    url: https://jobs.ashbyhq.com/snowflake
+  - name: "Datadog"
+    url: https://job-boards.greenhouse.io/datadog
+  - name: "MongoDB"
+    url: https://job-boards.greenhouse.io/mongodb
+  - name: "Elastic"
+    url: https://job-boards.greenhouse.io/elastic
+  - name: "Confluent"
+    url: https://jobs.ashbyhq.com/confluent
+  - name: "Fivetran"
+    url: https://job-boards.greenhouse.io/fivetran
+  - name: "Grafana Labs"
+    url: https://job-boards.greenhouse.io/grafanalabs
+  - name: "GitLab"
+    url: https://job-boards.greenhouse.io/gitlab
+  - name: "Figma"
+    url: https://job-boards.greenhouse.io/figma
+  - name: "Asana"
+    url: https://job-boards.greenhouse.io/asana
+  - name: "Linear"
+    url: https://jobs.ashbyhq.com/linear
+  - name: "Replit"
+    url: https://jobs.ashbyhq.com/replit
+  - name: "Twilio"
+    url: https://job-boards.greenhouse.io/twilio
+  - name: "HubSpot"
+    url: https://job-boards.greenhouse.io/hubspotjobs
+  - name: "Klaviyo"
+    url: https://job-boards.greenhouse.io/klaviyo
+  - name: "Samsara"
+    url: https://job-boards.greenhouse.io/samsara
+  - name: "Toast"
+    url: https://job-boards.greenhouse.io/toast
+  - name: "Dropbox"
+    url: https://job-boards.greenhouse.io/dropbox
+  - name: "Benchling"
+    url: https://jobs.ashbyhq.com/benchling
+  - name: "LinkedIn"
+    url: https://jobs.smartrecruiters.com/LinkedIn3
+  # Security
+  - name: "Cloudflare"
+    url: https://job-boards.greenhouse.io/cloudflare
+  - name: "Okta"
+    url: https://job-boards.greenhouse.io/okta
+  - name: "Wiz"
+    url: https://job-boards.greenhouse.io/wizinc
+  - name: "Netskope"
+    url: https://job-boards.greenhouse.io/netskope
+  - name: "Rubrik"
+    url: https://job-boards.greenhouse.io/rubrik
+  - name: "1Password"
+    url: https://jobs.ashbyhq.com/1password
+  - name: "Vanta"
+    url: https://jobs.ashbyhq.com/vanta
+  # Fintech
+  - name: "Stripe"
+    url: https://job-boards.greenhouse.io/stripe
+  - name: "Coinbase"
+    url: https://job-boards.greenhouse.io/coinbase
+  - name: "Robinhood"
+    url: https://job-boards.greenhouse.io/robinhood
+  - name: "Ramp"
+    url: https://jobs.ashbyhq.com/ramp
+  - name: "Plaid"
+    url: https://jobs.ashbyhq.com/plaid
+  - name: "Affirm"
+    url: https://job-boards.greenhouse.io/affirm
+  - name: "Brex"
+    url: https://job-boards.greenhouse.io/brex
+  - name: "Chime"
+    url: https://job-boards.greenhouse.io/chime
+  - name: "SoFi"
+    url: https://job-boards.greenhouse.io/sofi
+  - name: "Mercury"
+    url: https://job-boards.greenhouse.io/mercury
+  - name: "Carta"
+    url: https://job-boards.greenhouse.io/carta
+  - name: "Gusto"
+    url: https://job-boards.greenhouse.io/gusto
+  - name: "Experian"
+    url: https://jobs.smartrecruiters.com/Experian
+  # Consumer, marketplaces & media
+  - name: "Airbnb"
+    url: https://job-boards.greenhouse.io/airbnb
+  - name: "Spotify"
+    url: https://jobs.lever.co/spotify
+  - name: "DoorDash"
+    url: https://job-boards.greenhouse.io/doordashusa
+  - name: "Instacart"
+    url: https://job-boards.greenhouse.io/instacart
+  - name: "Lyft"
+    url: https://job-boards.greenhouse.io/lyft
+  - name: "Pinterest"
+    url: https://job-boards.greenhouse.io/pinterest
+  - name: "Reddit"
+    url: https://job-boards.greenhouse.io/reddit
+  - name: "Discord"
+    url: https://job-boards.greenhouse.io/discord
+  - name: "Duolingo"
+    url: https://job-boards.greenhouse.io/duolingo
+  - name: "Roblox"
+    url: https://job-boards.greenhouse.io/roblox
+  - name: "Epic Games"
+    url: https://job-boards.greenhouse.io/epicgames
+  - name: "Riot Games"
+    url: https://job-boards.greenhouse.io/riotgames
+  - name: "Faire"
+    url: https://job-boards.greenhouse.io/faire
+  - name: "Squarespace"
+    url: https://job-boards.greenhouse.io/squarespace
+  - name: "Peloton"
+    url: https://job-boards.greenhouse.io/peloton
+  # Aerospace, autonomy & industrial
+  - name: "Bosch"
+    url: https://jobs.smartrecruiters.com/BoschGroup
+  - name: "SpaceX"
+    url: https://job-boards.greenhouse.io/spacex
+  - name: "Anduril"
+    url: https://job-boards.greenhouse.io/andurilindustries
+    aliases: ["Anduril Industries"]
+  - name: "Shield AI"
+    url: https://jobs.lever.co/shieldai
+  - name: "Rocket Lab"
+    url: https://job-boards.greenhouse.io/rocketlab
+  - name: "Relativity Space"
+    url: https://job-boards.greenhouse.io/relativity
+  - name: "Waymo"
+    url: https://job-boards.greenhouse.io/waymo
+  - name: "Zoox"
+    url: https://jobs.lever.co/zoox
+  - name: "Nuro"
+    url: https://job-boards.greenhouse.io/nuro
