@@ -215,6 +215,18 @@
       <div class="grid3" id="profile-fields"></div>
     </fieldset>
     <fieldset>
+      <legend>Autofill <span class="hint">what the apply window fills on Workday · it never clicks Next, Submit or a consent box</span></legend>
+      <div class="checks">
+        <label class="check"><input type="checkbox" name="af_experience"> Fill My Experience (jobs and education) from master_resume.yaml</label>
+        <label class="check"><input type="checkbox" name="af_add_entries"> …and click Workday's <b>Add</b> buttons there for each job and school <span class="hint">(the only button autofill clicks)</span></label>
+        <label class="check"><input type="checkbox" name="af_answers"> Fill custom questions from my answer bank <span class="hint">(outlined amber to check)</span></label>
+        <label class="check"><input type="checkbox" name="af_capture"> Remember my answers to custom questions</label>
+      </div>
+      <div class="grid3" id="disclosure-fields"></div>
+      <p class="hint">Voluntary disclosures are never stored: on <b>Decline</b> the apply window picks the “I don't wish to answer” option, on <b>Leave for me</b> it doesn't touch the question.</p>
+      <div class="path-row"><button type="button" class="btn small" id="btn-answers">Answer bank…</button> <span class="hint" id="answers-count"></span></div>
+    </fieldset>
+    <fieldset>
       <legend>Companies <span class="hint">untick to skip · file edits apply to the next search, no restart</span></legend>
       <div class="companies-head"><span class="hint" id="companies-count"></span><span class="spacer"></span>
         <button type="button" class="linkish" id="co-all">Tick all</button> · <button type="button" class="linkish" id="co-none">Untick all</button></div>
@@ -235,6 +247,24 @@
 </dialog>
 
 <!-- applications -->
+<dialog id="answers-dialog" class="dialog wide" aria-labelledby="ab-title">
+  <div class="dialog-body">
+    <h2 id="ab-title">Answer bank</h2>
+    <p class="hint">Your answers to application questions. The apply window fills one in when a form asks the same question (or one worded almost the same) and outlines it amber so you check it. Answers you type into custom questions are added here; so are your cover letters' short answers, as drafts. Contact details, dates and voluntary disclosures are never stored.</p>
+    <div id="ab-list"></div>
+    <fieldset>
+      <legend>Add an answer</legend>
+      <div class="grid2">
+        <label>Question<input id="ab-q" maxlength="500" placeholder="Are you willing to relocate?"></label>
+        <label>Answer<textarea id="ab-a" rows="2" maxlength="4000"></textarea></label>
+      </div>
+      <div class="path-row"><label class="check"><input type="checkbox" id="ab-choice"> The answer is an option to pick from a list</label>
+        <span class="spacer"></span><button type="button" class="btn small" id="ab-add">Add</button></div>
+    </fieldset>
+    <div class="dialog-actions"><span class="spacer"></span><button type="button" class="btn" id="ab-close">Close</button></div>
+  </div>
+</dialog>
+
 <dialog id="apps-dialog" class="dialog wide">
   <div class="dialog-body">
     <h2>Applications</h2>

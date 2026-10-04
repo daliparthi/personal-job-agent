@@ -265,9 +265,30 @@ a GPU folder you don't need; keep `models/onnx`.
   can store or delete a password but never read one back.
 * It fills: first/last name, email (your profile email, or `WORKDAY_EMAIL` if blank), phone, phone type, address,
   city, state, ZIP, country, LinkedIn/GitHub/website, *authorized to work in the US*, *need sponsorship*,
-  *previously worked here*, and *how did you hear* (when it is a simple list). It never overwrites something you
-  typed, and **never clicks Next or Submit**.
-* When Workday shows a resume upload it attaches your tailored resume (DOCX by default; Settings → PDF).
+  *previously worked here*, and *how did you hear* (when it is a list). It never overwrites something you typed, and
+  **never clicks Next, Submit or a consent box**.
+* **My Experience:** each *Work Experience* and *Education* entry on the page gets the matching entry from
+  `master_resume.yaml`, most recent first: job title, company, location, *I currently work here*, from/to dates (a
+  month only when your resume gives one), the role description (your bullets), school, degree, field of study and
+  years. Workday starts with no entries; tick Settings → *Autofill* → *…click Workday's Add buttons* and it adds one
+  per job and school. That **Add** / **Add Another** button inside those two sections is the only button autofill
+  ever clicks.
+* **Voluntary disclosures** (gender, ethnicity, veteran status, disability) are set to *Decline to answer* by
+  default: the window picks the "I don't wish to answer" option. Settings → *Autofill* can leave any of them to you.
+  Nothing about them is stored, and the self-identification form's name and date (your signature) are left to you.
+* **Answer bank:** when you answer one of a company's own questions ("Are you willing to relocate?", "Salary
+  expectations", "Why do you want to work here?"), Job Agent remembers it. The next form that asks the same question,
+  or one worded almost the same, gets your answer filled in and **outlined amber** so you check it (the outline's
+  tooltip says where the answer came from, e.g. *written for Globex*). Questions that differ in what they ask — "in
+  the US" vs "in Canada", "now" vs "in the future" — never share an answer. The page only receives answers to the
+  questions it shows. Settings → *Answer bank…* lists them to edit, add or delete; your cover letters' short answers
+  are added as drafts. Contact details, dates and disclosures are never stored.
+* **Still to fill:** the window's banner lists the required fields on the current page that are still empty; click
+  one to jump to it.
+* The field patterns are in `app/autofill_rules.json`, read whenever an apply window opens: when a company labels a
+  field differently, adding a pattern there is enough.
+* When Workday shows a resume upload it attaches your tailored resume (DOCX by default; Settings → PDF), and your
+  cover letter where an upload field asks for one.
 * After you submit, the job is marked *applied* automatically when the confirmation page appears, or click
   **I submitted — mark as applied** (in the Workday window) / **Mark applied** (in Job Agent).
 * Workday changes its forms often and every company configures its own questions, so autofill is best-effort.
@@ -397,6 +418,8 @@ app/                 Python backend (FastAPI)
   candidate.py       your years, seniority, degree from master_resume.yaml        lexicon.py  keyword dictionary
   resume_io.py       read files, write DOCX/PDF/TXT apply.py   packages + Playwright apply window + .env sign-up fill
   envfile.py         .env + OS keychain passwords  autofill.js script injected into Workday application pages
+  formfill.py        what autofill.js gets: profile, work history, rules (autofill_rules.json), disclosures
+  answers.py         the answer bank: remember, match and reuse answers to application questions
   pipeline.py        statuses, timeline, follow-ups, board + statistics, recovery from Applications/
   scheduler.py       saved searches on a schedule   alerts.py  new-match alerts + daily digest
   schemas.py         request bodies of the local API
@@ -418,7 +441,9 @@ requirements.txt     packages you edit       requirements.lock  exact, hash-chec
 ## Development
 
 The tests need no model files and never touch a real Workday site or job board (searches run against recorded
-JSON in `tests/fixtures/`). With the environment the start script created:
+JSON in `tests/fixtures/`). The autofill tests run `autofill.js` in headless Chrome, Edge or Chromium against
+hand-built pages shaped like Workday's (`tests/fixtures/workday_pages/`); they are skipped when none of those
+browsers is installed. With the environment the start script created:
 
 ```
 .venv\Scripts\python -m pip install -r requirements-dev.txt     (macOS/Linux: .venv-<os>/bin/python ...)

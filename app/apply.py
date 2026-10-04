@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import db, envfile, pipeline
+from . import answers, db, envfile, pipeline
 from .config import ALERTS, APPLICATIONS, BROWSER_PROFILE, ENV_FILE, HOME, MASTER_YAML
 from .master import TAILORED_HEADER, dump
 from .resume_io import (answers_text, clean_letter, clean_resume, letter_docx, letter_html, letter_text, to_docx,
@@ -168,10 +168,14 @@ class BrowserWorker:
         # scripts and bindings work under CSP anyway, and every other site in this profile keeps its protection.
         self.ctx = await self._launch(pw.chromium.launch_persistent_context, user_data_dir=str(BROWSER_PROFILE),
                                       headless=False, no_viewport=True, args=["--start-maximized"])
-        await self.ctx.expose_binding("__jobAgentEvent", self._on_event)
-        await self.ctx.add_init_script(script=AUTOFILL_JS)
+        await self.prepare(self.ctx)
         self.ctx.on("close", lambda *_: setattr(self, "ctx", None))
         return self.ctx
+
+    async def prepare(self, ctx):
+        """The page binding and the autofill script, on every page of a browser context (tests use their own)."""
+        await ctx.expose_binding("__jobAgentEvent", self._on_event)
+        await ctx.add_init_script(script=AUTOFILL_JS)
 
     async def _on_event(self, source, kind, payload=None):
         # The binding exists on every page of this browser profile. Answer only the Workday page we opened, and
@@ -179,19 +183,36 @@ class BrowserWorker:
         info = self.pages.get(source.get("page"))
         if not info or not trusted_frame(source.get("frame")):
             return None
+        setup = info.get("setup") or {"profile": info["profile"], "options": {}, "job": {}}
+        job, opts = setup.get("job") or {}, setup.get("options") or {}
+        if kind == "setup":
+            return setup
         if kind == "profile":
             return info["profile"]
+        if kind == "answers":  # questions on the page -> your saved answers to those questions only
+            if not opts.get("answers") or not isinstance(payload, list):
+                return []
+            return answers.lookup([str(q)[:500] for q in payload[:60]], job.get("company", ""), job.get("title", ""))
+        if kind == "answer":  # you answered a custom question
+            if not opts.get("capture") or not isinstance(payload, dict):
+                return None
+            return answers.capture(str(payload.get("question") or ""), str(payload.get("answer") or ""),
+                                   str(payload.get("kind") or "text"), job.get("company", ""), job.get("title", ""))
+        if kind == "used" and isinstance(payload, list):
+            db.answers_used([int(i) for i in payload[:60] if str(i).isdigit()])
+            return True
         if kind == "applied":
             mark_applied(info["job_id"], info["folder"], how=str(payload or "manual"))
             return True
         return None
 
-    async def _open(self, job_id, url, profile, resume_path, folder, account, cover_path=None):
+    async def _open(self, job_id, url, profile, resume_path, folder, account, cover_path=None, setup=None):
         ctx = await self._context()
         page = await ctx.new_page()
         page_profile = {**profile, "email": profile.get("email") or account["email"],
                         "account_ready": bool(account["email"] and account["password"])}
-        self.pages[page] = {"job_id": job_id, "profile": page_profile, "folder": folder}
+        self.pages[page] = {"job_id": job_id, "profile": page_profile, "folder": folder,
+                            "setup": {**(setup or {}), "profile": page_profile}}
         page.on("close", lambda p: self.pages.pop(p, None))
         await page.goto(url, wait_until="domcontentloaded")
         await page.bring_to_front()
@@ -269,9 +290,10 @@ class BrowserWorker:
             await inputs.nth(kinds.index("cover_letter")).set_input_files(str(cover_path))
             done.add((key, "cover_letter"))
 
-    async def open_application(self, job_id, url, profile, resume_path, folder, tenant, cover_path=None):
+    async def open_application(self, job_id, url, profile, resume_path, folder, tenant, cover_path=None, setup=None):
+        """setup: formfill.page_setup(...) - rules, work history, disclosures and options for autofill.js."""
         account = envfile.account_for(tenant)
-        return await self.call(self._open, job_id, url, profile, resume_path, folder, account, cover_path)
+        return await self.call(self._open, job_id, url, profile, resume_path, folder, account, cover_path, setup)
 
 
 worker = BrowserWorker()

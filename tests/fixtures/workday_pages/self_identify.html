@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Self Identify</title></head>
+<body>
+<!-- An anonymized, hand-built page in the shape of Workday's "Self Identify" (disability) step. -->
+<h2>Voluntary Self-Identification of Disability</h2>
+<div data-automation-id="formField-name">
+  <label for="sig-name">Name<abbr title="required">*</abbr></label>
+  <input type="text" id="sig-name" data-automation-id="name">
+</div>
+<div data-automation-id="formField-dateSignedOn">
+  <label for="sig-date">Today's Date<abbr title="required">*</abbr></label>
+  <input type="text" id="sig-date" data-automation-id="dateSignedOn">
+</div>
+<fieldset data-automation-id="disabilityStatus">
+  <legend>Please check one of the boxes below about disability:<abbr title="required">*</abbr></legend>
+  <input type="checkbox" id="dis-yes"><label for="dis-yes">Yes, I have a disability (or previously had a disability)</label>
+  <input type="checkbox" id="dis-no"><label for="dis-no">No, I do not have a disability and have not had one in the past</label>
+  <input type="checkbox" id="dis-skip"><label for="dis-skip">I do not want to answer</label>
+</fieldset>
+<button type="button" data-automation-id="bottom-navigation-next-button">Save and Continue</button>
+<script src="common.js"></script>
+</body></html>

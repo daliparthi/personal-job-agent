@@ -1,24 +1,57 @@
 // Injected into Workday application pages opened by Job Agent.
-// Fills standard fields from your profile. It never clicks Create Account, Sign In, Next or Submit, and never
-// overwrites something you already typed. You review and submit.
+// Fills standard fields from your profile, your work history and education from master_resume.yaml, voluntary
+// disclosures ("decline to answer" unless you changed it in Settings) and custom questions you answered before (from
+// the answer bank, outlined amber for you to check). It never overwrites something you typed, and it never clicks
+// Create Account, Sign In, Next or Submit, or ticks a consent or signature box. The one button it may click is
+// Workday's "Add" / "Add Another" in the Work Experience and Education sections, and only when Settings allows it.
 // (The Create Account / Sign In email + password come from your .env file and are typed by the Python side,
 //  so the password never passes through this script.)
+// Field patterns live in app/autofill_rules.json.
 (() => {
   if (window.__jobAgentLoaded) return;
   window.__jobAgentLoaded = true;
   if (!/myworkday(jobs|site)\.com$/i.test(location.hostname)) return;
 
   const STATE_NAMES = {AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",CT:"Connecticut",DE:"Delaware",DC:"District of Columbia",FL:"Florida",GA:"Georgia",HI:"Hawaii",ID:"Idaho",IL:"Illinois",IN:"Indiana",IA:"Iowa",KS:"Kansas",KY:"Kentucky",LA:"Louisiana",ME:"Maine",MD:"Maryland",MA:"Massachusetts",MI:"Michigan",MN:"Minnesota",MS:"Mississippi",MO:"Missouri",MT:"Montana",NE:"Nebraska",NV:"Nevada",NH:"New Hampshire",NJ:"New Jersey",NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",OH:"Ohio",OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",PR:"Puerto Rico",RI:"Rhode Island",SC:"South Carolina",SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",WA:"Washington",WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming"};
+  const MAX_DROPDOWNS_PER_TICK = 10;
+  const AMBER = "#f59e0b";
 
+  let setup = null;   // { profile, rules, history, options, disclosures, job } from Job Agent
+  let C = null;       // compiled rules
   let profile = null;
   let filled = 0;
+  let fromBank = 0;
   let busy = false;
   let reportedApplied = false;
   const gaveUp = new WeakSet();
+  const bankFilled = new WeakMap();  // element -> the value filled from the answer bank
+  const asked = new Map();           // question -> saved answer (or null)
+  const used = new Set();            // answer ids already reported as used
+  const sentAnswers = new Map();     // question -> last answer captured
+  const addClicks = { exp: 0, edu: 0 };
+  let lastListbox = null;
+
   const norm = (s) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
   const visible = (el) => !!(el && el.offsetParent !== null && el.getClientRects().length);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const event = (kind, payload) => (window.__jobAgentEvent ? window.__jobAgentEvent(kind, payload) : Promise.resolve(null));
+  const rx = (p) => (p ? new RegExp(p, "i") : null);
+  const placeholder = (s) => !s || /^select one|^select$|^choose|^none selected/.test(s);
 
+  function compile(r) {
+    const fields = (f) => Object.fromEntries(Object.entries(f || {}).map(([k, p]) => [k, rx(p)]));
+    return {
+      text: (r.text || []).map(([k, p, n]) => [k, rx(p), rx(n)]),
+      choices: (r.choices || []).map(([k, p, n]) => [k, rx(p), rx(n)]),
+      submitted: rx(r.submitted),
+      exp: { section: rx(r.experience.section), entry: rx(r.experience.entry), f: fields(r.experience.fields) },
+      edu: { section: rx(r.education.section), entry: rx(r.education.entry), f: fields(r.education.fields) },
+      add: rx(r.add_button), never: rx(r.never_click), decline: rx(r.decline),
+      disclosures: Object.entries(r.disclosures || {}).map(([k, p]) => [k, rx(p)]),
+    };
+  }
+
+  // ---------------------------------------------------------------- what a field is
   function describe(el) {
     const parts = [el.id, el.name, el.getAttribute("data-automation-id"), el.getAttribute("aria-label"), el.placeholder];
     if (el.id) {
@@ -27,7 +60,7 @@
     }
     (el.getAttribute("aria-labelledby") || "").split(/\s+/).forEach((id) => {
       const n = id && document.getElementById(id);
-      if (n) parts.push(n.innerText);
+      if (n && n !== el) parts.push(n.innerText);
     });
     const wrap = el.closest('[data-automation-id^="formField"]');
     if (wrap) {
@@ -43,33 +76,71 @@
     return norm(parts.filter(Boolean).join(" | "));
   }
 
-  // [profile key, label pattern, exclusion pattern]
-  const TEXT_RULES = [
-    ["first_name", /first ?name|given ?name|firstname/, /preferred|middle|local/],
-    ["last_name", /last ?name|family ?name|surname|lastname/, /preferred|local/],
-    ["email", /e-?mail/, /confirm|verify|retype/],
-    ["phone", /phone ?number|phonenumber|mobile number|telephone|\bphone\b/, /extension|country|code|device|type/],
-    ["address1", /address ?line ?1|addressline1|street address|address 1|address--addressline1/, /e-?mail/],
-    ["address2", /address ?line ?2|addressline2|address 2/, /e-?mail/],
-    ["city", /\bcity\b|town/, /ethnic|citizen/],
-    ["postal_code", /postal|zip/, null],
-    ["linkedin", /linkedin/, null],
-    ["github", /github/, null],
-    ["website", /website|portfolio|personal url|blog/, /linkedin|github/],
-  ];
+  const cleanLabel = (s) => (s || "").replace(/\*/g, " ").replace(/\(?\brequired\b\)?/gi, " ").replace(/\s+/g, " ").trim();
 
-  function choiceRules() {
-    return [
-      [/how did you hear|referral source|\bsource\b/, profile.how_heard],
-      [/phone device type|device type/, profile.phone_type],
-      [/authori[sz]ed to work|legally (authorized|eligible|permitted)|eligible to work|right to work/, profile.authorized_us],
-      [/sponsor/, profile.needs_sponsorship],
-      [/previously (worked|been employed)|former (employee|worker)|ever (worked|been employed)|have you worked for|previousworker/, profile.previously_employed],
-      [/\bstate\b|region|province/, STATE_NAMES[(profile.state || "").toUpperCase()] || profile.state],
-      [/\bcountry\b/, profile.country],
-    ];
+  /** The question a field asks, as a person reads it (its label), or "". Raw keeps the "*" required marker. */
+  function labelOf(el, raw = false) {
+    const parts = [];
+    if (el.id) {
+      const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (l) parts.push(l.innerText);
+    }
+    if (!parts.length) {
+      (el.getAttribute("aria-labelledby") || "").split(/\s+/).forEach((id) => {
+        const n = id && document.getElementById(id);
+        if (n && n !== el && !el.contains(n)) parts.push(n.innerText);
+      });
+    }
+    if (!parts.length) {
+      const wrap = el.closest('[data-automation-id^="formField"], fieldset, [role="radiogroup"], [role="group"]');
+      const l = wrap && wrap.querySelector("label, legend");
+      if (l && !(l.htmlFor && l.htmlFor === el.id)) parts.push(l.innerText);
+    }
+    if (!parts.length && el.getAttribute("aria-label")) parts.push(el.getAttribute("aria-label"));
+    const text = parts.join(" ").replace(/\s+/g, " ").trim();
+    return raw ? text : cleanLabel(text);
   }
 
+  /** A radio or checkbox group's question: its fieldset legend or the form field label around it. */
+  function groupLabel(input, raw = false) {
+    const box = input.closest('fieldset, [role="radiogroup"], [role="group"], [data-automation-id^="formField"]');
+    if (box) {
+      const ids = (box.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
+      for (const id of ids) {
+        const n = document.getElementById(id);
+        if (n) return raw ? n.innerText.trim() : cleanLabel(n.innerText);
+      }
+      const l = box.querySelector("legend, label:not([for])") || box.querySelector("label");
+      if (l && !(l.htmlFor && l.htmlFor === input.id)) return raw ? l.innerText.trim() : cleanLabel(l.innerText);
+    }
+    return "";
+  }
+
+  const optionLabel = (input) => {
+    const l = input.id && document.querySelector(`label[for="${CSS.escape(input.id)}"]`);
+    return norm((l && l.innerText) || input.getAttribute("aria-label") || input.value);
+  };
+
+  function choiceRules() {
+    const values = {
+      how_heard: profile.how_heard, phone_type: profile.phone_type, authorized_us: profile.authorized_us,
+      needs_sponsorship: profile.needs_sponsorship, previously_employed: profile.previously_employed,
+      state: STATE_NAMES[(profile.state || "").toUpperCase()] || profile.state, country: profile.country,
+    };
+    return C.choices.map(([k, re, not]) => [re, values[k], not]);
+  }
+
+  const disclosureOf = (d) => (C.disclosures.find(([, re]) => re.test(d)) || [null])[0];
+  const declines = (kind) => !!kind && (setup.disclosures || {})[kind] !== "skip";
+
+  /** Fields the rules fill from the profile, history or disclosure settings (everything else is a custom question). */
+  function isStandard(el, d = describe(el)) {
+    if (C.text.some(([, re, not]) => re.test(d) && !(not && not.test(d)))) return true;
+    if (C.choices.some(([, re, not]) => re.test(d) && !(not && not.test(d)))) return true;
+    return !!disclosureOf(d);
+  }
+
+  // ---------------------------------------------------------------- doing things to the page
   function setNativeValue(el, value) {
     const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
@@ -78,33 +149,39 @@
     el.dispatchEvent(new Event("blur", { bubbles: true }));
   }
 
-  function fillTextFields() {
-    const sel = 'input:not([type]), input[type="text"], input[type="email"], input[type="tel"], input[type="url"], textarea';
-    for (const el of document.querySelectorAll(sel)) {
-      if (!visible(el) || el.disabled || el.readOnly || el.value) continue;
-      const d = describe(el);
-      if (/search/.test(d)) continue;
-      for (const [key, re, not] of TEXT_RULES) {
-        if (re.test(d) && !(not && not.test(d)) && profile[key]) {
-          setNativeValue(el, profile[key]);
-          filled++;
-          break;
-        }
-      }
-    }
+  /**
+   * The only way this script clicks. kind: "listbox" (open a dropdown), "option" (pick from an open dropdown),
+   * "radio", "checkbox", or "add" (Workday's Add / Add Another in Work Experience or Education). Submit buttons,
+   * links, and anything labelled like Next, Submit, Sign In, Create Account, Agree or Consent are refused.
+   */
+  function safeClick(el, kind) {
+    if (!el || el.type === "submit" || (el.tagName === "A" && el.getAttribute("href"))) return false;
+    const text = norm(el.innerText || el.getAttribute("aria-label") || el.value || "");
+    if (kind === "listbox" && el.getAttribute("aria-haspopup") !== "listbox") return false;
+    if (kind === "add" && !(C.add.test(text) && el.tagName === "BUTTON")) return false;
+    if ((kind === "radio" || kind === "checkbox") && C.never.test(optionLabel(el))) return false;
+    if ((kind === "add" || kind === "radio" || kind === "checkbox") && C.never.test(text) && !C.add.test(text)) return false;
+    el.click();
+    return true;
   }
 
+  /** Open a dropdown and pick the first option matching `wanted` (a string, a list of strings tried in order, or a RegExp). */
   async function pickListbox(button, wanted) {
-    button.click();
+    if (!safeClick(button, "listbox")) return false;
     for (let i = 0; i < 15; i++) {
-      await sleep(150);
+      await sleep(120);
       const opts = [...document.querySelectorAll('[role="option"]')].filter(visible);
       if (!opts.length) continue;
-      const w = norm(wanted);
-      const hit = opts.find((o) => norm(o.innerText) === w) || opts.find((o) => norm(o.innerText).startsWith(w));
+      let hit = null;
+      if (wanted instanceof RegExp) hit = opts.find((o) => wanted.test(o.innerText));
+      else {
+        for (const w of (Array.isArray(wanted) ? wanted : [wanted]).map(norm).filter(Boolean)) {
+          hit = opts.find((o) => norm(o.innerText) === w) || opts.find((o) => norm(o.innerText).startsWith(w));
+          if (hit) break;
+        }
+      }
       if (hit) {
-        hit.click();
-        filled++;
+        safeClick(hit, "option");
         return true;
       }
       break;
@@ -114,43 +191,324 @@
     return false;
   }
 
-  async function fillDropdowns() {
-    for (const btn of document.querySelectorAll('button[aria-haspopup="listbox"]')) {
-      if (!visible(btn) || gaveUp.has(btn)) continue;
-      const current = norm(btn.innerText);
-      if (current && !/^select one|^select$|^choose/.test(current)) continue;
-      const d = describe(btn);
-      const rule = choiceRules().find(([re, v]) => v && re.test(d));
-      if (!rule) continue;
-      const ok = await pickListbox(btn, rule[1]);
-      if (!ok) gaveUp.add(btn);
-      return; // one dropdown per tick keeps the page calm
+  function markFromBank(el, match, value) {
+    el.style.outline = `2px solid ${AMBER}`;
+    el.style.outlineOffset = "2px";
+    el.title = `Job Agent filled this ${match.note}. Check it says what you mean.`;
+    bankFilled.set(el, value);
+    fromBank++;
+    if (!used.has(match.id)) {
+      used.add(match.id);
+      event("used", [match.id]);
     }
   }
 
-  function fillRadios() {
-    const groups = {};
-    for (const r of document.querySelectorAll('input[type="radio"]')) {
-      if (!visible(r) && !visible(r.parentElement)) continue;
-      (groups[r.name] = groups[r.name] || []).push(r);
+  // ---------------------------------------------------------------- sections: work experience and education
+  function headingOf(g) {
+    for (const id of (g.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean)) {
+      const n = document.getElementById(id);
+      if (n) return norm(n.innerText);
     }
-    for (const radios of Object.values(groups)) {
-      if (radios.some((r) => r.checked)) continue;
-      const d = describe(radios[0]);
-      const rule = choiceRules().find(([re, v]) => v && re.test(d));
-      if (!rule) continue;
-      const want = norm(rule[1]);
-      const hit = radios.find((r) => {
-        const l = r.id && document.querySelector(`label[for="${CSS.escape(r.id)}"]`);
-        return norm((l && l.innerText) || r.value) === want;
-      });
-      if (hit) {
-        hit.click();
+    const h = g.querySelector(":scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > legend, :scope > div > h3, :scope > div > h4");
+    return h ? norm(h.innerText) : "";
+  }
+  const groupsMatching = (re) => [...document.querySelectorAll('[role="group"], fieldset, section')].filter((g) => re.test(headingOf(g)));
+
+  const two = (n) => String(n).padStart(2, "0");
+
+  function dateValue(el, d, end, yearsOnly) {
+    if (end && d.current) return null;
+    const year = end ? d.end_year : d.start_year;
+    const month = yearsOnly ? null : end ? d.end_month : d.start_month;
+    const what = norm(`${el.getAttribute("data-automation-id") || ""} ${el.getAttribute("aria-label") || ""} ${el.placeholder || ""}`);
+    if (!year) return null;
+    if (/month/.test(what)) return month ? two(month) : null;
+    if (/year|yyyy/.test(what) && !/mm/.test(what)) return String(year);
+    if (/mm/.test(what) || !yearsOnly) return month ? `${two(month)}/${year}` : null; // never invent a month
+    return String(year);
+  }
+
+  /** "from" / "to" for a date input, from its form field's label (not the input's own Month/Year label). */
+  function dateSide(el, F) {
+    const wrap = el.closest('[data-automation-id^="formField"]');
+    const label = norm(`${wrap ? wrap.getAttribute("data-automation-id") : ""} ${wrap ? (wrap.querySelector("label, legend")?.innerText || "") : labelOf(el)}`);
+    if (F.to.test(label) && !F.from.test(label)) return "to";
+    if (F.from.test(label)) return "from";
+    return null;
+  }
+
+  async function fillEntry(g, d, kind) {
+    const F = (kind === "exp" ? C.exp : C.edu).f;
+    for (const el of g.querySelectorAll('input, textarea, button[aria-haspopup="listbox"]')) {
+      if (el.disabled || el.readOnly) continue;
+      const desc = describe(el);
+      if (el.type === "checkbox") {
+        if (kind === "exp" && F.current.test(desc) && d.current && !el.checked && safeClick(el, "checkbox")) filled++;
+        continue;
+      }
+      if (!visible(el) || el.type === "radio" || el.type === "file" || el.type === "hidden") continue;
+      if (el.tagName === "BUTTON") {
+        if (kind === "edu" && F.degree.test(desc) && placeholder(norm(el.innerText)) && !gaveUp.has(el) && d.degree_options?.length) {
+          if (await pickListbox(el, d.degree_options)) filled++; else gaveUp.add(el);
+        }
+        continue;
+      }
+      if (el.value) continue;
+      const side = dateSide(el, F);
+      let value = null;
+      if (side) value = dateValue(el, d, side === "to", kind === "edu");
+      else if (el.tagName === "TEXTAREA") value = kind === "exp" && F.description.test(desc) ? d.description : null;
+      else if (kind === "exp") {
+        if (F.title.test(desc)) value = d.title;
+        else if (F.company.test(desc)) value = d.company;
+        else if (F.location.test(desc)) value = d.location;
+      } else if (F.school.test(desc)) value = d.school;
+      else if (F.field.test(desc)) value = d.field;
+      else if (F.gpa.test(desc)) value = d.gpa;
+      if (value) {
+        setNativeValue(el, value);
         filled++;
       }
     }
   }
 
+  /** Fill each Work Experience / Education entry on the page with the matching resume entry (most recent first),
+   *  and (when Settings allows) click the section's Add button until there are as many entries as on your resume. */
+  async function fillHistory(kind) {
+    const S = kind === "exp" ? C.exp : C.edu;
+    const items = (setup.history || {})[kind === "exp" ? "experience" : "education"] || [];
+    if (!items.length) return { wanted: 0, have: 0 };
+    const entries = groupsMatching(S.entry);
+    for (let i = 0; i < Math.min(entries.length, items.length); i++) await fillEntry(entries[i], items[i], kind);
+    const sections = groupsMatching(S.section);
+    if (sections.length && entries.length < items.length && setup.options?.add_entries && addClicks[kind] <= items.length) {
+      const sec = sections[0];
+      const btn = [...sec.querySelectorAll("button")].filter(visible)
+        .find((b) => C.add.test(b.innerText || b.getAttribute("aria-label") || "") && !entries.some((e) => e.contains(b)));
+      if (btn && safeClick(btn, "add")) addClicks[kind]++;
+    }
+    return { wanted: sections.length ? items.length : 0, have: entries.length };
+  }
+
+  const inHistory = (el) => groupsMatching(C.exp.entry).concat(groupsMatching(C.edu.entry)).some((g) => g.contains(el));
+
+  // ---------------------------------------------------------------- profile fields, dropdowns, radios, checkboxes
+  const TEXT_SEL = 'input:not([type]), input[type="text"], input[type="email"], input[type="tel"], input[type="url"], textarea';
+
+  function fillTextFields(history) {
+    for (const el of document.querySelectorAll(TEXT_SEL)) {
+      if (!visible(el) || el.disabled || el.readOnly || el.value || history.some((g) => g.contains(el))) continue;
+      const d = describe(el);
+      if (/search/.test(d)) continue;
+      for (const [key, re, not] of C.text) {
+        if (re.test(d) && !(not && not.test(d)) && profile[key]) {
+          setNativeValue(el, profile[key]);
+          filled++;
+          break;
+        }
+      }
+    }
+  }
+
+  async function fillDropdowns(history, bank) {
+    let done = 0;
+    for (const btn of document.querySelectorAll('button[aria-haspopup="listbox"]')) {
+      if (done >= MAX_DROPDOWNS_PER_TICK) return;
+      if (!visible(btn) || gaveUp.has(btn) || history.some((g) => g.contains(btn))) continue;
+      if (!placeholder(norm(btn.innerText))) continue;
+      const d = describe(btn);
+      const disclosure = disclosureOf(d);
+      let wanted = null;
+      if (disclosure) wanted = declines(disclosure) ? C.decline : null;
+      else {
+        const rule = choiceRules().find(([re, v, not]) => v && re.test(d) && !(not && not.test(d)));
+        if (rule) wanted = rule[1];
+        else {
+          const m = bank.get(labelOf(btn));
+          if (m) wanted = [m.answer];
+          if (m && await pickListbox(btn, wanted)) { markFromBank(btn, m, m.answer); done++; continue; }
+          if (m) gaveUp.add(btn);
+          continue;
+        }
+      }
+      if (!wanted) continue;
+      done++;
+      if (await pickListbox(btn, wanted)) filled++; else gaveUp.add(btn);
+    }
+  }
+
+  function radioGroups() {
+    const groups = {};
+    for (const r of document.querySelectorAll('input[type="radio"]')) {
+      if (!visible(r) && !visible(r.parentElement)) continue;
+      (groups[r.name] = groups[r.name] || []).push(r);
+    }
+    return Object.values(groups);
+  }
+
+  function fillRadios(bank) {
+    for (const radios of radioGroups()) {
+      if (radios.some((r) => r.checked)) continue;
+      const d = `${describe(radios[0])} | ${norm(groupLabel(radios[0]))}`;
+      const disclosure = disclosureOf(d);
+      let hit = null, m = null;
+      if (disclosure) {
+        if (declines(disclosure)) hit = radios.find((r) => C.decline.test(optionLabel(r)));
+      } else {
+        const rule = choiceRules().find(([re, v, not]) => v && re.test(d) && !(not && not.test(d)));
+        if (rule) hit = radios.find((r) => optionLabel(r) === norm(rule[1]));
+        else if ((m = bank.get(groupLabel(radios[0])))) hit = radios.find((r) => optionLabel(r) === norm(m.answer));
+      }
+      if (hit && safeClick(hit, "radio")) {
+        if (m) markFromBank(hit.closest("fieldset, [role='radiogroup']") || hit.parentElement, m, m.answer); else filled++;
+      }
+    }
+  }
+
+  /** Disability self-identification and similar: tick "I do not want to answer" when that is your choice.
+   *  Only a checkbox whose own label says so, in a group about a disclosure; consent boxes are never ticked. */
+  function fillDisclosureCheckboxes() {
+    const boxes = new Map();
+    for (const cb of document.querySelectorAll('input[type="checkbox"]')) {
+      const box = cb.closest('fieldset, [role="group"], [data-automation-id^="formField"]') || cb.parentElement;
+      (boxes.get(box) || boxes.set(box, []).get(box)).push(cb);
+    }
+    for (const [box, cbs] of boxes) {
+      if (cbs.some((c) => c.checked)) continue;
+      const kind = disclosureOf(norm(`${groupLabel(cbs[0])} ${box.getAttribute("data-automation-id") || ""} ${headingOf(box)}`));
+      if (!declines(kind)) continue;
+      const hit = cbs.find((c) => C.decline.test(optionLabel(c)));
+      if (hit && safeClick(hit, "checkbox")) filled++;
+    }
+  }
+
+  // ---------------------------------------------------------------- answer bank
+  /** Custom questions on the page that are still empty: [{ el, q, type }]. */
+  function customQuestions(history) {
+    const out = [];
+    for (const el of document.querySelectorAll(TEXT_SEL)) {
+      if (!visible(el) || el.disabled || el.readOnly || el.value || history.some((g) => g.contains(el))) continue;
+      const d = describe(el);
+      if (/search|password/.test(d) || isStandard(el, d)) continue;
+      const q = labelOf(el);
+      if (q.length >= 8) out.push({ el, q, type: "text" });
+    }
+    for (const btn of document.querySelectorAll('button[aria-haspopup="listbox"]')) {
+      if (!visible(btn) || !placeholder(norm(btn.innerText)) || history.some((g) => g.contains(btn)) || isStandard(btn)) continue;
+      const q = labelOf(btn);
+      if (q.length >= 8) out.push({ el: btn, q, type: "listbox" });
+    }
+    for (const radios of radioGroups()) {
+      if (radios.some((r) => r.checked)) continue;
+      const q = groupLabel(radios[0]);
+      if (q.length >= 8 && !isStandard(radios[0], `${describe(radios[0])} | ${norm(q)}`)) out.push({ el: radios[0], q, type: "radio" });
+    }
+    return out;
+  }
+
+  /** question -> saved answer, asking Job Agent only about questions it hasn't been asked yet. */
+  async function bankAnswers(questions) {
+    if (!setup.options?.answers) return new Map();
+    const fresh = [...new Set(questions.map((x) => x.q))].filter((q) => !asked.has(q));
+    if (fresh.length) {
+      const res = (await event("answers", fresh)) || [];
+      fresh.forEach((q, i) => asked.set(q, res[i] || null));
+    }
+    return new Map(questions.map((x) => [x.q, asked.get(x.q)]).filter(([, m]) => m));
+  }
+
+  function fillTextFromBank(questions, bank) {
+    for (const { el, q, type } of questions) {
+      const m = bank.get(q);
+      if (type !== "text" || !m || el.value) continue;
+      setNativeValue(el, m.answer);
+      markFromBank(el, m, m.answer);
+    }
+  }
+
+  // Remember what you type or pick in a custom question (only your own input: isTrusted events).
+  function capture(question, answer, kind) {
+    if (!setup?.options?.capture) return;
+    const q = cleanLabel(question), a = (answer || "").trim();
+    if (q.length < 8 || !a || placeholder(norm(a)) || sentAnswers.get(q) === a) return;
+    sentAnswers.set(q, a);
+    event("answer", { question: q, answer: a, kind });
+  }
+
+  function onUserInput(e) {
+    if (!e.isTrusted || !C) return;
+    const el = e.target;
+    if (!el || !el.matches) return;
+    if (el.matches('input[type="radio"]') && e.type === "change") {
+      const d = `${describe(el)} | ${norm(groupLabel(el))}`;
+      if (!isStandard(el, d) && !inHistory(el)) capture(groupLabel(el), optionLabel(el) && labelText(el), "choice");
+      return;
+    }
+    if (!el.matches(TEXT_SEL) || el.type === "password" || inHistory(el)) return;
+    const d = describe(el);
+    if (/search|password/.test(d) || isStandard(el, d)) return;
+    const value = el.value.trim();
+    if (bankFilled.has(el) && bankFilled.get(el) === value) return; // the bank's answer, unchanged
+    capture(labelOf(el), value, "text");
+  }
+  const labelText = (input) => {
+    const l = input.id && document.querySelector(`label[for="${CSS.escape(input.id)}"]`);
+    return ((l && l.innerText) || input.getAttribute("aria-label") || input.value || "").trim();
+  };
+
+  function onUserClick(e) {
+    if (!e.isTrusted || !C) return;
+    const btn = e.target.closest?.('button[aria-haspopup="listbox"]');
+    if (btn) { lastListbox = btn; return; }
+    const opt = e.target.closest?.('[role="option"]');
+    if (opt && lastListbox) {
+      const b = lastListbox;
+      setTimeout(() => {
+        if (!document.contains(b) || isStandard(b) || inHistory(b)) return;
+        const value = (b.innerText || "").trim();
+        if (bankFilled.has(b) && bankFilled.get(b) === value) return;
+        capture(labelOf(b), value, "choice");
+      }, 400);
+    }
+  }
+  document.addEventListener("focusout", onUserInput, true);
+  document.addEventListener("change", onUserInput, true);
+  document.addEventListener("click", onUserClick, true);
+
+  // ---------------------------------------------------------------- what is still missing
+  function isRequired(el, raw) {
+    return el.required || el.getAttribute("aria-required") === "true" || /\*/.test(raw);
+  }
+
+  /** Required fields on this page that are still empty: [{ el, label }]. */
+  function missingRequired() {
+    const out = [];
+    const radiosDone = new Set();
+    for (const el of document.querySelectorAll('input, textarea, button[aria-haspopup="listbox"]')) {
+      if (["hidden", "file", "password", "submit", "button"].includes(el.type) && el.tagName !== "BUTTON") continue;
+      if (el.tagName === "BUTTON" && el.getAttribute("aria-haspopup") !== "listbox") continue;
+      if (el.type === "radio") {
+        if (radiosDone.has(el.name)) continue;
+        radiosDone.add(el.name);
+        const group = [...document.querySelectorAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`)];
+        const raw = groupLabel(el, true);
+        if (!visible(el) && !visible(el.parentElement)) continue;
+        if ((group.some((r) => r.required || r.getAttribute("aria-required") === "true") || /\*/.test(raw)) && !group.some((r) => r.checked)) {
+          out.push({ el, label: cleanLabel(raw) || el.name });
+        }
+        continue;
+      }
+      if (el.type === "checkbox") continue; // consent boxes are yours to tick; Workday will point them out
+      if (!visible(el) || el.disabled) continue;
+      const raw = labelOf(el, true);
+      if (!isRequired(el, raw)) continue;
+      const empty = el.tagName === "BUTTON" ? placeholder(norm(el.innerText)) : !el.value.trim();
+      if (empty) out.push({ el, label: cleanLabel(raw) || el.getAttribute("aria-label") || el.name || "a field" });
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------- banner
   // Built with DOM calls and element.style (never innerHTML or style="" markup), so a site's Content-Security-Policy
   // or Trusted Types rules can't block or strip it.
   function node(tag, css, text) {
@@ -160,37 +518,58 @@
     return n;
   }
 
-  function banner(msg) {
+  function banner(msg, missing = []) {
     let b = document.getElementById("__jobagent_banner");
     if (!b) {
-      b = node("div", "position:fixed;z-index:2147483647;right:16px;bottom:16px;max-width:340px;background:#0f172a;color:#f8fafc;" +
+      b = node("div", "position:fixed;z-index:2147483647;right:16px;bottom:16px;max-width:360px;background:#0f172a;color:#f8fafc;" +
         "font:13px/1.4 system-ui,Segoe UI,sans-serif;padding:12px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35)");
       b.id = "__jobagent_banner";
       const text = node("div", "");
       text.id = "__jobagent_msg";
+      const list = node("div", "margin-top:6px");
+      list.id = "__jobagent_missing";
       const done = node("button", "margin-top:8px;background:#22c55e;color:#04210f;border:0;border-radius:6px;padding:6px 10px;" +
         "font-weight:600;cursor:pointer", "I submitted — mark as applied");
       done.id = "__jobagent_done";
       done.onclick = () => markApplied("manual");
-      b.append(node("div", "font-weight:600;margin-bottom:4px", "Job Agent autofill"), text, done);
+      b.append(node("div", "font-weight:600;margin-bottom:4px", "Job Agent autofill"), text, list, done);
       document.documentElement.appendChild(b);
     }
     b.querySelector("#__jobagent_msg").textContent = msg;
+    const list = b.querySelector("#__jobagent_missing");
+    const key = missing.map((m) => m.label).join("|");
+    if (list.dataset.key === key) return;
+    list.dataset.key = key;
+    list.replaceChildren();
+    if (!missing.length) return;
+    list.append(node("div", "font-weight:600;color:#fcd34d", `Still to fill on this page (${missing.length}):`));
+    for (const m of missing.slice(0, 8)) {
+      const item = node("button", "display:block;background:none;border:0;padding:1px 0;color:#bfdbfe;cursor:pointer;" +
+        "text-align:left;font:inherit;text-decoration:underline", `• ${m.label.slice(0, 70)}`);
+      item.onclick = () => { m.el.scrollIntoView({ block: "center" }); m.el.focus?.(); };
+      list.append(item);
+    }
+    if (missing.length > 8) list.append(node("div", "color:#cbd5e1", `…and ${missing.length - 8} more`));
   }
 
   function markApplied(how) {
     if (reportedApplied) return;
     reportedApplied = true;
-    window.__jobAgentEvent && window.__jobAgentEvent("applied", how);
+    event("applied", how);
     banner("Marked as applied. The application folder has been updated.");
   }
 
+  // ---------------------------------------------------------------- main loop
   async function tick() {
     if (busy) return;
     busy = true;
     try {
-      if (!profile && window.__jobAgentEvent) profile = await window.__jobAgentEvent("profile");
-      if (!profile) return;
+      if (!setup) {
+        setup = await event("setup");
+        if (!setup || !setup.rules) { setup = null; return; }
+        C = compile(setup.rules);
+        profile = setup.profile || {};
+      }
       const passwords = [...document.querySelectorAll('input[type="password"]')].filter(visible);
       if (passwords.length) {
         banner(!profile.account_ready
@@ -201,16 +580,30 @@
         return;
       }
       const text = document.body ? document.body.innerText : "";
-      if (/application (has been )?submitted|thank you for applying|successfully submitted/i.test(text)) {
+      if (C.submitted.test(text)) {
         markApplied("detected");
         return;
       }
-      fillTextFields();
-      fillRadios();
-      await fillDropdowns();
+      const exp = await fillHistory("exp");
+      const edu = await fillHistory("edu");
+      const history = groupsMatching(C.exp.entry).concat(groupsMatching(C.edu.entry));
+      fillTextFields(history);
+      const questions = customQuestions(history);
+      const bank = questions.length ? await bankAnswers(questions) : new Map();
+      fillTextFromBank(questions, bank);
+      fillRadios(bank);
+      fillDisclosureCheckboxes();
+      await fillDropdowns(history, bank);
       if (!reportedApplied) {
-        banner(`Filled ${filled} field(s) and attached your tailored resume when asked. ` +
-          "Check every step, finish anything left blank, then click Submit yourself.");
+        const notes = [`Filled ${filled} field(s) and attached your files when asked.`];
+        if (fromBank) notes.push(`${fromBank} answer(s) came from your answer bank: they are outlined amber, check them.`);
+        const short = [["job", exp], ["school", edu]].filter(([, r]) => r.wanted > r.have);
+        if (short.length && !setup.options?.add_entries) {
+          notes.push(`Your resume has ${short.map(([w, r]) => `${r.wanted} ${w}${r.wanted > 1 ? "s" : ""}`).join(" and ")}; ` +
+            "click Add for each (or turn on Settings → Autofill → Add entries).");
+        }
+        notes.push("Check every step, then click Submit yourself.");
+        banner(notes.join(" "), missingRequired());
       }
     } catch (e) {
       console.warn("Job Agent autofill:", e);

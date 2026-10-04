@@ -120,6 +120,22 @@ MIGRATIONS = [
     """
     ALTER TABLE jobs ADD COLUMN source TEXT NOT NULL DEFAULT 'workday';
     """,
+    # 8: the answer bank: your answers to application questions, reused (for review) on the next form that asks
+    """
+    CREATE TABLE IF NOT EXISTS answers (
+        id INTEGER PRIMARY KEY,
+        question TEXT NOT NULL,
+        norm TEXT NOT NULL UNIQUE,
+        answer TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'text',
+        source TEXT NOT NULL DEFAULT 'manual',
+        company TEXT,
+        uses INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_used_at TEXT
+    );
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -280,6 +296,14 @@ DEFAULT_SETTINGS = {
     "ghost_after_days": 21,     # suggest "Ghosted" when an application has had no update for this long
     "last_visit": None,         # when the page was last opened ("new since your last visit")
     "scoring_version": 1,       # scoring.VERSION the stored match scores were computed with
+    "autofill": {
+        "experience": True,     # fill Workday's My Experience entries from master_resume.yaml
+        "add_entries": False,   # ...and click its "Add" buttons for more entries (the one click autofill may make)
+        "answers": True,        # reuse answers from the answer bank (filled for review, outlined amber)
+        "capture": True,        # remember answers you type into custom questions
+    },
+    # Voluntary disclosures (EEO self-identification): "decline" picks "I don't wish to answer"; "skip" leaves it.
+    "disclosures": {"gender": "decline", "ethnicity": "decline", "veteran": "decline", "disability": "decline"},
 }
 
 
@@ -678,3 +702,49 @@ def mark_alerts_seen(ids=None):
             c.execute("UPDATE alerts SET seen = 1 WHERE seen = 0")
         else:
             c.executemany("UPDATE alerts SET seen = 1 WHERE id = ?", [(i,) for i in ids])
+
+
+# ---------- answer bank ----------
+ANSWER_FIELDS = ("question", "answer", "kind", "source", "company")
+
+
+def answers_all():
+    return [dict(r) for r in read().execute("SELECT * FROM answers ORDER BY updated_at DESC, id DESC").fetchall()]
+
+
+def answer_get(answer_id):
+    r = read().execute("SELECT * FROM answers WHERE id = ?", (answer_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def answer_upsert(question, norm, answer, kind="text", source="manual", company=None) -> int:
+    """Insert, or replace the answer of the question with the same normalized text. Returns its id."""
+    now = _now()
+    with conn() as c:
+        c.execute("INSERT INTO answers(question, norm, answer, kind, source, company, created_at, updated_at) "
+                  "VALUES(?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(norm) DO UPDATE SET question = excluded.question, "
+                  "answer = excluded.answer, kind = excluded.kind, source = excluded.source, "
+                  "company = excluded.company, updated_at = excluded.updated_at",
+                  (question, norm, answer, kind, source, company, now, now))
+        return c.execute("SELECT id FROM answers WHERE norm = ?", (norm,)).fetchone()[0]
+
+
+def answer_update(answer_id, **fields):
+    fields = {k: v for k, v in fields.items() if k in ANSWER_FIELDS + ("norm",)}
+    if not fields:
+        return
+    fields["updated_at"] = _now()
+    with conn() as c:
+        c.execute(f"UPDATE answers SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?",
+                  (*fields.values(), answer_id))
+
+
+def answer_delete(answer_id) -> bool:
+    with conn() as c:
+        return c.execute("DELETE FROM answers WHERE id = ?", (answer_id,)).rowcount > 0
+
+
+def answers_used(ids):
+    now = _now()
+    with conn() as c:
+        c.executemany("UPDATE answers SET uses = uses + 1, last_used_at = ? WHERE id = ?", [(now, i) for i in ids])

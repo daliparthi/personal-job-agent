@@ -1,0 +1,61 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>My Information</title></head>
+<body>
+<!-- An anonymized, hand-built page in the shape of Workday's "My Information" step. -->
+<h2>My Information</h2>
+<div data-automation-id="formField-sourceDropdown">
+  <label for="source">How Did You Hear About Us?<abbr title="required">*</abbr></label>
+  <button type="button" id="source" aria-haspopup="listbox" aria-labelledby="source-label source" data-automation-id="sourceDropdown" data-options="Company Website|LinkedIn|Referral">Select One</button>
+</div>
+<fieldset data-automation-id="formField-candidateIsPreviousWorker">
+  <legend>Have you previously worked for Acme?<abbr title="required">*</abbr></legend>
+  <input type="radio" name="prev" id="prev-yes" value="true"><label for="prev-yes">Yes</label>
+  <input type="radio" name="prev" id="prev-no" value="false"><label for="prev-no">No</label>
+</fieldset>
+<div data-automation-id="formField-countryDropdown">
+  <label for="country">Country<abbr title="required">*</abbr></label>
+  <button type="button" id="country" aria-haspopup="listbox" data-automation-id="countryDropdown" data-options="Canada|United States of America">Select One</button>
+</div>
+<div data-automation-id="formField-legalNameSection_firstName">
+  <label for="first">First Name<abbr title="required">*</abbr></label>
+  <input type="text" id="first" data-automation-id="legalNameSection_firstName" aria-required="true">
+</div>
+<div data-automation-id="formField-legalNameSection_lastName">
+  <label for="last">Last Name<abbr title="required">*</abbr></label>
+  <input type="text" id="last" data-automation-id="legalNameSection_lastName" aria-required="true">
+</div>
+<div data-automation-id="formField-addressSection_addressLine1">
+  <label for="addr1">Address Line 1<abbr title="required">*</abbr></label>
+  <input type="text" id="addr1" data-automation-id="addressSection_addressLine1">
+</div>
+<div data-automation-id="formField-addressSection_city">
+  <label for="city">City<abbr title="required">*</abbr></label>
+  <input type="text" id="city" data-automation-id="addressSection_city">
+</div>
+<div data-automation-id="formField-addressSection_countryRegion">
+  <label for="state">State<abbr title="required">*</abbr></label>
+  <button type="button" id="state" aria-haspopup="listbox" data-automation-id="addressSection_countryRegion" data-options="California|New York|Texas|Washington">Select One</button>
+</div>
+<div data-automation-id="formField-addressSection_postalCode">
+  <label for="zip">Postal Code<abbr title="required">*</abbr></label>
+  <input type="text" id="zip" data-automation-id="addressSection_postalCode">
+</div>
+<div data-automation-id="formField-phone-device-type">
+  <label for="devtype">Phone Device Type<abbr title="required">*</abbr></label>
+  <button type="button" id="devtype" aria-haspopup="listbox" data-automation-id="phone-device-type" data-options="Home|Mobile|Work">Select One</button>
+</div>
+<div data-automation-id="formField-phone-number">
+  <label for="phone">Phone Number<abbr title="required">*</abbr></label>
+  <input type="text" id="phone" data-automation-id="phone-number">
+</div>
+<div data-automation-id="formField-preferredName">
+  <label for="pref">Preferred Name</label>
+  <input type="text" id="pref" data-automation-id="preferredName">
+</div>
+<div data-automation-id="formField-middleName">
+  <label for="middle">Middle Name<abbr title="required">*</abbr></label>
+  <input type="text" id="middle" data-automation-id="legalNameSection_middleName">
+</div>
+<button type="button" data-automation-id="bottom-navigation-next-button">Save and Continue</button>
+<script src="common.js"></script>
+</body></html>

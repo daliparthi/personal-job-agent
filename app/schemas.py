@@ -24,8 +24,40 @@ class FiltersPatch(_Body):
     hide_knockouts: bool | None = None
 
 
+class AutofillPatch(_Body):
+    experience: bool | None = None
+    add_entries: bool | None = None
+    answers: bool | None = None
+    capture: bool | None = None
+
+
+Disclosure = Literal["decline", "skip"]
+
+
+class DisclosuresPatch(_Body):
+    gender: Disclosure | None = None
+    ethnicity: Disclosure | None = None
+    veteran: Disclosure | None = None
+    disability: Disclosure | None = None
+
+
+class AnswerIn(_Body):
+    question: str = Field(min_length=1, max_length=500)
+    answer: str = Field(min_length=1, max_length=4000)
+    kind: Literal["text", "choice"] = "text"
+
+
+class AnswerPatch(_Body):
+    question: str | None = Field(None, min_length=1, max_length=500)
+    answer: str | None = Field(None, min_length=1, max_length=4000)
+    kind: Literal["text", "choice"] | None = None
+
+    def values(self) -> dict:
+        return self.model_dump(exclude_unset=True, exclude_none=True)
+
+
 class SettingsPatch(_Body):
-    """Only the fields you send change; filters and profile are merged into what is stored."""
+    """Only the fields you send change; filters, profile, autofill and disclosures are merged into what is stored."""
     mandatory: str | None = None
     optional: str | None = None
     current_employer: str | None = None
@@ -37,6 +69,8 @@ class SettingsPatch(_Body):
     max_bullets: int | None = Field(None, ge=0, le=40)
     keep_new_days: int | None = Field(None, ge=1, le=365)
     ghost_after_days: int | None = Field(None, ge=3, le=365)
+    autofill: AutofillPatch | None = None
+    disclosures: DisclosuresPatch | None = None
 
     def values(self) -> dict:
         return self.model_dump(exclude_unset=True, exclude_none=True)

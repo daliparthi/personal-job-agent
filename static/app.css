@@ -247,6 +247,12 @@ legend { font-weight: 600; padding: 0 4px; }
 .grid2 { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 .grid3 { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
 .grid2 label, .grid3 label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
+.checks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.checks .check { white-space: normal; }
+.ab-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.ab-row textarea { width: 100%; font: inherit; }
+.ab-row .sub { color: var(--ink-2); font-size: 12px; }
+.ab-row .q { font-weight: 600; }
 .companies { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; max-height: 220px; overflow: auto; }
 .companies label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .companies .err { color: var(--bad); font-size: 12px; }

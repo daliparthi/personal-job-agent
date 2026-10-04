@@ -1,0 +1,107 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>My Experience</title></head>
+<body>
+<!-- An anonymized, hand-built page in the shape of Workday's "My Experience" step. Entries are added with "Add". -->
+<h2>My Experience</h2>
+
+<div role="group" aria-labelledby="h-exp" data-automation-id="workExperienceSection">
+  <h3 id="h-exp">Work Experience</h3>
+  <div id="entries-exp"></div>
+  <button type="button" data-add="exp" data-automation-id="Add">Add</button>
+</div>
+
+<div role="group" aria-labelledby="h-edu" data-automation-id="educationSection">
+  <h3 id="h-edu">Education</h3>
+  <div id="entries-edu"></div>
+  <button type="button" data-add="edu" data-automation-id="Add">Add</button>
+</div>
+
+<div role="group" aria-labelledby="h-web" data-automation-id="websiteSection">
+  <h3 id="h-web">Websites</h3>
+  <div id="entries-web"></div>
+  <button type="button" data-add="web" data-automation-id="Add">Add</button>
+</div>
+
+<div data-automation-id="formField-skills">
+  <label for="skills">Type to Add Skills</label>
+  <input type="text" id="skills" data-automation-id="searchBox">
+</div>
+
+<template id="tpl-exp">
+  <div role="group" aria-labelledby="h-exp-{n}" data-automation-id="workExperience-{n}">
+    <h4 id="h-exp-{n}">Work Experience {n}</h4>
+    <div data-automation-id="formField-jobTitle">
+      <label for="exp{n}-title">Job Title<abbr title="required">*</abbr></label>
+      <input type="text" id="exp{n}-title" data-automation-id="jobTitle">
+    </div>
+    <div data-automation-id="formField-companyName">
+      <label for="exp{n}-company">Company<abbr title="required">*</abbr></label>
+      <input type="text" id="exp{n}-company" data-automation-id="company">
+    </div>
+    <div data-automation-id="formField-location">
+      <label for="exp{n}-loc">Location</label>
+      <input type="text" id="exp{n}-loc" data-automation-id="location">
+    </div>
+    <div data-automation-id="formField-currentlyWorkHere">
+      <input type="checkbox" id="exp{n}-current" data-automation-id="currentlyWorkHere">
+      <label for="exp{n}-current">I currently work here</label>
+    </div>
+    <div data-automation-id="formField-startDate">
+      <label>From<abbr title="required">*</abbr></label>
+      <input type="text" role="spinbutton" aria-label="Month" id="exp{n}-from-m" data-automation-id="dateSectionMonth-input">
+      <input type="text" role="spinbutton" aria-label="Year" id="exp{n}-from-y" data-automation-id="dateSectionYear-input">
+    </div>
+    <div data-automation-id="formField-endDate">
+      <label>To</label>
+      <input type="text" role="spinbutton" aria-label="Month" id="exp{n}-to-m" data-automation-id="dateSectionMonth-input">
+      <input type="text" role="spinbutton" aria-label="Year" id="exp{n}-to-y" data-automation-id="dateSectionYear-input">
+    </div>
+    <div data-automation-id="formField-roleDescription">
+      <label for="exp{n}-desc">Role Description</label>
+      <textarea id="exp{n}-desc" data-automation-id="description"></textarea>
+    </div>
+    <button type="button" data-automation-id="panel-set-delete-button">Delete</button>
+  </div>
+</template>
+
+<template id="tpl-edu">
+  <div role="group" aria-labelledby="h-edu-{n}" data-automation-id="education-{n}">
+    <h4 id="h-edu-{n}">Education {n}</h4>
+    <div data-automation-id="formField-schoolName">
+      <label for="edu{n}-school">School or University<abbr title="required">*</abbr></label>
+      <input type="text" id="edu{n}-school" data-automation-id="school">
+    </div>
+    <div data-automation-id="formField-degree">
+      <label for="edu{n}-degree">Degree<abbr title="required">*</abbr></label>
+      <button type="button" id="edu{n}-degree" aria-haspopup="listbox" data-automation-id="degree" data-options="High School Diploma|Associate's Degree|Bachelor's Degree|Master's Degree|Doctorate">Select One</button>
+    </div>
+    <div data-automation-id="formField-fieldOfStudy">
+      <label for="edu{n}-field">Field of Study</label>
+      <input type="text" id="edu{n}-field" data-automation-id="fieldOfStudy">
+    </div>
+    <div data-automation-id="formField-gradeAverage">
+      <label for="edu{n}-gpa">Overall Result (GPA)</label>
+      <input type="text" id="edu{n}-gpa" data-automation-id="gpa">
+    </div>
+    <div data-automation-id="formField-firstYearAttended">
+      <label>From</label>
+      <input type="text" role="spinbutton" aria-label="Year" id="edu{n}-from" data-automation-id="dateSectionYear-input">
+    </div>
+    <div data-automation-id="formField-lastYearAttended">
+      <label>To (Actual or Expected)</label>
+      <input type="text" role="spinbutton" aria-label="Year" id="edu{n}-to" data-automation-id="dateSectionYear-input">
+    </div>
+    <button type="button" data-automation-id="panel-set-delete-button">Delete</button>
+  </div>
+</template>
+
+<template id="tpl-web">
+  <div role="group" aria-labelledby="h-web-{n}">
+    <h4 id="h-web-{n}">Websites {n}</h4>
+    <label for="web{n}">URL</label><input type="text" id="web{n}">
+  </div>
+</template>
+
+<button type="button" data-automation-id="bottom-navigation-next-button">Save and Continue</button>
+<script src="common.js"></script>
+</body></html>

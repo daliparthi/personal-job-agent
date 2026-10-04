@@ -890,8 +890,65 @@ async function openSettings() {
       : `<input name="p_${k}" value="${esc(v)}" autocomplete="off">`;
     return `<label>${esc(label)}${input}</label>`;
   }).join("");
+  const af = s.autofill || {};
+  form.af_experience.checked = af.experience !== false;
+  form.af_add_entries.checked = !!af.add_entries;
+  form.af_answers.checked = af.answers !== false;
+  form.af_capture.checked = af.capture !== false;
+  $("#disclosure-fields").innerHTML = DISCLOSURES.map(([k, label]) => `<label>${esc(label)}<select name="d_${k}">`
+    + `<option value="decline"${(s.disclosures || {})[k] !== "skip" ? " selected" : ""}>Decline to answer</option>`
+    + `<option value="skip"${(s.disclosures || {})[k] === "skip" ? " selected" : ""}>Leave for me</option></select></label>`).join("");
+  api("/api/answers").then((list) => { $("#answers-count").textContent = `${list.length} saved answer${list.length === 1 ? "" : "s"}`; });
   await renderCompanies();
   $("#settings-dialog").showModal();
+}
+
+// ---------------------------------------------------------------- answer bank
+const DISCLOSURES = [["gender", "Gender"], ["ethnicity", "Ethnicity / race"], ["veteran", "Veteran status"], ["disability", "Disability"]];
+
+async function openAnswers() {
+  await renderAnswers();
+  $("#answers-dialog").showModal();
+}
+
+async function renderAnswers() {
+  const list = await api("/api/answers");
+  $("#answers-count").textContent = `${list.length} saved answer${list.length === 1 ? "" : "s"}`;
+  const when = (iso) => (iso || "").slice(0, 10);
+  $("#ab-list").innerHTML = list.length ? list.map((a) => `
+    <div class="ab-row" data-id="${a.id}">
+      <div><div class="q">${esc(a.question)}</div>
+        <textarea rows="2" data-answer="${a.id}">${esc(a.answer)}</textarea>
+        <div class="sub">${a.kind === "choice" ? "option from a list · " : ""}${esc(a.source)}${a.company ? ` · ${esc(a.company)}` : ""} · updated ${esc(when(a.updated_at))}${a.uses ? ` · used ${a.uses}×` : ""}</div></div>
+      <div><button type="button" class="linkish" data-del="${a.id}">Delete</button></div>
+    </div>`).join("") : '<p class="hint">No answers yet. Answer a custom question in the apply window, or add one below.</p>';
+}
+
+async function onAnswersEvent(e) {
+  const del = e.target.closest("[data-del]");
+  if (del && e.type === "click") {
+    if (!confirm("Delete this answer?")) return;
+    await api(`/api/answers/${del.dataset.del}`, { method: "DELETE" });
+    return renderAnswers();
+  }
+  const ta = e.target.closest("[data-answer]");
+  if (ta && e.type === "change") {
+    try {
+      await api(`/api/answers/${ta.dataset.answer}`, { method: "PUT", body: { answer: ta.value.trim() } });
+      toast("Answer saved.");
+    } catch (err) { toast(err.message, 7000); }
+  }
+}
+
+async function addAnswer() {
+  const question = $("#ab-q").value.trim(), answer = $("#ab-a").value.trim();
+  if (!question || !answer) return toast("Enter a question and its answer.");
+  try {
+    await api("/api/answers", { method: "POST", body: { question, answer, kind: $("#ab-choice").checked ? "choice" : "text" } });
+    $("#ab-q").value = $("#ab-a").value = "";
+    $("#ab-choice").checked = false;
+    await renderAnswers();
+  } catch (err) { toast(err.message, 8000); }
 }
 
 async function renderCompanies() {
@@ -916,6 +973,9 @@ async function saveSettingsDialog() {
     upload_format: form.upload_format.value, max_bullets: Number(form.max_bullets.value || 12),
     keep_new_days: Number(form.keep_new_days.value || 7), ghost_after_days: Number(form.ghost_after_days.value || 21),
     profile, disabled_companies: disabled,
+    autofill: { experience: form.af_experience.checked, add_entries: form.af_add_entries.checked,
+                answers: form.af_answers.checked, capture: form.af_capture.checked },
+    disclosures: Object.fromEntries(DISCLOSURES.map(([k]) => [k, form[`d_${k}`].value])),
   });
   $("#settings-dialog").close();
   toast(engineChanged && llm.state === "ready" ? "Saved. Reload the page to switch AI engine." : "Settings saved.");
@@ -1062,6 +1122,11 @@ function bindEvents() {
   $("#btn-applications").onclick = openApplications;
   $("#btn-pipeline").onclick = openPipeline;
   $("#apps-close").onclick = () => $("#apps-dialog").close();
+  $("#btn-answers").onclick = openAnswers;
+  $("#ab-close").onclick = () => $("#answers-dialog").close();
+  $("#ab-add").onclick = addAnswer;
+  $("#ab-list").addEventListener("click", onAnswersEvent);
+  $("#ab-list").addEventListener("change", onAnswersEvent);
   $("#apps-list").onclick = (e) => {
     const b = e.target.closest("[data-open]");
     if (b) api("/api/open-folder", { method: "POST", body: { path: b.dataset.open } }).catch((err) => toast(err.message));

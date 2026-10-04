@@ -2,6 +2,7 @@ import asyncio
 import hmac
 from datetime import datetime
 import mimetypes
+import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,11 +10,11 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import alerts, apply, candidate, db, envfile, master, pipeline, scheduler, scoring, search
+from . import alerts, answers, apply, candidate, db, envfile, formfill, master, pipeline, scheduler, scoring, search
 from .config import HOME, HOME_ID, MODELS, PORT, STATIC, ensure_home, session_key
 from .jobparse import jd_digest, split_keywords
 from .resume_io import clean_resume, parse_resume, to_text
-from .schemas import (AlertsSeenIn, CompanyIn, FeedbackIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn,
+from .schemas import (AlertsSeenIn, AnswerIn, AnswerPatch, CompanyIn, FeedbackIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn,
                       PathIn, PreviewIn, ResumeSaveIn, RunIn, SavedSearchIn, SavedSearchPatch, ScoreIn,
                       SettingsPatch, StageIn, TailoredIn)
 
@@ -196,7 +197,7 @@ def get_settings():
 def put_settings(body: SettingsPatch):
     values = body.values()
     before = db.get_settings()
-    for k in ("filters", "profile"):  # partial updates of the nested settings keep the rest
+    for k in ("filters", "profile", "autofill", "disclosures"):  # partial updates of nested settings keep the rest
         if k in values:
             values[k] = {**before[k], **values[k]}
     db.save_settings(values)
@@ -206,6 +207,45 @@ def put_settings(body: SettingsPatch):
     if scored(before) != scored(after):
         search.rescorer.request()
     return after
+
+
+# ---------------------------------------------------------------- answer bank
+@app.get("/api/answers")
+def list_answers():
+    return db.answers_all()
+
+
+@app.post("/api/answers")
+def add_answer(body: AnswerIn):
+    answer_id = answers.capture(body.question, body.answer, body.kind, source="manual")
+    if answer_id is None:
+        raise HTTPException(400, "Not kept: the question is too short, or it is a contact, address or "
+                                 "voluntary-disclosure question (those are never stored)")
+    return db.answer_get(answer_id)
+
+
+@app.put("/api/answers/{answer_id}")
+def edit_answer(answer_id: int, body: AnswerPatch):
+    a = db.answer_get(answer_id)
+    if not a:
+        raise HTTPException(404, "No such answer")
+    fields = body.values()
+    if "question" in fields:
+        if not answers.rememberable(fields["question"], fields.get("answer", a["answer"])):
+            raise HTTPException(400, "That question can't be kept in the answer bank")
+        fields["norm"] = answers.normalize(fields["question"], a["company"] or "")
+    try:
+        db.answer_update(answer_id, **fields)
+    except sqlite3.IntegrityError:
+        raise HTTPException(409, "Another saved answer already has that question")
+    return db.answer_get(answer_id)
+
+
+@app.delete("/api/answers/{answer_id}")
+def delete_answer(answer_id: int):
+    if not db.answer_delete(answer_id):
+        raise HTTPException(404, "No such answer")
+    return {"ok": True}
 
 
 @app.get("/api/account")
@@ -465,14 +505,17 @@ async def package(job_id: str, body: PackageIn):
                                       body.approved, body.rejected, profile, letter=doc.get("letter"))
     db.update_job(job_id, folder=result["folder"])
     pipeline.advance(job_id, "saved", "application package saved")
+    answers.seed_from_letter(doc.get("letter"), j["company"], j["title"])  # drafts for the answer bank
     if body.launch:
         fmt = settings.get("upload_format", "docx")
         resume_path = result["pdf"] if fmt == "pdf" and result["pdf"] else result["docx"]
         cover = result.get("cover_letter") or {}
         cover_path = cover.get("pdf") if fmt == "pdf" and cover.get("pdf") else cover.get("docx")
+        resume = db.get_resume()
+        setup = formfill.page_setup(profile, settings, resume["data"] if resume else None, j)
         try:
             await apply.worker.open_application(job_id, j["url"], profile, resume_path, result["folder"], j["tenant"],
-                                                cover_path)
+                                                cover_path, setup)
             pipeline.advance(job_id, "applying", "apply window opened")
             result["launched"] = True
         except Exception as e:

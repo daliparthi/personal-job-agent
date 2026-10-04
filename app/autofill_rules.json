@@ -1,0 +1,65 @@
+{
+  "_comment": [
+    "How the apply window recognizes Workday form fields (read each time an apply window opens, so edits apply without a restart).",
+    "Patterns are case-insensitive JavaScript regular expressions, tested against a field's label, name and Workday data-automation-id.",
+    "text: [profile key, label pattern, exclusion pattern or null] for text boxes. choices: the same for dropdowns and radio buttons."
+  ],
+  "version": 1,
+  "text": [
+    ["first_name", "first ?name|given ?name|firstname", "preferred|middle|local"],
+    ["last_name", "last ?name|family ?name|surname|lastname", "preferred|local"],
+    ["email", "e-?mail", "confirm|verify|retype"],
+    ["phone", "phone ?number|phonenumber|mobile number|telephone|\\bphone\\b", "extension|country|code|device|type"],
+    ["address1", "address ?line ?1|addressline1|street address|address 1|address--addressline1", "e-?mail"],
+    ["address2", "address ?line ?2|addressline2|address 2", "e-?mail"],
+    ["city", "\\bcity\\b|town", "ethnic|citizen"],
+    ["postal_code", "postal|zip", null],
+    ["linkedin", "linkedin", null],
+    ["github", "github", null],
+    ["website", "website|portfolio|personal url|blog", "linkedin|github"]
+  ],
+  "choices": [
+    ["how_heard", "how did you hear|referral source|\\bsource\\b", null],
+    ["phone_type", "phone device type|device type", null],
+    ["authorized_us", "authori[sz]ed to work|legally (authorized|eligible|permitted)|eligible to work|right to work", "canada|mexico|united kingdom|\\buk\\b|europe|\\beu\\b|india|australia|germany|france|ireland|singapore|japan|china|brazil|israel|netherlands|poland|spain"],
+    ["needs_sponsorship", "sponsor", "canada|mexico|united kingdom|\\buk\\b|europe|\\beu\\b|india|australia|germany|france|ireland|singapore|japan|china|brazil|israel|netherlands|poland|spain"],
+    ["previously_employed", "previously (worked|been employed)|former (employee|worker)|ever (worked|been employed)|have you worked for|previousworker", null],
+    ["state", "\\bstate\\b|region|province", null],
+    ["country", "\\bcountry\\b", null]
+  ],
+  "submitted": "application (has been )?submitted|thank you for applying|successfully submitted",
+  "experience": {
+    "section": "^work experience$",
+    "entry": "^work experience \\d+$",
+    "fields": {
+      "title": "job ?title|jobtitle",
+      "company": "company|employer",
+      "location": "location",
+      "current": "currently work here|currentlyworkhere|current(ly)? employed",
+      "description": "role description|description|responsibilities",
+      "from": "\\bfrom\\b|start ?date|startdate",
+      "to": "\\bto\\b|end ?date|enddate"
+    }
+  },
+  "education": {
+    "section": "^education$",
+    "entry": "^education \\d+$",
+    "fields": {
+      "school": "school|university|institution|college",
+      "degree": "degree",
+      "field": "field of study|fieldofstudy|major",
+      "gpa": "\\bgpa\\b|overall result|grade average",
+      "from": "\\bfrom\\b|first year|firstyearattended|start ?date|startdate",
+      "to": "\\bto\\b|last year|lastyearattended|end ?date|enddate|graduat"
+    }
+  },
+  "add_button": "^\\s*(add|add another)\\s*$",
+  "disclosures": {
+    "gender": "gender|\\bsex\\b",
+    "ethnicity": "ethnic|\\brace\\b|hispanic|latino",
+    "veteran": "veteran|military",
+    "disability": "disabilit"
+  },
+  "decline": "decline|do not wish|don.?t wish|not wish to|prefer not|choose not|not to (disclose|answer|self.?identify)|do not want to answer|don.?t want to answer|not declared|rather not",
+  "never_click": "submit|^\\s*next\\s*$|continue|save and continue|create account|sign in|apply|review|i agree|agree|accept|consent|acknowledge|signature|delete|remove"
+}
