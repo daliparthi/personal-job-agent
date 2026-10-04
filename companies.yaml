@@ -1,12 +1,18 @@
-# Workday career sites to search. Every URL below was verified against the live Workday API on 2026-09-30.
+# Career sites to search. Every Workday URL below was verified against the live Workday API on 2026-09-30, and
+# the other job boards (at the end) on 2026-10-04.
 #
 # Add any company that uses Workday: open its careers page, copy the URL (it looks like
 # https://<company>.wd<N>.myworkdayjobs.com/<SiteName>), and add an entry - or use the
 # 'Add company' box in Settings > Companies, which checks the URL first (it saves to your my_companies.yaml).
+# Greenhouse, Lever, Ashby and SmartRecruiters boards work the same way; their URLs look like
+#   https://job-boards.greenhouse.io/<board>   https://jobs.lever.co/<board>
+#   https://jobs.ashbyhq.com/<board>           https://jobs.smartrecruiters.com/<company>
+#   ats: + board:    -> for a careers page on the company's own domain that is powered by one of those boards,
+#                       e.g.  url: https://careers.airbnb.com/   ats: greenhouse   board: airbnb
 #   enabled: false   -> keep the entry but skip it
 #   aliases: [...]   -> other names the company goes by (used for the current-employer exclusion)
 # Your current employer (Settings > Current employer) is skipped automatically.
-# A URL that isn't a Workday career site shows up in red in Settings > Companies and in the search Log.
+# A URL that isn't a supported career site shows up in red in Settings > Companies and in the search Log.
 
 companies:
   # --- Technology & software
@@ -233,3 +239,21 @@ companies:
     url: https://warnerbros.wd5.myworkdayjobs.com/global
   - name: "Fox"
     url: https://fox.wd1.myworkdayjobs.com/Domestic
+
+  # --- Other job boards (Greenhouse, Lever, Ashby, SmartRecruiters), filtered with the same keyword and US checks
+  - name: "Airbnb"
+    url: https://job-boards.greenhouse.io/airbnb
+  - name: "Databricks"
+    url: https://job-boards.greenhouse.io/databricks
+  - name: "Spotify"
+    url: https://jobs.lever.co/spotify
+  - name: "Palantir"
+    url: https://jobs.lever.co/palantir
+  - name: "OpenAI"
+    url: https://jobs.ashbyhq.com/openai
+  - name: "Notion"
+    url: https://jobs.ashbyhq.com/notion
+  - name: "Bosch"
+    url: https://jobs.smartrecruiters.com/BoschGroup
+  - name: "ServiceNow"
+    url: https://jobs.smartrecruiters.com/ServiceNow

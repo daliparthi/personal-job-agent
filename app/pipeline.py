@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import db
+from . import db, sources
 from .config import APPLICATIONS
 from .jobparse import states_in
 
@@ -249,7 +249,7 @@ def _job_from_meta(job_id, meta, folder: Path, status) -> dict:
     at = meta.get("applied_at") or meta.get("prepared_at") or _now()
     return {
         "id": job_id, "company": meta.get("company") or tenant, "company_key": key, "tenant": tenant, "site": site,
-        "title": meta.get("title") or "", "url": meta.get("url"), "req_id": meta.get("req_id"),
+        "source": sources.source_of_key(key), "title": meta.get("title") or "", "url": meta.get("url"), "req_id": meta.get("req_id"),
         "external_path": None, "location": locations[0] if locations else "", "locations_json": locations,
         "states_json": sorted(set().union(*(states_in(loc) for loc in locations))) if locations else [],
         "country": "United States", "remote_type": meta.get("work_mode") or "Unspecified", "remote_raw": "",

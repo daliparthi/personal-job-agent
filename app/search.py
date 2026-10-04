@@ -10,12 +10,12 @@ from datetime import date, datetime, timedelta
 import httpx
 import yaml
 
-from . import alerts, candidate, db, pipeline, scoring
+from . import alerts, candidate, db, pipeline, scoring, sources
 from .config import (COMPANIES_SHARED, COMPANY_CONCURRENCY, DETAIL_CONCURRENCY, MAX_PAGES_PER_QUERY,
                      MY_COMPANIES, OLD_COMPANIES_COPY, RETENTION_DAYS)
 from .jobparse import (classify_employment, classify_remote, contains_all, html_to_text, is_us_location,
                        keywords_present, looks_non_us, parse_salary, posted_days_ago, split_keywords, states_in)
-from .workday import WorkdayClient, find_job_type_facet, find_us_facet, parse_site
+from .workday import WorkdayClient, find_job_type_facet, find_us_facet
 
 
 # ---------------------------------------------------------------- company lists
@@ -23,7 +23,7 @@ from .workday import WorkdayClient, find_job_type_facet, find_us_facet, parse_si
 # additions (Settings > Add company) and overrides (same URL, e.g. enabled: false). Both are read fresh for every
 # search and every time Settings opens, so edits apply without restarting.
 MY_HEADER = """\
-# my_companies.yaml - your own Workday sites, added to the shared companies.yaml in the program folder.
+# my_companies.yaml - your own career sites, added to the shared companies.yaml in the program folder.
 # Same format. An entry with the same URL as a shared one replaces it for you (e.g. add  enabled: false).
 companies:
 """
@@ -38,20 +38,22 @@ def _read_list(path, source):
         mark = getattr(e, "problem_mark", None)
         where = f" line {mark.line + 1}" if mark else ""
         return [{"name": path.name, "url": "", "key": None, "error": f"YAML error on{where}: {getattr(e, 'problem', e)}",
-                 "enabled": True, "aliases": [], "source": source}]
+                 "enabled": True, "aliases": [], "source": source, "ats": None, "board": None}]
     out = []
     for c in (raw.get("companies") if isinstance(raw, dict) else None) or []:
         if not isinstance(c, dict):
             continue
         name, url = str(c.get("name", "")).strip(), str(c.get("url", "")).strip()
+        ats, board = (str(c.get(k) or "").strip() or None for k in ("ats", "board"))
         try:
-            key, err = parse_site(name, url).key, None
+            site = sources.parse_site(name, url, ats, board)
+            key, err, ats = site.key, None, site.source
         except ValueError as e:
             key, err = None, str(e)
         aliases = c.get("aliases") or []
         aliases = [str(a).strip() for a in (aliases if isinstance(aliases, list) else [aliases]) if str(a).strip()]
         out.append({"name": name, "url": url, "key": key, "error": err, "enabled": c.get("enabled", True) is not False,
-                    "aliases": aliases, "source": source})
+                    "aliases": aliases, "source": source, "ats": ats or "workday", "board": board})
     return out
 
 
@@ -103,7 +105,7 @@ def _load_companies():
 
 
 def append_company(name: str, url: str, enabled=True, aliases=()):
-    parse_site(name, url)  # validates
+    sources.parse_site(name, url)  # validates
     text = MY_COMPANIES.read_text(encoding="utf-8") if MY_COMPANIES.exists() else MY_HEADER
     if not text.endswith("\n"):
         text += "\n"
@@ -224,7 +226,7 @@ class SearchRunner:
             self.state["total"] = len(companies)
             ctx["queries"] = [" ".join(mandatory)] if mandatory else optional
             self.log(f"{self.state['mode'].title()} run over {len(companies)} companies; "
-                     f"Workday search: {' | '.join(repr(q) for q in ctx['queries'])}")
+                     f"search: {' | '.join(repr(q) for q in ctx['queries'])}")
             sem = asyncio.Semaphore(COMPANY_CONCURRENCY)
             await asyncio.gather(*(self._company(client, sem, c, ctx) for c in companies))
             self.log(f"Done. {self.state['new_jobs']} new, {self.state['refreshed']} refreshed, "
@@ -275,7 +277,7 @@ class SearchRunner:
             self.state["current"].append(name)
             started = datetime.now()
             try:
-                site = parse_site(name, comp["url"])
+                site = sources.parse_site(name, comp["url"], comp.get("ats"), comp.get("board"))
                 last = None if ctx["full_refresh"] else await asyncio.to_thread(db.last_success, site.key, ctx["sig"])
                 if last:
                     window = min(RETENTION_DAYS, (date.today() - last.date()).days + 1)
@@ -284,22 +286,14 @@ class SearchRunner:
                     window = RETENTION_DAYS
                     self.log(f"{name}: pulling the last {window} days")
                 known = await asyncio.to_thread(db.job_ids, site.key)
-                candidates, seen = {}, set()
-                for q in ctx["queries"]:
-                    await self._collect(client, site, q, window, ctx["full_refresh"], candidates, known, seen)
-                    if self.stop_requested:
-                        break
-                if seen:
-                    await asyncio.to_thread(db.touch_jobs, sorted(seen))
-                pending = []
-                dsem = asyncio.Semaphore(DETAIL_CONCURRENCY)
-                await asyncio.gather(*(self._detail(client, dsem, site, name, cand, ctx, known, pending)
-                                       for cand in candidates.values()))
-                await self._flush(pending, force=True)
+                if site.source == "workday":
+                    checked, listed = await self._workday(client, site, name, ctx, window, known), None
+                else:
+                    checked, listed = await self._board(client, site, name, ctx, window, known)
                 if not self.stop_requested:
                     await asyncio.to_thread(db.mark_success, site.key, ctx["sig"], started)
-                self.log(f"{name}: checked {len(candidates)} new posting(s)")
-                await self._check_tracked(client, site, name)
+                self.log(f"{name}: checked {checked} new posting(s)")
+                await self._check_tracked(client, site, name, listed)
             except Exception as e:
                 self.state["errors"].append(f"{name}: {e!r}")
                 self.log(f"{name}: error {e!r}")
@@ -307,16 +301,89 @@ class SearchRunner:
                 self.state["current"].remove(name)
                 self.state["done"] += 1
 
-    async def _check_tracked(self, client, site, name):
-        """Is each job you are working on or applied to (at this company) still posted? Checked at most daily."""
+    async def _workday(self, client, site, name, ctx, window, known) -> int:
+        """Workday's own search (keywords, US and job-type facets), then one detail request per new posting."""
+        candidates, seen = {}, set()
+        for q in ctx["queries"]:
+            await self._collect(client, site, q, window, ctx["full_refresh"], candidates, known, seen)
+            if self.stop_requested:
+                break
+        if seen:
+            await asyncio.to_thread(db.touch_jobs, sorted(seen))
+        pending = []
+        dsem = asyncio.Semaphore(DETAIL_CONCURRENCY)
+        await asyncio.gather(*(self._detail(client, dsem, site, name, cand, ctx, known, pending)
+                               for cand in candidates.values()))
+        await self._flush(pending, force=True)
+        return len(candidates)
+
+    async def _board(self, client, site, name, ctx, window, known):
+        """Greenhouse, Lever and Ashby send the whole board at once (filtered here like a Workday search);
+        SmartRecruiters is searched with the keywords and needs a detail request per new posting.
+        Returns (new postings checked, every ref on the board or None when the board was searched or cut short)."""
+        board = sources.BOARDS[site.source]
+        listed = {}
+        for q in [""] if board.FULL_BOARD else ctx["queries"]:
+            for p in await board.postings(client, site, q):
+                listed.setdefault(p["ref"], p)
+            if self.stop_requested:
+                break
+        picked = await asyncio.to_thread(sources.select, list(listed.values()), window, ctx["mandatory"],
+                                         ctx["optional"])
+        todo, seen = [], set()
+        for p in picked:
+            job_id = f"{site.key}:{p['ref']}"
+            self.state["scanned"] += 1
+            if not ctx["full_refresh"] and job_id in known:
+                seen.add(job_id)  # still listed: refresh last_seen only
+            else:
+                todo.append(p)
+        if seen:
+            await asyncio.to_thread(db.touch_jobs, sorted(seen))
+        pending = []
+        dsem = asyncio.Semaphore(DETAIL_CONCURRENCY)
+        await asyncio.gather(*(self._board_detail(client, dsem, board, site, name, p, ctx, known, pending)
+                               for p in todo))
+        await self._flush(pending, force=True)
+        complete = board.FULL_BOARD and not self.stop_requested
+        return len(todo), (set(listed) if complete else None)
+
+    async def _board_detail(self, client, dsem, board, site, company, p, ctx, known, pending):
+        if self.stop_requested:
+            return
+        if p.get("html") is None:
+            async with dsem:
+                try:
+                    d = await board.detail(client, site, p["ref"])
+                except Exception as e:
+                    self.state["errors"].append(f"{company} {p.get('title')}: {e!r}")
+                    return
+            p = {**p, **{k: v for k, v in d.items() if v is not None}}
+        job = await asyncio.to_thread(sources.to_job, site, company, p)
+        if ctx["mandatory"] and not contains_all(f"{job['title']}\n{job['description_text']}", ctx["mandatory"]):
+            self.state["rejected"] += 1
+            return
+        await self._keep(job, ctx, known, pending)
+
+    async def _check_tracked(self, client, site, name, listed=None):
+        """Is each job you are working on or applied to (at this company) still posted? Checked at most daily.
+        listed: every posting ref on a whole-board source (no request needed: a missing ref is a closed posting)."""
+        board = sources.BOARDS.get(site.source)
+        if board and board.FULL_BOARD and listed is None:
+            return  # the board wasn't read completely this time
         since = (datetime.now() - timedelta(hours=CHECK_TRACKED_EVERY_HOURS)).isoformat(timespec="seconds")
         rows = await asyncio.to_thread(db.tracked_to_check, site.key, pipeline.CHECK_STILL_POSTED, since)
         for r in rows:
             if self.stop_requested:
                 return
             try:
-                d = await client.job_detail(site, r["external_path"])
-                closed = not d.get("jobPostingInfo")
+                if listed is not None:
+                    closed = r["external_path"] not in listed
+                elif board:
+                    closed = not (await board.detail(client, site, r["external_path"]))["active"]
+                else:
+                    d = await client.job_detail(site, r["external_path"])
+                    closed = not d.get("jobPostingInfo")
             except httpx.HTTPStatusError as e:
                 if e.response.status_code not in (404, 410):
                     continue  # a server hiccup is not a closed posting; try again next time
@@ -415,7 +482,7 @@ class SearchRunner:
         country = (info.get("country") or {}).get("descriptor", "")
         alpha2 = (req_loc.get("country") or {}).get("alpha2Code", "")
         us_ok = alpha2 == "US" or "united states" in country.lower() or any(is_us_location(l) for l in locations[1:])
-        mandatory, optional = ctx["mandatory"], ctx["optional"]
+        mandatory = ctx["mandatory"]
         if not us_ok or (mandatory and not contains_all(f"{title}\n{text}", mandatory)):
             self.state["rejected"] += 1
             return
@@ -438,7 +505,7 @@ class SearchRunner:
         smin, smax, stext = parse_salary(text)
         job = {
             "id": cand["id"], "company": company, "company_key": site.key, "tenant": site.tenant, "site": site.site,
-            "title": title, "url": info.get("externalUrl") or f"https://{site.host}/{site.site}{p['externalPath']}",
+            "source": "workday", "title": title, "url": info.get("externalUrl") or f"https://{site.host}/{site.site}{p['externalPath']}",
             "external_path": p["externalPath"], "req_id": info.get("jobReqId") or (p.get("bulletFields") or [""])[0],
             "location": locations[0] if locations else "", "locations_json": locations, "states_json": states,
             "country": "United States", "remote_raw": info.get("remoteType") or "",
@@ -447,20 +514,24 @@ class SearchRunner:
             "worker_sub_type": cand["wst"] or "", "time_type": info.get("timeType") or "",
             "salary_min": smin, "salary_max": smax, "salary_text": stext,
             "posted_date": posted.isoformat(), "description_html": html, "description_text": text,
-            "kw_sig": ctx["kw_sig"], "mandatory_ok": 1,
-            "optional_hits_json": keywords_present(f"{title}\n{text}", optional),
         }
+        await self._keep(job, ctx, known, pending)
+
+    async def _keep(self, job, ctx, known, pending):
+        """Add the keyword check and the match score to a posting that passed the checks, and queue it for saving."""
+        hay = f"{job['title']}\n{job['description_text']}"
+        job.update(kw_sig=ctx["kw_sig"], mandatory_ok=1, optional_hits_json=keywords_present(hay, ctx["optional"]))
         if ctx["resume_text"]:
-            sc = await asyncio.to_thread(scoring.score, ctx["resume_text"], text, title, mandatory + optional, company,
-                                         ctx["profile"])
+            sc = await asyncio.to_thread(scoring.score, ctx["resume_text"], job["description_text"], job["title"],
+                                         ctx["mandatory"] + ctx["optional"], job["company"], ctx["profile"])
             job.update(match_score=sc["score"], matched_json=sc["matched"], missing_json=sc["missing"],
                        knockouts_json=blocking_knockouts(sc))
         pending.append(job)
-        if cand["id"] in known:
+        if job["id"] in known:
             self.state["refreshed"] += 1
         else:
             self.state["new_jobs"] += 1
-            self.new_ids.append(cand["id"])
+            self.new_ids.append(job["id"])
         await self._flush(pending)
 
 

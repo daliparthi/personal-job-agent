@@ -28,6 +28,7 @@ def test_legacy_database_upgrades_without_losing_anything():
     applied = db.get_job("acme/external:OLD1")
     assert applied["status"] == "applied" and applied["folder"].endswith("Data Engineer - OLD1")
     assert applied["matched"] == ["Python", "SQL"] and applied["optional_hits"] == []
+    assert applied["source"] == "workday"  # every job from before other job boards came from Workday
     assert db.get_tailored("acme/external:OLD1")["approved"] == ["Spark"]
     assert db.get_settings()["mandatory"] == "sql" and db.get_settings()["filters"]["include_no_salary"] is True
     assert db.get_resume()["filename"] == "cv.docx"

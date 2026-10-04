@@ -41,6 +41,66 @@ def test_binding_answers_only_trusted_frames():
     assert db.get_job("acme/external:R1")["status"] == "applied"
 
 
+class FakePage:
+    def __init__(self):
+        self.url = None
+        self.clicked = []
+        self.handlers = {}
+
+    def on(self, event, fn):
+        self.handlers[event] = fn
+
+    async def goto(self, url, wait_until=None):
+        self.url = url
+
+    async def bring_to_front(self):
+        pass
+
+    def locator(self, selector):
+        page = self
+
+        class First:
+            async def click(self, timeout=None):
+                page.clicked.append(selector)
+
+        return NS(first=First())
+
+
+@pytest.mark.parametrize("url, workday", [
+    ("https://acme.wd1.myworkdayjobs.com/External/job/Austin-TX/Data-Engineer_R1", True),
+    ("https://job-boards.greenhouse.io/globex/jobs/101", False),
+    ("https://jobs.lever.co/hooli/5f1c2a3b", False),
+])
+def test_apply_window_autofills_workday_only(url, workday, monkeypatch):
+    """Other job boards open in the apply window, but nothing is clicked, typed or uploaded there."""
+    w = apply.BrowserWorker()
+    page = FakePage()
+
+    async def context():
+        async def new_page():
+            return page
+        return NS(new_page=new_page)
+
+    started = []
+
+    async def loop(*args):
+        started.append(args)
+
+    monkeypatch.setattr(w, "_context", context)
+    monkeypatch.setattr(w, "_upload_loop", loop)
+    monkeypatch.setattr(w, "_account_loop", loop)
+    account = {"email": "jordan.avery@example.com", "password": "test-only"}
+
+    async def go():
+        ok = await w._open("j:1", url, {"first_name": "Jordan"}, "resume.docx", None, account)
+        await asyncio.sleep(0)  # let ensure_future'd loops start
+        return ok
+
+    assert asyncio.run(go()) is True and page.url == url
+    assert bool(page.clicked) is workday and bool(started) is workday
+    assert w.pages[page]["job_id"] == "j:1"
+
+
 @pytest.mark.parametrize("raw, want", [
     ('Data Engineer: "Platform" / ML?', "Data Engineer Platform ML"),
     ("  ...  ", "Untitled"),

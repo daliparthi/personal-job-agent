@@ -1,0 +1,43 @@
+[
+  {
+    "id": "5f1c2a3b-0000-4000-8000-000000000001",
+    "text": "Data Engineer",
+    "categories": {"commitment": "Full-time", "location": "Austin, TX", "team": "Data", "allLocations": ["Austin, TX"]},
+    "country": "US",
+    "workplaceType": "onsite",
+    "createdAt": "@MS_DAYS_AGO_2@",
+    "description": "<div><b>About the role</b></div><div>Hooli's data team builds the warehouse everyone relies on.</div>",
+    "descriptionPlain": "About the role\nHooli's data team builds the warehouse everyone relies on.",
+    "lists": [
+      {"text": "What You'll Do", "content": "<li>Own ETL pipelines in Python</li><li>Tune SQL on Snowflake</li>"},
+      {"text": "What We Require", "content": "<li>3+ years of Python and SQL</li>"}
+    ],
+    "additional": "<div>Hooli is an equal opportunity employer.</div>",
+    "salaryRange": {"min": 60, "max": 75, "currency": "USD", "interval": "per-hour-wage"},
+    "hostedUrl": "https://jobs.lever.co/hooli/5f1c2a3b-0000-4000-8000-000000000001",
+    "applyUrl": "https://jobs.lever.co/hooli/5f1c2a3b-0000-4000-8000-000000000001/apply"
+  },
+  {
+    "id": "5f1c2a3b-0000-4000-8000-000000000002",
+    "text": "Data Engineering Intern",
+    "categories": {"commitment": "Internship", "location": "Denver, CO", "team": "Data", "allLocations": ["Denver, CO"]},
+    "country": "US",
+    "workplaceType": "hybrid",
+    "createdAt": "@MS_DAYS_AGO_1@",
+    "description": "<div>Spend a summer writing Python with our data team.</div>",
+    "lists": [],
+    "additional": "",
+    "hostedUrl": "https://jobs.lever.co/hooli/5f1c2a3b-0000-4000-8000-000000000002"
+  },
+  {
+    "id": "5f1c2a3b-0000-4000-8000-000000000003",
+    "text": "Data Engineer",
+    "categories": {"commitment": "Full-time", "location": "London, United Kingdom", "allLocations": ["London, United Kingdom"]},
+    "country": "GB",
+    "workplaceType": "hybrid",
+    "createdAt": "@MS_DAYS_AGO_1@",
+    "description": "<div>Python in London.</div>",
+    "lists": [],
+    "hostedUrl": "https://jobs.lever.co/hooli/5f1c2a3b-0000-4000-8000-000000000003"
+  }
+]

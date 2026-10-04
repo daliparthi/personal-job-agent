@@ -1,12 +1,12 @@
-# Job Agent — Workday job search + local AI resume tailoring
+# Job Agent — Workday (+ Greenhouse, Lever, Ashby, SmartRecruiters) job search + local AI resume tailoring
 
 > **⚠️ Use at your own risk.** A master resume / CV contains personally identifiable information, so this tool
 > could **not** be dry-run with a real resume — it was tested only with fictional sample resumes such as
 > `samples/sample_master_resume.txt`. The tailored resume is a **starting point for further editing**, not a
 > finished document. Read every line before you send it anywhere.
 
-Job Agent runs on your own computer. It searches the Workday career sites you list in `companies.yaml`,
-scores every posting against your master resume, and — when you ask — rewrites a copy of your resume for one posting
+Job Agent runs on your own computer. It searches the Workday career sites (and Greenhouse, Lever, Ashby and
+SmartRecruiters job boards) you list in `companies.yaml`, scores every posting against your master resume, and — when you ask — rewrites a copy of your resume for one posting
 at a time with **Qwen2.5‑0.5B running inside your browser** (no cloud AI service, no API keys). It can then open the
 posting, fill the standard Workday fields (and the Create Account / Sign In form from your `.env`), and save everything
 to an `Applications/<Company>/` folder.
@@ -63,7 +63,7 @@ home folder:
   .env                 Workday account email (+ password unless it is in your OS keychain; only typed into
                        Workday's sign-up / sign-in form)
   master_resume.yaml   your master resume as data (built by the model, edit freely)
-  my_companies.yaml    your own Workday sites on top of the shared list (Settings > Add company writes here)
+  my_companies.yaml    your own career sites on top of the shared list (Settings > Add company writes here)
   jobs.db              settings, profile, postings (new ones from the last 7 days; jobs you worked on are kept), tailored copies
   browser-profile/     the apply window's browser profile (your Workday logins)
   Applications/        one folder per company with what you sent
@@ -95,6 +95,7 @@ options: `--port 8800`, `--no-browser`.
 | Requirement | How it works |
 |---|---|
 | Search Workday sites of top companies | Uses each site's public Workday JSON API (the same calls the careers page makes). Sites come from the shared `companies.yaml` plus your own `my_companies.yaml`, re-read for every search. |
+| Other job boards | Greenhouse, Lever, Ashby and SmartRecruiters boards go in the same lists. Each publishes its postings as public JSON: Greenhouse, Lever and Ashby send the whole board in one request, which Job Agent filters with the same keyword, US-location and date rules as a Workday search; SmartRecruiters is searched with your keywords and limited to US postings. Every posting gets the same fields (job type, remote, state, salary, match score) whatever its source, and a grey badge names the board. |
 | Mandatory keywords | Every mandatory keyword/phrase must appear in the title or description, or the posting is dropped. Comma-separated. |
 | Optional keywords | Can be blank. They never exclude anything by default; they are highlighted (blue), shown as badges, and you can tick *Must match an optional keyword* to refine. If you leave mandatory blank, each optional keyword is searched separately. |
 | First run = last 7 days | The first run for a keyword set looks back 7 days. |
@@ -247,6 +248,9 @@ a GPU folder you don't need; keep `models/onnx`.
   **I submitted — mark as applied** (in the Workday window) / **Mark applied** (in Job Agent).
 * Workday changes its forms often and every company configures its own questions, so autofill is best-effort.
   Always check each step.
+* Postings from Greenhouse, Lever, Ashby and SmartRecruiters have **Open posting** instead of *Apply with autofill*:
+  it saves the package and opens the posting in the same window, but fills nothing. Fill in the form with the files
+  from the package, submit it yourself, then click **Mark applied**.
 
 ## Saved searches, schedules and alerts
 
@@ -308,12 +312,32 @@ companies:
 
 Find a URL by opening the company's careers page, following it into Workday, and copying the address up to the site
 name (drop `/job/...` and any `en-US/`). Both `*.myworkdayjobs.com/<site>` and `wdN.myworkdaysite.com/recruiting/<tenant>/<site>`
-addresses work. A YAML mistake or a URL that isn't a Workday site shows up in red in Settings and in the search Log.
+addresses work. A YAML mistake or a URL that isn't a supported site shows up in red in Settings and in the search Log.
+
+The other job boards are recognized from their own addresses:
+
+| Board | URL |
+|---|---|
+| Greenhouse | `https://job-boards.greenhouse.io/<board>` (or `boards.greenhouse.io/<board>`) |
+| Lever | `https://jobs.lever.co/<board>` |
+| Ashby | `https://jobs.ashbyhq.com/<board>` |
+| SmartRecruiters | `https://jobs.smartrecruiters.com/<company>` |
+
+When a company's careers page lives on its own domain but is powered by one of these boards, name the board:
+
+```yaml
+  - name: "Airbnb"
+    url: https://careers.airbnb.com/
+    ats: greenhouse        # workday, greenhouse, lever, ashby or smartrecruiters
+    board: airbnb          # the board's name (the part after the board's host in its URL)
+```
+
+A job you track on one of these boards is marked *closed* on the Pipeline board once it disappears from the board.
 
 ## Privacy
 
-Everything stays on this computer, in your personal folder. The only network traffic is to the Workday sites you
-list. Your Workday password is safest in the OS keychain (Settings → *Workday account*); if you keep it in `.env`
+Everything stays on this computer, in your personal folder. The only network traffic is to the Workday sites and
+job boards you list. Your Workday password is safest in the OS keychain (Settings → *Workday account*); if you keep it in `.env`
 instead it is plain text, protected by your user account like the rest of your personal folder (on macOS/Linux Job
 Agent makes the folder readable only by you). Either way, use a password you don't use anywhere else. The project
 folder contains no personal data, so it can be shared or copied (leave out `.venv/`).
@@ -340,10 +364,11 @@ start.command        macOS: double-click in Finder (runs start.sh)
 start.sh             macOS / Linux: setup + launch, same options
 run.py               picks your personal folder and a free port, starts the local server
 fetch_models.py      re-downloads the Qwen model files + browser libraries if they are missing
-companies.yaml       the shared list of Workday sites (read fresh for every search)
+companies.yaml       the shared list of career sites (read fresh for every search)
 app/                 Python backend (FastAPI)
   config.py          project vs personal paths     master.py   master_resume.yaml: draft, checks, save, sync
   workday.py         Workday API client            search.py   incremental/full search + filtering
+  sources/           Greenhouse, Lever, Ashby, SmartRecruiters: URL detection, postings, US filter
   jobparse.py        salary/type/remote/state, posting sections + requirements   scoring.py  match score + reasons
   candidate.py       your years, seniority, degree from master_resume.yaml        lexicon.py  keyword dictionary
   resume_io.py       read files, write DOCX/PDF/TXT apply.py   packages + Playwright apply window + .env sign-up fill
@@ -367,8 +392,8 @@ requirements.txt     packages you edit       requirements.lock  exact, hash-chec
 
 ## Development
 
-The tests need no model files and never touch a real Workday site (searches run against recorded JSON in
-`tests/fixtures/`). With the environment the start script created:
+The tests need no model files and never touch a real Workday site or job board (searches run against recorded
+JSON in `tests/fixtures/`). With the environment the start script created:
 
 ```
 .venv\Scripts\python -m pip install -r requirements-dev.txt     (macOS/Linux: .venv-<os>/bin/python ...)

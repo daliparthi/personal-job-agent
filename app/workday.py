@@ -29,11 +29,14 @@ HEADERS = {
 
 @dataclass
 class Site:
+    """One company's career site. For Workday: host, tenant and site from the URL. For the other job boards
+    (app/sources): host is the board's API host, tenant the company's board name and site the board's name."""
     name: str
     url: str
     host: str
     tenant: str
     site: str
+    source: str = "workday"
 
     @property
     def key(self):
@@ -53,6 +56,9 @@ def parse_site(name: str, url: str) -> Site:
 
 
 class WorkdayClient:
+    """HTTP client for a search: Workday's API calls, plus get_json() for the other job boards' public feeds.
+    Rate limits (429) and server errors are retried with backoff."""
+
     def __init__(self, transport=None):
         # transport: tests pass an httpx.MockTransport that serves recorded Workday responses.
         self.http = httpx.AsyncClient(headers=HEADERS, timeout=httpx.Timeout(30.0), follow_redirects=True,
@@ -83,6 +89,9 @@ class WorkdayClient:
 
     async def job_detail(self, site: Site, external_path: str):
         return await self._request("GET", f"{site.api}{external_path}")
+
+    async def get_json(self, url, params=None):
+        return await self._request("GET", url, params=params)
 
 
 # ---------------------------------------------------------------- facet helpers

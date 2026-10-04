@@ -116,6 +116,10 @@ MIGRATIONS = [
     ALTER TABLE jobs ADD COLUMN knockouts_json TEXT;
     ALTER TABLE jobs ADD COLUMN feedback INTEGER;
     """,
+    # 7: job boards other than Workday (Greenhouse, Lever, Ashby, SmartRecruiters)
+    """
+    ALTER TABLE jobs ADD COLUMN source TEXT NOT NULL DEFAULT 'workday';
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -348,7 +352,7 @@ JSON_COLS = ("locations_json", "states_json", "matched_json", "missing_json", "o
 LIST_COLS = ("id", "company", "company_key", "title", "url", "location", "locations_json", "states_json",
              "remote_type", "employment_type", "worker_sub_type", "time_type", "salary_min", "salary_max",
              "salary_text", "posted_date", "match_score", "hidden", "status", "folder", "optional_hits_json",
-             "first_seen", "knockouts_json", "feedback")
+             "first_seen", "knockouts_json", "feedback", "source")
 
 
 def _now():

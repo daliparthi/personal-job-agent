@@ -1,0 +1,71 @@
+{
+  "jobs": [
+    {
+      "id": 101,
+      "internal_job_id": 9001,
+      "title": "Senior Data Engineer ",
+      "absolute_url": "https://job-boards.greenhouse.io/globex/jobs/101",
+      "company_name": "Globex",
+      "requisition_id": "GX-101",
+      "location": {"name": "San Francisco, CA"},
+      "offices": [{"id": 1, "name": "San Francisco", "location": "San Francisco, CA"}],
+      "departments": [{"id": 7, "name": "Data"}],
+      "metadata": [
+        {"id": 1, "name": "Workplace Type", "value": "Hybrid", "value_type": "single_select"},
+        {"id": 2, "name": "Is this role part of a program?", "value": false, "value_type": "yes_no"}
+      ],
+      "first_published": "@DAYS_AGO_1@",
+      "updated_at": "@DAYS_AGO_0@",
+      "content": "&lt;h3&gt;What you&amp;#39;ll do&lt;/h3&gt;&lt;p&gt;Build batch and streaming data pipelines in Python and SQL on AWS.&lt;/p&gt;&lt;h3&gt;Requirements&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;5+ years of experience with Python&lt;/li&gt;&lt;li&gt;Strong SQL&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;The base pay range for this role is $150,000 - $190,000.&lt;/p&gt;"
+    },
+    {
+      "id": 102,
+      "title": "Data Engineer, EMEA",
+      "absolute_url": "https://job-boards.greenhouse.io/globex/jobs/102",
+      "requisition_id": "GX-102",
+      "location": {"name": "London, United Kingdom"},
+      "offices": [{"id": 2, "name": "London", "location": "London, United Kingdom"}],
+      "metadata": [],
+      "first_published": "@DAYS_AGO_1@",
+      "updated_at": "@DAYS_AGO_1@",
+      "content": "&lt;p&gt;Python and SQL in London.&lt;/p&gt;"
+    },
+    {
+      "id": 103,
+      "title": "Analytics Engineer",
+      "absolute_url": "https://job-boards.greenhouse.io/globex/jobs/103",
+      "requisition_id": "MULTI",
+      "location": {"name": "Remote"},
+      "offices": [],
+      "metadata": null,
+      "first_published": "@DAYS_AGO_2@",
+      "updated_at": "@DAYS_AGO_2@",
+      "content": "&lt;p&gt;Model data with dbt and Python. This is a fully remote role.&lt;/p&gt;"
+    },
+    {
+      "id": 104,
+      "title": "Staff Data Engineer",
+      "absolute_url": "https://job-boards.greenhouse.io/globex/jobs/104",
+      "requisition_id": "GX-104",
+      "location": {"name": "New York, NY"},
+      "offices": [],
+      "metadata": [],
+      "first_published": "@DAYS_AGO_40@",
+      "updated_at": "@DAYS_AGO_1@",
+      "content": "&lt;p&gt;Python at scale.&lt;/p&gt;"
+    },
+    {
+      "id": 105,
+      "title": "Office Manager",
+      "absolute_url": "https://job-boards.greenhouse.io/globex/jobs/105",
+      "requisition_id": "GX-105",
+      "location": {"name": "San Francisco, CA"},
+      "offices": [],
+      "metadata": [],
+      "first_published": "@DAYS_AGO_1@",
+      "updated_at": "@DAYS_AGO_1@",
+      "content": "&lt;p&gt;Keep the office running.&lt;/p&gt;"
+    }
+  ],
+  "meta": {"total": 5}
+}

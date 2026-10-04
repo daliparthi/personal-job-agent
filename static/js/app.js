@@ -41,6 +41,9 @@ function toast(msg, ms = 4500) {
 
 const TYPES = ["Full-time", "Contract", "Temporary", "Part-time", "Internship"];
 // Statuses that mean you already applied (the pipeline tracks what happens after that).
+// Job boards besides Workday (jobs.source). Autofill works on Workday sites only.
+const SOURCES = { workday: "Workday", greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", smartrecruiters: "SmartRecruiters" };
+const isWorkday = (j) => !j?.source || j.source === "workday";
 const APPLIED_OR_LATER = new Set(["applied", "screening", "interviewing", "offer", "rejected", "withdrawn", "ghosted"]);
 const STATES = { AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California", CO: "Colorado", CT: "Connecticut", DE: "Delaware", DC: "District of Columbia", FL: "Florida", GA: "Georgia", HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa", KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland", MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi", MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire", NJ: "New Jersey", NM: "New Mexico", NY: "New York", NC: "North Carolina", ND: "North Dakota", OH: "Ohio", OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania", PR: "Puerto Rico", RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah", VT: "Vermont", VA: "Virginia", WA: "Washington", WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming" };
 
@@ -242,6 +245,7 @@ function renderJobs() {
     if (j.status && j.status !== "new") badges.push(`<span class="badge b-status">${esc(j.status)}</span>`);
     if (isNew(j)) badges.unshift('<span class="badge b-new" title="Found since you last opened Job Agent">new</span>');
     (j.knockouts || []).forEach((k) => badges.push(`<span class="badge b-ko" title="A hard requirement you don't meet">⛔ ${esc(k.label)}</span>`));
+    if (!isWorkday(j)) badges.push(`<span class="badge b-src" title="Found on ${esc(SOURCES[j.source] || j.source)}">${esc(SOURCES[j.source] || j.source)}</span>`);
     return `<div class="job${j.id === S.sel ? " active" : ""}${j.hidden ? " is-hidden" : ""}" data-id="${esc(j.id)}" tabindex="0">
       <div class="score ${cls}" title="Match with your master resume">${sc ?? "–"}</div>
       <div class="job-title">${esc(j.title)}</div>
@@ -441,6 +445,9 @@ function renderResumePane() {
   $("#btn-tailor-stop").hidden = !S.tailoring;
   $("#btn-package").disabled = !S.tailored || S.tailoring;
   $("#btn-apply").disabled = !S.tailored || S.tailoring;
+  $("#btn-apply").textContent = isWorkday(d) ? "Apply with autofill" : "Open posting";
+  $("#btn-apply").title = isWorkday(d) ? "Opens the posting in a separate browser window and fills standard fields"
+    : `Saves the package and opens the ${SOURCES[d.source] || d.source} posting in a separate browser window (autofill works on Workday sites only)`;
   $("#btn-applied").disabled = !d || !d.folder || APPLIED_OR_LATER.has(d.status);
 }
 
@@ -613,9 +620,9 @@ async function onPackage(launch) {
     });
     let msg = `Saved to ${r.folder}`;
     if (r.pdf_error) msg += ` (PDF skipped: ${r.pdf_error})`;
-    if (launch) msg = r.launched
-      ? "Opened the posting in a separate browser window. Sign in if asked; standard fields fill automatically. Review, then click Submit yourself."
-      : `Saved the package, but the browser could not open: ${r.launch_error}`;
+    if (launch) msg = !r.launched ? `Saved the package, but the browser could not open: ${r.launch_error}`
+      : isWorkday(S.detail) ? "Opened the posting in a separate browser window. Sign in if asked; standard fields fill automatically. Review, then click Submit yourself."
+      : `Opened the posting in a separate browser window. Fill in the ${SOURCES[S.detail.source] || ""} form with the files in ${r.folder}, submit it yourself, then click “Mark applied”.`;
     toast(msg, 10000);
     S.detail = await api(`/api/jobs/${enc(S.detail.id)}/detail`);
     renderResumePane();
@@ -821,8 +828,8 @@ async function renderCompanies() {
   $("#companies-count").textContent = `${ok.filter((c) => c.active).length} of ${ok.length} searched · ${ok.length - yours} shared, ${yours} yours`;
   $("#companies").innerHTML = list.map((c) => c.error
     ? `<div class="err" title="${esc(c.url)}">${esc(c.name || c.url)}: ${esc(c.error)}</div>`
-    : `<label title="${esc(c.url)}${c.enabled ? "" : " (enabled: false in the file)"}"><input type="checkbox" data-key="${esc(c.key)}"${c.active ? " checked" : ""}${c.enabled ? "" : " disabled"}> ${esc(c.name)}${c.source === "yours" ? ' <span class="hint">(yours)</span>' : ""}</label>`).join("")
-    || '<span class="hint">No companies yet: add Workday sites to companies.yaml, or use the Add box.</span>';
+    : `<label title="${esc(c.url)}${c.enabled ? "" : " (enabled: false in the file)"}"><input type="checkbox" data-key="${esc(c.key)}"${c.active ? " checked" : ""}${c.enabled ? "" : " disabled"}> ${esc(c.name)}${c.ats && c.ats !== "workday" ? ` <span class="hint">· ${esc(SOURCES[c.ats] || c.ats)}</span>` : ""}${c.source === "yours" ? ' <span class="hint">(yours)</span>' : ""}</label>`).join("")
+    || '<span class="hint">No companies yet: add career sites to companies.yaml, or use the Add box.</span>';
 }
 
 async function saveSettingsDialog() {

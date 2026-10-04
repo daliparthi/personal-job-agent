@@ -51,14 +51,14 @@ def test_load_companies_merges_your_list(shared):
     assert [c["name"] for c in out] == ["Acme", "Globex 'Main'", "Broken", "Initech"]
     globex = out[1]
     assert globex["source"] == "yours" and globex["enabled"] is False  # your entry replaced the shared one in place
-    assert out[2]["key"] is None and "Not a Workday" in out[2]["error"]
+    assert out[2]["key"] is None and "Not a supported job board URL" in out[2]["error"]
     assert out[3]["aliases"] == ["Initrode"]
     assert config.MY_COMPANIES.read_text(encoding="utf-8").startswith("# my_companies.yaml")
 
 
 def test_append_company_validates_url(shared):
     with pytest.raises(ValueError):
-        search.append_company("Nope", "https://jobs.lever.co/nope")
+        search.append_company("Nope", "https://careers.example.com/nope")
     assert not config.MY_COMPANIES.exists()
 
 

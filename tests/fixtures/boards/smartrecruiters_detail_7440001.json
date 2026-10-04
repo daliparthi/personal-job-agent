@@ -1,0 +1,17 @@
+{
+  "id": "7440001",
+  "name": "Software Engineer - Python",
+  "refNumber": "REF7441",
+  "active": true,
+  "visibility": "PUBLIC",
+  "postingUrl": "https://jobs.smartrecruiters.com/Initech/7440001-software-engineer-python",
+  "applyUrl": "https://jobs.smartrecruiters.com/Initech/7440001-software-engineer-python?oga=true",
+  "jobAd": {
+    "sections": {
+      "companyDescription": {"title": "Company Description", "text": "<p>Initech makes reporting software.</p>"},
+      "jobDescription": {"title": "Job Description", "text": "<p>Write Python services and SQL reports.</p>"},
+      "qualifications": {"title": "Qualifications", "text": "<ul><li>3+ years of Python</li></ul>"},
+      "additionalInformation": {"title": "Additional Information", "text": "<p>Salary: $110,000 - $140,000 per year.</p>"}
+    }
+  }
+}

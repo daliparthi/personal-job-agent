@@ -164,6 +164,8 @@ class BrowserWorker:
         page.on("close", lambda p: self.pages.pop(p, None))
         await page.goto(url, wait_until="domcontentloaded")
         await page.bring_to_front()
+        if not is_workday_host(urlsplit(url).hostname):
+            return True  # Greenhouse, Lever, Ashby, SmartRecruiters: the posting opens; you fill in the form
         try:  # the posting's own "Apply" button — opens Workday's "Start your application" choices
             await page.locator('[data-automation-id="adventureButton"]').first.click(timeout=15000)
         except Exception:

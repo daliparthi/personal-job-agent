@@ -1,0 +1,32 @@
+{
+  "offset": 0,
+  "limit": 100,
+  "totalFound": 2,
+  "content": [
+    {
+      "id": "7440001",
+      "name": "Software Engineer - Python",
+      "uuid": "00000000-0000-4000-8000-000000007441",
+      "refNumber": "REF7441",
+      "company": {"identifier": "Initech", "name": "Initech"},
+      "releasedDate": "@DAYS_AGO_1@",
+      "location": {"city": "Detroit", "region": "MI", "country": "us", "remote": false, "hybrid": true,
+                   "fullLocation": "Detroit, MI, United States"},
+      "typeOfEmployment": {"id": "permanent", "label": "Full-time"},
+      "experienceLevel": {"id": "mid_senior_level", "label": "Mid-Senior Level"},
+      "ref": "https://api.smartrecruiters.com/v1/companies/Initech/postings/7440001"
+    },
+    {
+      "id": "7440002",
+      "name": "Quality Technician",
+      "uuid": "00000000-0000-4000-8000-000000007442",
+      "refNumber": "REF7442",
+      "company": {"identifier": "Initech", "name": "Initech"},
+      "releasedDate": "@DAYS_AGO_3@",
+      "location": {"city": "Charleston", "region": "SC", "country": "us", "remote": false, "hybrid": false,
+                   "fullLocation": "Charleston, SC, United States"},
+      "typeOfEmployment": {"id": "permanent", "label": "Full-time"},
+      "ref": "https://api.smartrecruiters.com/v1/companies/Initech/postings/7440002"
+    }
+  ]
+}

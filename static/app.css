@@ -146,6 +146,7 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .b-remote { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .b-salary { font-variant-numeric: tabular-nums; }
 .b-opt { border-style: dashed; }
+.b-src { background: transparent; font-weight: 500; color: var(--ink-2); }
 .b-status { background: var(--ink); color: var(--panel); border-color: transparent; }
 .hide-btn { position: absolute; right: 8px; top: 8px; background: none; border: 0; color: var(--ink-3); cursor: pointer;
   font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 4px; }

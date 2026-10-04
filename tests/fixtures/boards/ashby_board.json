@@ -1,0 +1,72 @@
+{
+  "apiVersion": "1",
+  "jobs": [
+    {
+      "id": "0a0b0c0d-0000-4000-8000-0000000000a1",
+      "title": "Machine Learning Engineer",
+      "department": "Research",
+      "team": "Applied ML",
+      "employmentType": "FullTime",
+      "location": "London, UK",
+      "secondaryLocations": [
+        {"location": "New York City", "address": {"postalAddress": {"addressRegion": "New York", "addressCountry": "United States", "addressLocality": "New York"}}}
+      ],
+      "address": {"postalAddress": {"addressRegion": "Greater London", "addressCountry": "United Kingdom", "addressLocality": "London"}},
+      "isListed": true,
+      "isRemote": false,
+      "workplaceType": "Hybrid",
+      "publishedAt": "@DAYS_AGO_0@",
+      "jobUrl": "https://jobs.ashbyhq.com/umbrella/0a0b0c0d-0000-4000-8000-0000000000a1",
+      "applyUrl": "https://jobs.ashbyhq.com/umbrella/0a0b0c0d-0000-4000-8000-0000000000a1/application",
+      "descriptionHtml": "<h3>About the role</h3><p>Train and ship models with Python and PyTorch.</p><h3>You might thrive if you</h3><ul><li>Have shipped ML systems</li></ul>",
+      "descriptionPlain": "About the role\nTrain and ship models with Python and PyTorch.",
+      "compensation": {
+        "compensationTierSummary": "$200K - $250K - Offers Equity",
+        "scrapeableCompensationSalarySummary": "$200K - $250K",
+        "summaryComponents": [
+          {"compensationType": "Salary", "interval": "1 YEAR", "currencyCode": "USD", "minValue": 200000, "maxValue": 250000},
+          {"compensationType": "EquityCashValue", "interval": "1 YEAR", "currencyCode": "USD", "minValue": null, "maxValue": null}
+        ]
+      }
+    },
+    {
+      "id": "0a0b0c0d-0000-4000-8000-0000000000a2",
+      "title": "Python Developer",
+      "employmentType": "Contract",
+      "location": "Remote",
+      "secondaryLocations": [],
+      "address": {"postalAddress": {"addressCountry": "United States"}},
+      "isListed": true,
+      "isRemote": true,
+      "workplaceType": "Remote",
+      "publishedAt": "@DAYS_AGO_3@",
+      "jobUrl": "https://jobs.ashbyhq.com/umbrella/0a0b0c0d-0000-4000-8000-0000000000a2",
+      "descriptionHtml": "<p>A six month Python engagement.</p>",
+      "compensation": {"summaryComponents": []}
+    },
+    {
+      "id": "0a0b0c0d-0000-4000-8000-0000000000a3",
+      "title": "Python Engineer (unlisted)",
+      "employmentType": "FullTime",
+      "location": "Seattle",
+      "secondaryLocations": [],
+      "address": {"postalAddress": {"addressCountry": "United States"}},
+      "isListed": false,
+      "publishedAt": "@DAYS_AGO_1@",
+      "jobUrl": "https://jobs.ashbyhq.com/umbrella/0a0b0c0d-0000-4000-8000-0000000000a3",
+      "descriptionHtml": "<p>Python.</p>"
+    },
+    {
+      "id": "0a0b0c0d-0000-4000-8000-0000000000a4",
+      "title": "Data Scientist",
+      "employmentType": "FullTime",
+      "location": "Toronto",
+      "secondaryLocations": [],
+      "address": {"postalAddress": {"addressCountry": "Canada"}},
+      "isListed": true,
+      "publishedAt": "@DAYS_AGO_1@",
+      "jobUrl": "https://jobs.ashbyhq.com/umbrella/0a0b0c0d-0000-4000-8000-0000000000a4",
+      "descriptionHtml": "<p>Python and statistics.</p>"
+    }
+  ]
+}
