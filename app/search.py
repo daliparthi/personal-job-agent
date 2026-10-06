@@ -211,7 +211,7 @@ class SearchRunner:
             ctx = {"mandatory": mandatory, "optional": optional, "full_refresh": full_refresh,
                    "sig": keyword_signature(mandatory, optional), "kw_sig": keyword_hits_signature(mandatory, optional),
                    "resume_text": resume["text"] if resume else "",
-                   "profile": candidate.profile(resume["data"], settings["profile"]) if resume else None}
+                   "profile": candidate.profile_for(resume, settings)}
             disabled = set(settings.get("disabled_companies") or [])
             companies = []
             for c in await asyncio.to_thread(load_companies):
@@ -253,6 +253,10 @@ class SearchRunner:
                        "trigger": st["trigger"], "started": st["started_at"], "finished": st["finished_at"],
                        "new_jobs": st["new_jobs"], "refreshed": st["refreshed"], "rejected": st["rejected"],
                        "errors": st["errors"], "log_text": "\n".join(st["log"])})
+        try:  # a big run can add many megabytes: don't wait for the hourly purge to keep jobs.db under its limit
+            db.enforce_size_limit()
+        except Exception as e:
+            self.log(f"Could not shrink the database: {e!r}")
         if not spec or not spec.get("id"):
             return 0
         db.mark_search_ran(spec["id"], st["started_at"])
@@ -524,8 +528,9 @@ class SearchRunner:
         job.update(kw_sig=ctx["kw_sig"], mandatory_ok=1, optional_hits_json=keywords_present(hay, ctx["optional"]),
                    sponsorship=",".join(sponsorship_in(job["description_text"])))
         if ctx["resume_text"]:
+            # Not an input: this run's keywords. Whatever search finds a posting, it gets the score rescore_all() gives.
             sc = await asyncio.to_thread(scoring.score, ctx["resume_text"], job["description_text"], job["title"],
-                                         ctx["mandatory"] + ctx["optional"], job["company"], ctx["profile"])
+                                         company=job["company"], profile=ctx["profile"])
             job.update(match_score=sc["score"], matched_json=sc["matched"], missing_json=sc["missing"],
                        knockouts_json=blocking_knockouts(sc))
         pending.append(job)
@@ -546,14 +551,13 @@ def blocking_knockouts(sc) -> list:
 def rescore_all():
     """Re-score every stored posting against the master resume, in one transaction. Returns the number of jobs."""
     resume = db.get_resume()
-    settings = db.get_settings()
-    extra = split_keywords(settings["mandatory"]) + split_keywords(settings["optional"])
-    prof = candidate.profile(resume["data"], settings["profile"]) if resume else None
+    prof = candidate.profile_for(resume, db.get_settings())
     scores, sponsorship = [], []
     for j in db.all_jobs(with_text=True):
         sponsorship.append((j["id"], sponsorship_in(j["description_text"] or "")))
         if resume:
-            sc = scoring.score(resume["text"], j["description_text"] or "", j["title"], extra, j["company"], prof)
+            sc = scoring.score(resume["text"], j["description_text"] or "", j["title"], company=j["company"],
+                               profile=prof)
             scores.append((j["id"], sc["score"], sc["matched"], sc["missing"], blocking_knockouts(sc)))
         else:
             scores.append((j["id"], None, [], [], []))

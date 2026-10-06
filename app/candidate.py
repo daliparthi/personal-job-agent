@@ -20,12 +20,13 @@ _MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun",
 _SEASONS = {"winter": 1, "spring": 4, "summer": 7, "fall": 10, "autumn": 10}
 
 
-def parse_when(text, end=False):
-    """(year, month) of a resume date: "Jan 2020", "March, 2021", "03/2019", "Summer 2015", "2018", "Present"."""
+def parse_when(text, end=False, today=None):
+    """(year, month) of a resume date: "Jan 2020", "March, 2021", "03/2019", "Summer 2015", "2018", "Present".
+    "Present" means `today` (default: the real today)."""
     s = (text or "").strip().lower()
     if not s:
         return None
-    today = date.today()
+    today = today or date.today()
     if re.match(r"(present|current|now|today|ongoing)", s):
         return today.year, today.month
     m = re.search(r"\b(\d{1,2})/((?:19|20)\d{2})\b", s)
@@ -75,21 +76,38 @@ def _entries(master, kind):
 _cache = {}
 
 
-def profile(master: dict | None, applicant: dict | None = None) -> dict:
-    """The candidate profile for scoring (cached: the same resume and settings give the same profile)."""
-    key = json.dumps([master, {k: (applicant or {}).get(k) for k in ("needs_sponsorship", "us_citizen", "has_clearance")}],
-                     sort_keys=True, default=str)
+def profile(master: dict | None, applicant: dict | None = None, as_of: date | None = None) -> dict:
+    """The candidate profile for scoring (cached: the same resume and settings give the same profile).
+    as_of: what "Present" in the resume's dates means (default: today)."""
+    as_of = as_of or date.today()
+    key = json.dumps([master, {k: (applicant or {}).get(k) for k in ("needs_sponsorship", "us_citizen", "has_clearance")},
+                      as_of.isoformat()], sort_keys=True, default=str)
     if key not in _cache:
         if len(_cache) > 8:
             _cache.clear()
-        _cache[key] = _build(master or {}, applicant or {})
+        _cache[key] = _build(master or {}, applicant or {}, as_of)
     return _cache[key]
 
 
-def _build(master, applicant) -> dict:
+def profile_for(resume: dict | None, settings: dict) -> dict | None:
+    """The scoring profile of the stored master resume (db.get_resume()), or None without one.
+
+    "Present" counts up to the day the resume was last saved, not to today. Otherwise the years of experience would
+    grow with the calendar and the same resume would score the same posting differently from one month to the next;
+    saving the resume again brings the dates up to date."""
+    if not resume:
+        return None
+    try:
+        as_of = date.fromisoformat((resume.get("uploaded_at") or "")[:10])
+    except ValueError:
+        as_of = None
+    return profile(resume["data"], settings["profile"], as_of)
+
+
+def _build(master, applicant, as_of=None) -> dict:
     jobs = []
     for e in _entries(master, "experience"):
-        start, end = parse_when(e.get("start")), parse_when(e.get("end"), end=True)
+        start, end = parse_when(e.get("start"), today=as_of), parse_when(e.get("end"), end=True, today=as_of)
         if start and end and end >= start:
             jobs.append((_month_index(start), _month_index(end), e))
     years_total = round(_merged_months([(a, b) for a, b, _ in jobs]) / 12, 1) if jobs else None

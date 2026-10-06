@@ -65,7 +65,7 @@ home folder:
                        Workday's sign-up / sign-in form)
   master_resume.yaml   your master resume as data (built by the model, edit freely)
   my_companies.yaml    your own career sites on top of the shared list (Settings > Add company writes here)
-  jobs.db              settings, profile, postings (new ones from the last 7 days; jobs you worked on are kept), tailored copies
+  jobs.db              settings, profile, postings (new ones from the last 5 days; jobs you worked on are kept), tailored copies
   browser-profile/     the apply window's browser profile (your Workday logins)
   Applications/        one folder per company with what you sent
   Alerts/              daily pages of new matches found by scheduled searches
@@ -99,11 +99,11 @@ options: `--port 8800`, `--no-browser`.
 | Other job boards | Greenhouse, Lever, Ashby and SmartRecruiters boards go in the same lists. Each publishes its postings as public JSON: Greenhouse, Lever and Ashby send the whole board in one request, which Job Agent filters with the same keyword, US-location and date rules as a Workday search; SmartRecruiters is searched with your keywords and limited to US postings. Every posting gets the same fields (job type, remote, state, salary, match score) whatever its source, and a grey badge names the board. |
 | Mandatory keywords | Every mandatory keyword/phrase must appear in the title or description, or the posting is dropped. Comma-separated. |
 | Optional keywords | Can be blank. They never exclude anything by default; they are highlighted (blue), shown as badges, and you can tick *Must match an optional keyword* to refine. If you leave mandatory blank, each optional keyword is searched separately. |
-| First run = last 7 days | The first run for a keyword set looks back 7 days. |
+| First run = last 5 days | The first run for a keyword set looks back 5 days. |
 | Incremental by default | Later runs only pull postings newer than that company's last successful run, and skip jobs already stored. |
-| Full refresh flag | Tick **Full refresh** to ignore the incremental cursor and re-pull/re-parse the whole 7-day window. |
-| New keywords | Changing mandatory keywords starts a fresh 7-day pull for the new set (the cursor is per keyword set). |
-| DB purge | `jobs.db` in your personal folder; untouched postings (status *new*, no notes or follow-up) posted more than 7 days ago (Settings → *Keep untouched postings for*) are deleted on start-up, before every search, and hourly. Jobs you tailored, saved, applied to or moved along the [pipeline](#pipeline) are kept forever, and saved application folders are never deleted. |
+| Full refresh flag | Tick **Full refresh** to ignore the incremental cursor and re-pull/re-parse the whole 5-day window. |
+| New keywords | Changing mandatory keywords starts a fresh 5-day pull for the new set (the cursor is per keyword set). |
+| DB purge | `jobs.db` in your personal folder; untouched postings (status *new*, no notes or follow-up) posted more than 5 days ago (Settings → *Keep untouched postings for*) are deleted on start-up, before every search, and hourly. `jobs.db` is also kept under 50 MB (shown in the top bar): if it is still over after that, the oldest untouched postings go first, then run logs, then the raw HTML of old postings you worked on (their text stays). Jobs you tailored, saved, applied to or moved along the [pipeline](#pipeline) are kept forever, and saved application folders are never deleted. |
 | Skip current employer | Settings → *Current employer*. That company is skipped during search and hidden from results. |
 | USA only + state filters | Searches use each site's "United States" filter when it has one, then every posting is checked for a US location. Filter by **state** (multi-select) and **city**. Remote roles with no state stay visible when you pick states. |
 | Contract / Full-time / Temporary | From Workday's *Job Type* (worker sub-type) facet, falling back to the posting text. Colour badges: **Full-time** green, **Contract** amber, **Temporary** purple, **Part-time** blue, Internship grey. Click a type chip to omit it; ✕ on a card hides one posting. |
@@ -166,7 +166,7 @@ score = 60% keyword coverage   (weighted ATS keywords in the JD that your resume
 ```
 
 Keywords come from `app/lexicon.py` (≈450 skills, tools, certifications and soft skills — add your own lines), repeated
-acronyms in the posting, and your own keywords. The employer's own name is never counted as a skill. After tailoring
+acronyms in the posting. Your search keywords do not change the score, so one resume and one posting always give the same number (the years of experience count up to the day you last saved the resume, not to today). The employer's own name is never counted as a skill. After tailoring
 you see **before → after** (red when an edit lowered it — undo lines until it goes back up).
 
 **Where a keyword appears matters.** The posting is split by its headings: keywords under its required
@@ -337,7 +337,7 @@ opened), *Applied*, *Recruiter screen*, *Interviewing*, *Offer*, and the outcome
 * At the top: applications per week, response rate (any answer, including a rejection), interview rate, offers, and
   the interview rate by match score, so you can see which scores are worth applying to.
 * **Jobs you worked on are kept forever.** Only untouched postings expire (Settings → *Keep untouched postings for*,
-  7 days by default). Older applied jobs leave the search list and live on the board. The status and timeline are
+  5 days by default). Older applied jobs leave the search list and live on the board. The status and timeline are
   also written into each job's `application.json`, so the Applications folder is a complete record by itself; jobs
   that an earlier version of Job Agent deleted are restored from those folders when it starts.
 

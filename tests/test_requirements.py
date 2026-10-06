@@ -298,3 +298,29 @@ def test_calibration_finds_the_weights_that_separate_outcomes():
     assert cal.label({"feedback": -1}, {"interviewing"}) is False  # your thumbs down wins
     assert cal.label({}, {"rejected", "screening"}) is True  # got a screen: the match was good
     assert cal.label({}, {"applied"}) is None
+
+
+# ---------------------------------------------------------------- the same inputs always give the same score
+def test_present_means_the_day_the_resume_was_saved_not_today():
+    data = copy.deepcopy(SAMPLE_MASTER)
+    saved = date(2025, 1, 15)
+    a = candidate.profile(data, None, saved)
+    b = candidate.profile(data, None, date(2027, 1, 15))
+    assert b["years_total"] > a["years_total"]  # asking "as of" another day does change the years...
+    stored = {"data": data, "uploaded_at": "2025-01-15T09:00:00"}
+    settings = {"profile": {}}
+    assert candidate.profile_for(stored, settings)["years_total"] == a["years_total"]  # ...but the stored resume is fixed
+    assert candidate.profile_for(None, settings) is None
+
+
+def test_score_does_not_depend_on_the_clock_or_the_search_keywords():
+    stored = {"data": copy.deepcopy(SAMPLE_MASTER), "uploaded_at": "2025-01-15T09:00:00"}
+    prof = candidate.profile_for(stored, {"profile": {}})
+    first = scoring.score(RESUME_TEXT, NVIDIA_STYLE, "Senior Data Engineer", company="NVIDIA", profile=prof)
+    from unittest import mock
+    with mock.patch("app.candidate.date") as fake:
+        fake.today.return_value = date(2031, 6, 1)
+        fake.fromisoformat = date.fromisoformat
+        later = scoring.score(RESUME_TEXT, NVIDIA_STYLE, "Senior Data Engineer", company="NVIDIA",
+                              profile=candidate.profile_for(stored, {"profile": {}}))
+    assert later == first

@@ -1,5 +1,6 @@
 import asyncio
 import hmac
+import html
 from datetime import datetime
 import mimetypes
 import sqlite3
@@ -11,8 +12,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from . import alerts, answers, apply, candidate, db, envfile, formfill, master, pipeline, scheduler, scoring, search
-from .config import HOME, HOME_ID, MODELS, PORT, STATIC, ensure_home, session_key
-from .jobparse import jd_digest, split_keywords
+from .config import HOME, HOME_ID, MAX_DB_BYTES, MODELS, PORT, STATIC, ensure_home, session_key
+from .jobparse import jd_digest
 from .resume_io import clean_resume, parse_resume, to_text
 from .schemas import (AlertsSeenIn, AnswerIn, AnswerPatch, CompanyIn, FeedbackIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn,
                       PathIn, PreviewIn, ResumeSaveIn, RunIn, SavedSearchIn, SavedSearchPatch, ScoreIn,
@@ -184,7 +185,8 @@ def status():
     return {"resume": {"filename": resume["filename"], "uploaded_at": resume["uploaded_at"]} if resume else None,
             "master_error": yaml_error, "jobs": db.count_jobs(), "last_run": db.last_run_overall(),
             "rescoring": search.rescorer.running, "rescore_error": search.rescorer.last_error,
-            "retention_days": db.get_settings()["keep_new_days"], "models": _bundled_models(), "search": runner.state,
+            "retention_days": db.get_settings()["keep_new_days"], "db_bytes": db.db_bytes(), "db_limit": MAX_DB_BYTES,
+            "models": _bundled_models(), "search": runner.state,
             "home": str(HOME), "profile": HOME.name, "account": envfile.status()}
 
 
@@ -202,8 +204,8 @@ def put_settings(body: SettingsPatch):
             values[k] = {**before[k], **values[k]}
     db.save_settings(values)
     after = db.get_settings()
-    scored = lambda s: (s["mandatory"], s["optional"],  # noqa: E731 - what the match score depends on
-                        *(s["profile"].get(k) for k in ("needs_sponsorship", "us_citizen", "has_clearance")))
+    scored = lambda s: tuple(s["profile"].get(k) for k in  # noqa: E731 - what the match score depends on
+                             ("needs_sponsorship", "us_citizen", "has_clearance"))
     if scored(before) != scored(after):
         search.rescorer.request()
     return after
@@ -450,22 +452,24 @@ def jobs():
 def _job_or_404(job_id):
     j = db.get_job(job_id)
     if not j:
-        raise HTTPException(404, "Job not found (untouched postings are purged after 7 days)")
+        raise HTTPException(404, "Job not found (untouched postings are purged after a few days)")
     return j
 
 
 def _score(j, text):
-    settings = db.get_settings()
-    extra = split_keywords(settings["mandatory"]) + split_keywords(settings["optional"])
-    resume = db.get_resume()
-    prof = candidate.profile(resume["data"], settings["profile"]) if resume else None
-    return scoring.score(text, j["description_text"] or "", j["title"], extra, j["company"], prof)
+    # Same inputs as the stored list score (search.rescore_all): the posting, the resume, the profile. The search
+    # keywords are deliberately not an input, or the score would change whenever they do.
+    prof = candidate.profile_for(db.get_resume(), db.get_settings())
+    return scoring.score(text, j["description_text"] or "", j["title"], company=j["company"], profile=prof)
 
 
 @app.get("/api/jobs/{job_id:path}/detail")
 def job_detail(job_id: str):
     j = _job_or_404(job_id)
     resume = db.get_resume()
+    if not j.get("description_html"):  # trimmed to save space (db.enforce_size_limit), or never had one
+        paragraphs = (j.get("description_text") or "").splitlines()
+        j["description_html"] = "".join(f"<p>{html.escape(p)}</p>" for p in paragraphs if p.strip())
     j["analysis"] = _score(j, resume["text"] if resume else "")
     j["digest"] = jd_digest(j.get("description_text") or "")  # for the cover letter and short answers
     j["tailored"] = db.get_tailored(job_id)

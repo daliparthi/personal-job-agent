@@ -46,14 +46,30 @@ def test_status_and_settings(client):
     assert s["mandatory"] == "python" and s["filters"]["remote_only"] is True and s["filters"]["include_no_salary"]
 
 
-def test_keyword_change_rescores(client):
+def test_search_keywords_do_not_change_the_score(client):
     db.upsert_job(make_job())
     master.save(data=SAMPLE_MASTER, filename="cv.txt")  # writes master_resume.yaml, which /api/status syncs from
-    client.put("/api/settings", json={"optional": "Frobnicator"})
-    assert client.get("/api/status").json()["rescoring"] in (True, False)
+    client.get("/api/status")
+    search.rescore_all()
+    first = db.get_job(JOB)["match_score"]
+    assert first is not None
+    client.put("/api/settings", json={"mandatory": "Python", "optional": "Frobnicator, Kafka"})
     assert search.rescorer.wait(10)
-    assert db.get_job(JOB)["match_score"] is not None
+    search.rescore_all()
+    assert db.get_job(JOB)["match_score"] == first
+    assert client.post(f"{JOB_URL}/score", json={"resume": SAMPLE_MASTER}).json()["score"] is not None
     assert client.get("/api/status").json()["rescoring"] is False
+
+
+def test_applicant_change_rescores(client):
+    db.upsert_job(make_job(description_text="We use Python and SQL on AWS. We cannot sponsor visas."))
+    master.save(data=SAMPLE_MASTER, filename="cv.txt")
+    client.get("/api/status")
+    search.rescore_all()
+    before = db.get_job(JOB)["match_score"]
+    client.put("/api/settings", json={"profile": {"needs_sponsorship": "Yes"}})
+    assert search.rescorer.wait(10)
+    assert db.get_job(JOB)["match_score"] < before
 
 
 def test_settings_patch_merges_nested_values(client):

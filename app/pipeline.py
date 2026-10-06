@@ -209,7 +209,7 @@ def _score(job) -> int:
 # ---------------------------------------------------------------- recovery
 def backfill_from_disk() -> int:
     """Rebuild database rows from Applications/*/*/application.json for jobs the database no longer has (earlier
-    versions purged applied jobs after 7 days). Returns how many jobs were restored."""
+    versions purged applied jobs after a few days). Returns how many jobs were restored."""
     restored = 0
     for meta_path in sorted(APPLICATIONS.glob("*/*/application.json")):
         try:

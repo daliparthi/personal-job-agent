@@ -82,3 +82,59 @@ def test_company_runs():
     db.mark_success("acme/x", "sig", when)
     assert db.last_success("acme/x", "sig") == when
     assert db.last_run_overall() == "2026-10-01T09:30:00"
+
+
+# ---------------------------------------------------------------- database size
+def _bulky(job_id, **over):
+    text = "Python SQL AWS " * 4000  # about 60 KB of description, as text and as HTML
+    return make_job(job_id, description_text=text, description_html=f"<p>{text}</p>", **over)
+
+
+def test_retention_default_is_five_days():
+    assert RETENTION_DAYS == 5
+    assert db.DEFAULT_SETTINGS["keep_new_days"] == 5
+
+
+def test_size_limit_drops_oldest_untouched_first_and_keeps_applied():
+    for n in range(40):
+        db.upsert_job(_bulky(f"a:new{n}", posted_date=(date.today() - timedelta(days=n % 5)).isoformat()))
+    db.upsert_job(_bulky("a:applied", posted_date=OLD))
+    db.update_job("a:applied", status="applied")
+    db._shrink()  # fold the write-ahead log in, so the size below is the database itself
+    start = db.db_bytes()
+    assert start > 2_000_000
+
+    removed = db.enforce_size_limit(max_bytes=start // 2)
+
+    assert removed > 0 and db.db_bytes() <= start // 2
+    assert db.get_job("a:applied")  # worked-on jobs are never size-purged
+    left = {j["id"] for j in db.all_jobs()}
+    oldest_gone = [f"a:new{n}" for n in range(40) if n % 5 == 4 and f"a:new{n}" not in left]
+    newest_kept = [f"a:new{n}" for n in range(40) if n % 5 == 0 and f"a:new{n}" in left]
+    assert oldest_gone and newest_kept  # the 4-day-old postings went before today's
+
+
+def test_size_limit_trims_html_of_worked_on_jobs_as_a_last_resort():
+    for n in range(10):
+        db.upsert_job(_bulky(f"a:app{n}", posted_date=OLD))
+        db.update_job(f"a:app{n}", status="applied")
+    db._shrink()
+    start = db.db_bytes()
+    assert db.enforce_size_limit(max_bytes=start // 2) == 0
+    jobs = [db.get_job(f"a:app{n}") for n in range(10)]
+    assert all(j for j in jobs)  # nothing deleted
+    assert any(j["description_html"] == "" for j in jobs) and all(j["description_text"] for j in jobs)
+    assert db.db_bytes() < start
+
+
+def test_purge_old_frees_file_space():
+    for n in range(40):
+        db.upsert_job(_bulky(f"a:old{n}", posted_date=OLD))
+    big = db.db_bytes()
+    assert db.purge_old() == 40
+    assert db.db_bytes() < big // 4
+
+
+def test_under_the_limit_nothing_extra_is_removed():
+    db.upsert_job(_bulky("a:today", posted_date=RECENT))
+    assert db.enforce_size_limit() == 0 and db.get_job("a:today")

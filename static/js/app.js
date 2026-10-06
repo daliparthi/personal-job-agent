@@ -104,7 +104,7 @@ function updateChips() {
   pc.textContent = `Profile: ${st.profile || "default"}`;
   pc.title = `Your personal folder: ${st.home || ""}`;
   const last = st.last_run ? new Date(st.last_run).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "never";
-  $("#chip-jobs").textContent = `${st.jobs ?? 0} jobs stored · last run ${last} · new postings kept ${st.retention_days ?? 7} days`;
+  $("#chip-jobs").textContent = `${st.jobs ?? 0} jobs stored · last run ${last} · new postings kept ${st.retention_days ?? 5} days · database ${((st.db_bytes || 0) / 1048576).toFixed(1)} of ${Math.round((st.db_limit || 0) / 1048576)} MB`;
 }
 
 llm.on(({ state, label, text, progress }) => {
@@ -884,7 +884,7 @@ async function openSettings() {
   form.engine.value = s.engine === "onnx" ? "onnx" : "auto";
   form.upload_format.value = s.upload_format || "docx";
   form.max_bullets.value = s.max_bullets ?? 12;
-  form.keep_new_days.value = s.keep_new_days ?? 7;
+  form.keep_new_days.value = s.keep_new_days ?? 5;
   form.ghost_after_days.value = s.ghost_after_days ?? 21;
   $("#profile-fields").innerHTML = PROFILE_FIELDS.map(([k, label, opts]) => {
     const v = s.profile[k] ?? "";
@@ -974,7 +974,7 @@ async function saveSettingsDialog() {
   await saveSettings({
     current_employer: form.current_employer.value.trim(), engine: form.engine.value,
     upload_format: form.upload_format.value, max_bullets: Number(form.max_bullets.value || 12),
-    keep_new_days: Number(form.keep_new_days.value || 7), ghost_after_days: Number(form.ghost_after_days.value || 21),
+    keep_new_days: Number(form.keep_new_days.value || 5), ghost_after_days: Number(form.ghost_after_days.value || 21),
     profile, disabled_companies: disabled,
     autofill: { experience: form.af_experience.checked, add_entries: form.af_add_entries.checked,
                 answers: form.af_answers.checked, capture: form.af_capture.checked },

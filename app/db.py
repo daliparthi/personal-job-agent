@@ -1,5 +1,5 @@
 """SQLite storage. Untouched postings older than RETENTION_DAYS are purged automatically; jobs you worked on
-(tailored, saved, applying, applied) are kept forever.
+(tailored, saved, applying, applied) are kept forever. The file is also held under MAX_DB_BYTES (purge_old).
 
 Connections: each thread keeps one connection to jobs.db (WAL mode, so readers never wait for a writer). Writes run
 inside `conn()`, an IMMEDIATE transaction, so two writers queue on SQLite's own lock instead of failing half-way.
@@ -8,12 +8,13 @@ Schema: versioned with PRAGMA user_version. MIGRATIONS[n] upgrades a database fr
 made before migrations existed (version 0) upgrades in place without losing anything.
 """
 import json
+import os
 import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
-from .config import DB_PATH, RETENTION_DAYS
+from .config import DB_PATH, MAX_DB_BYTES, RETENTION_DAYS
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -140,6 +141,10 @@ MIGRATIONS = [
     """
     ALTER TABLE jobs ADD COLUMN sponsorship TEXT;
     """,
+    # 10: the default retention went from 7 to 5 days: a saved "7" is the old default, not a choice
+    """
+    DELETE FROM settings WHERE key = 'keep_new_days' AND value = '7';
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -168,6 +173,7 @@ def _connect():
         c = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None, check_same_thread=False)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA synchronous=NORMAL")  # safe with WAL; much faster commits
+        c.execute("PRAGMA journal_size_limit=4194304")  # the -wal file shrinks back after a checkpoint
         c.execute("PRAGMA foreign_keys=ON")
         with _registry_lock:
             _open[c] = threading.current_thread()
@@ -245,27 +251,110 @@ def schema_version() -> int:
     return read().execute("PRAGMA user_version").fetchone()[0]
 
 
-def purge_old(keep_days: int = RETENTION_DAYS) -> int:
-    """Drop untouched postings older than keep_days (Settings: "Keep new postings"). Returns rows removed from jobs.
+# A posting you never touched: still 'new', no application folder, tailored resume, timeline entry or follow-up.
+# Only these ever expire; anything you tailored, saved, applied to or moved along the pipeline is kept forever.
+UNTOUCHED = ("COALESCE(status, 'new') = 'new' AND folder IS NULL AND next_action_at IS NULL "
+             "AND id NOT IN (SELECT job_id FROM tailored) AND id NOT IN (SELECT job_id FROM job_events)")
+KEEP_RUNS = 200  # search runs kept in the history
+SIZE_HEADROOM = 0.85  # when over the size limit, shrink to this share of it so the next search doesn't trip it again
+ROW_OVERHEAD = 2048   # bytes a posting takes besides its description (other columns, indexes)
 
-    Only status 'new' jobs with no application folder, tailored resume, note or follow-up expire. Anything you
-    tailored, saved, applied to or moved along the pipeline is kept forever."""
+
+def _drop_orphans(c):
+    c.execute("DELETE FROM tailored WHERE job_id NOT IN (SELECT id FROM jobs)")
+    c.execute("DELETE FROM alerts WHERE job_id NOT IN (SELECT id FROM jobs)")
+
+
+def purge_old(keep_days: int = RETENTION_DAYS) -> int:
+    """Drop untouched postings older than keep_days (Settings: "Keep new postings"), then keep jobs.db under
+    MAX_DB_BYTES (see enforce_size_limit). Returns rows removed from jobs."""
     cutoff = (date.today() - timedelta(days=keep_days)).isoformat()
     stale_run = (datetime.now() - timedelta(days=RETENTION_DAYS)).isoformat(timespec="seconds")
     with conn() as c:
-        n = c.execute("DELETE FROM jobs WHERE (posted_date IS NULL OR posted_date < ?) "
-                      "AND COALESCE(status, 'new') = 'new' AND folder IS NULL AND next_action_at IS NULL "
-                      "AND id NOT IN (SELECT job_id FROM tailored) "
-                      "AND id NOT IN (SELECT job_id FROM job_events)", (cutoff,)).rowcount
-        c.execute("DELETE FROM tailored WHERE job_id NOT IN (SELECT id FROM jobs)")
-        c.execute("DELETE FROM alerts WHERE job_id NOT IN (SELECT id FROM jobs)")
+        n = c.execute(f"DELETE FROM jobs WHERE (posted_date IS NULL OR posted_date < ?) AND {UNTOUCHED}",
+                      (cutoff,)).rowcount
+        _drop_orphans(c)
         c.execute("DELETE FROM company_runs WHERE last_success < ?", (stale_run,))
         c.execute("DELETE FROM search_runs WHERE id NOT IN (SELECT id FROM search_runs ORDER BY id DESC LIMIT ?)",
                   (KEEP_RUNS,))
-    return n
+    return n + enforce_size_limit()
 
 
-KEEP_RUNS = 200  # search runs kept in the history
+# ---------- size ----------
+def db_bytes() -> int:
+    """Size on disk of jobs.db together with its write-ahead log."""
+    total = 0
+    for suffix in ("", "-wal"):
+        try:
+            total += os.path.getsize(f"{DB_PATH}{suffix}")
+        except OSError:
+            pass
+    return total
+
+
+def _free_bytes() -> int:
+    c = read()
+    return c.execute("PRAGMA freelist_count").fetchone()[0] * c.execute("PRAGMA page_size").fetchone()[0]
+
+
+def _shrink():
+    """Give deleted rows' space back to the file system (DELETE alone only marks pages free) and fold the log in."""
+    c = _connect()
+    if c.in_transaction:
+        return
+    try:
+        c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        c.execute("VACUUM")
+        c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except sqlite3.OperationalError:  # another writer or a long reader holds it: the next purge tries again
+        pass
+
+
+def enforce_size_limit(max_bytes: int = MAX_DB_BYTES) -> int:
+    """Keep jobs.db under max_bytes so the app stays quick. Returns the number of postings removed.
+
+    Order of what goes, stopping as soon as it fits: free space from earlier deletes; the oldest untouched postings
+    (jobs you worked on are never deleted); run logs; the raw HTML of the oldest worked-on postings (their plain
+    text stays and is what the page falls back to)."""
+    if _free_bytes() >= max(1024 * 1024, db_bytes() // 5):  # a fifth of the file is deleted rows: give it back
+        _shrink()
+    size = db_bytes()
+    if size <= max_bytes:
+        return 0
+    _shrink()
+    size = db_bytes()
+    if size <= max_bytes:
+        return 0
+    excess = size - int(max_bytes * SIZE_HEADROOM)
+    weight = "COALESCE(LENGTH(CAST(description_html AS BLOB)), 0) + COALESCE(LENGTH(CAST(description_text AS BLOB)), 0)"
+    removed = 0
+    with conn() as c:
+        ids, freed = [], 0
+        for r in c.execute(f"SELECT id, {weight} + {ROW_OVERHEAD} FROM jobs WHERE {UNTOUCHED} "
+                           "ORDER BY COALESCE(posted_date, ''), COALESCE(first_seen, '')"):
+            if freed >= excess:
+                break
+            ids.append(r[0])
+            freed += r[1]
+        for i in range(0, len(ids), 500):
+            batch = ids[i:i + 500]
+            c.execute(f"DELETE FROM jobs WHERE id IN ({', '.join('?' * len(batch))})", batch)
+        removed = len(ids)
+        _drop_orphans(c)
+        if freed < excess:  # everything left is yours: trim bulk that can be rebuilt
+            freed += c.execute("SELECT COALESCE(SUM(LENGTH(CAST(log_text AS BLOB))), 0) FROM search_runs").fetchone()[0]
+            c.execute("UPDATE search_runs SET log_text = ''")
+        if freed < excess:
+            rows = c.execute("SELECT id, LENGTH(CAST(description_html AS BLOB)) FROM jobs "
+                             "WHERE description_html IS NOT NULL AND description_html <> '' "
+                             "ORDER BY COALESCE(posted_date, ''), COALESCE(first_seen, '')").fetchall()
+            for r in rows:
+                if freed >= excess:
+                    break
+                c.execute("UPDATE jobs SET description_html = '' WHERE id = ?", (r[0],))
+                freed += r[1]
+    _shrink()
+    return removed
 
 
 # ---------- settings ----------

@@ -21,7 +21,7 @@ from .jobparse import (DEGREE_NAMES, SENIORITY_NAMES, WEIGHTLESS, degree_require
                        section_text, seniority_level, years_required)
 from .lexicon import ACRONYM_STOP, CASE_SENSITIVE, ENTRIES
 
-VERSION = 3  # bump when scores change meaning: stored scores are recomputed at the next start
+VERSION = 4  # bump when scores change meaning: stored scores are recomputed at the next start
 
 STOPWORDS = set("""
 a about above across after again against all also am an and any are as at be because been before being below
@@ -304,7 +304,10 @@ def _evidence(sections, kws, bullets, resume_text, limit=14):
 
 # ---------------------------------------------------------------- the score
 def score(resume_text: str, jd_text: str, title: str = "", extra=(), company: str = "", profile=None):
-    """profile: app.candidate.profile(...) of the master resume; without it there are no adjustments."""
+    """profile: app.candidate.profile(...) of the master resume; without it there are no adjustments.
+
+    The result depends only on the arguments. Callers pass no `extra` (the search keywords): they differ between
+    searches, so with them one resume and posting would score differently depending on who asked."""
     sections = jd_sections(jd_text)
     relevant = section_text(sections) or jd_text
     kws = extract_keywords(jd_text, title, extra, company, sections)

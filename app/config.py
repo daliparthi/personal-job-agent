@@ -9,7 +9,7 @@ several people on the same computer (Windows, macOS or Linux). Each person gets 
         .env                 Workday account email + password (fills Create Account / Sign In forms)
         my_companies.yaml    your own Workday sites, on top of the shared companies.yaml in the program folder
         master_resume.yaml   your master resume, parsed by the local model (edit freely)
-        jobs.db              settings, postings (new ones expire after 7 days; ones you worked on are kept), tailored resumes
+        jobs.db              settings, postings (new ones expire after 5 days; ones you worked on are kept), tailored resumes
         browser-profile/     the apply window's own browser profile (Workday logins)
         Applications/        saved application packages
 
@@ -55,7 +55,8 @@ PORT_FILE = HOME / ".port"
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("JOB_AGENT_PORT") or 8765)
 
-RETENTION_DAYS = 7          # untouched postings older than this are purged; first runs look back this far
+RETENTION_DAYS = 5          # untouched postings older than this are purged; first runs look back this far
+MAX_DB_BYTES = 50 * 1024 * 1024  # jobs.db (with its write-ahead log) is kept under this so the app stays quick
 MAX_PAGES_PER_QUERY = 50    # 50 x 20 = 1000 postings per company/job-type before we stop paging
 COMPANY_CONCURRENCY = 3     # companies searched in parallel
 DETAIL_CONCURRENCY = 4      # job-detail requests in flight per company
