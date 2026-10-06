@@ -182,7 +182,7 @@ def structure_from_lines(lines, wrapped_lines: bool):
 ENTRY_KINDS = ("experience", "projects", "education")
 ENTRY_FIELDS = {  # the first two make the bold part of an entry's heading line
     "experience": ("title", "company", "location", "start", "end"),
-    "education": ("degree", "school", "location", "start", "end"),
+     #"education": ("degree", "school", "location", "start", "end"),
     "projects": ("name", "organization", "location", "start", "end"),
 }
 
