@@ -201,6 +201,7 @@ function renderFilters() {
   $("#f-reqopt").checked = !!f.require_optional;
   $("#f-hidden").checked = !!f.show_hidden;
   $("#f-knockouts").checked = !!f.hide_knockouts;
+  $("#f-sponsor").value = f.sponsorship || "any";
   const on = new Set(f.types || []);
   $("#f-types").innerHTML = '<span class="flabel">Types</span>' + TYPES.map((t) =>
     `<button class="type-toggle t-${t}${on.has(t) ? "" : " off"}" data-type="${t}" aria-pressed="${on.has(t)}" title="Click to ${on.has(t) ? "omit" : "include"} ${t} roles">${t}</button>`).join("");
@@ -223,6 +224,7 @@ function daysAgo(iso) {
   return d <= 0 ? "today" : d === 1 ? "1 day ago" : `${d} days ago`;
 }
 
+const SPONSOR_BADGES = { sponsors: "sponsors visas", h1b: "H-1B", h4ead: "H-4 EAD ok" };
 const isNew = (j) => !!(S.lastVisit && j.first_seen && j.first_seen > S.lastVisit);
 
 function renderJobs() {
@@ -247,6 +249,7 @@ function renderJobs() {
     j.optional_hits.forEach((k) => badges.push(`<span class="badge b-opt">${esc(k)}</span>`));
     if (j.status && j.status !== "new") badges.push(`<span class="badge b-status">${esc(j.status)}</span>`);
     if (isNew(j)) badges.unshift('<span class="badge b-new" title="Found since you last opened Job Agent">new</span>');
+    (j.sponsorship || "").split(",").filter((t) => SPONSOR_BADGES[t]).forEach((t) => badges.push(`<span class="badge b-sponsor" title="The posting mentions it">${SPONSOR_BADGES[t]}</span>`));
     (j.knockouts || []).forEach((k) => badges.push(`<span class="badge b-ko" title="A hard requirement you don't meet">⛔ ${esc(k.label)}</span>`));
     if (!isWorkday(j)) badges.push(`<span class="badge b-src" title="Found on ${esc(SOURCES[j.source] || j.source)}">${esc(SOURCES[j.source] || j.source)}</span>`);
     return `<div class="job${j.id === S.sel ? " active" : ""}${j.hidden ? " is-hidden" : ""}" data-id="${esc(j.id)}" tabindex="0">
@@ -1023,6 +1026,7 @@ function bindEvents() {
   $("#f-reqopt").onchange = () => saveFilter({ require_optional: $("#f-reqopt").checked });
   $("#f-hidden").onchange = () => saveFilter({ show_hidden: $("#f-hidden").checked });
   $("#f-knockouts").onchange = () => saveFilter({ hide_knockouts: $("#f-knockouts").checked });
+  $("#f-sponsor").onchange = () => saveFilter({ sponsorship: $("#f-sponsor").value });
   $("#jd-view").addEventListener("click", (e) => { const b = e.target.closest("[data-fb]"); if (b) setFeedback(Number(b.dataset.fb)); });
   $("#f-types").onclick = async (e) => {
     const b = e.target.closest("[data-type]");

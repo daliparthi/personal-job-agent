@@ -22,6 +22,7 @@ class FiltersPatch(_Body):
     require_optional: bool | None = None
     show_hidden: bool | None = None
     hide_knockouts: bool | None = None
+    sponsorship: Literal["any", "offered", "h4ead", "not_denied"] | None = None
 
 
 class AutofillPatch(_Body):

@@ -142,6 +142,8 @@ seconds for a two-page resume; **Skip AI, use quick parse** uses the rule-based 
 name: Jordan Avery
 headline: Senior Data Engineer
 contact: {email: …, phone: …, location: Austin, TX, links: [...]}
+# links: "linkedin.com/in/you" prints as a clickable "LinkedIn" (GitHub likewise) in the DOCX / PDF;
+# for your own wording use  links: [{text: Portfolio, url: https://example.com}]
 sections:
   - title: Professional Experience
     kind: experience           # summary, skills, experience, projects, education, certifications, other
@@ -179,6 +181,11 @@ posting). Missing chips marked <sup>req</sup> are required; faded ones are only 
 | Years of experience | The years the posting asks for vs. the years your jobs' dates add up to (overlaps counted once): −3 per missing year, at most −15. "5+ years of Kafka" is checked against the jobs whose lines mention Kafka (−2 each). |
 | Seniority | A role two or more levels above your latest title (e.g. a director role for a senior engineer): −8; two or more below: −3. |
 | Hard requirements | No visa sponsorship (when you need it), US citizens only, a security clearance (when your profile says you have none), or a degree above yours: −10 each (at most −20), shown as ⛔ in the list. *Hide ones I don't qualify for* filters them out. Fill in *US citizen?* / *Security clearance?* in Settings → Applicant profile; left blank they only warn. |
+
+**Sponsorship, H-1B and H-4 EAD.** Each posting is also read for what it says about work authorization: green badges
+(*sponsors visas*, *H-1B*, *H-4 EAD ok*) in the list, and a **Sponsorship** filter: *Sponsors visas / H-1B*, *Accepts
+H-4 EAD*, or *Not "no sponsorship"* (drops postings that say they won't sponsor). A posting that says nothing is never
+tagged, so *Not "no sponsorship"* keeps it.
 
 The *Why* box also lists each requirement line of the posting with ✓ / ◐ / ✗ and the line of your resume that shows
 it. 👍 / 👎 record whether a match was good; `tools/calibrate.py` uses those (and how far your applications got on
@@ -265,7 +272,8 @@ a GPU folder you don't need; keep `models/onnx`.
   can store or delete a password but never read one back.
 * It fills: first/last name, email (your profile email, or `WORKDAY_EMAIL` if blank), phone, phone type, address,
   city, state, ZIP, country, LinkedIn/GitHub/website, *authorized to work in the US*, *need sponsorship*,
-  *previously worked here*, and *how did you hear* (when it is a list). It never overwrites something you typed, and
+  *previously worked here*, and *how did you hear* (when it is a list). It never overwrites something you typed, never
+  refills a field once you have clicked into, edited or cleared it (so you can change what it filled), and
   **never clicks Next, Submit or a consent box**.
 * **My Experience:** each *Work Experience* and *Education* entry on the page gets the matching entry from
   `master_resume.yaml`, most recent first: job title, company, location, *I currently work here*, from/to dates (a

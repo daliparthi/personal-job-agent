@@ -403,3 +403,4 @@ legend { font-weight: 600; padding: 0 4px; }
 .kw.w-preferred { opacity: .65; }
 .kw sup { font-size: 9px; margin-left: 2px; }
 .badge.b-ko { background: var(--bad-soft); color: var(--bad); }
+.badge.b-sponsor { background: var(--good-soft); color: var(--good); }

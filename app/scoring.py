@@ -21,7 +21,7 @@ from .jobparse import (DEGREE_NAMES, SENIORITY_NAMES, WEIGHTLESS, degree_require
                        section_text, seniority_level, years_required)
 from .lexicon import ACRONYM_STOP, CASE_SENSITIVE, ENTRIES
 
-VERSION = 2  # bump when scores change meaning: stored scores are recomputed at the next start
+VERSION = 3  # bump when scores change meaning: stored scores are recomputed at the next start
 
 STOPWORDS = set("""
 a about above across after again against all also am an and any are as at be because been before being below

@@ -3,6 +3,9 @@
 #
 # sections are printed in this order; kind is one of: summary, skills, experience, projects, education,
 #   certifications, other.
+# contact links: a plain address (linkedin.com/in/you shows as "LinkedIn", clickable) or
+#   - text: Portfolio
+#     url: https://example.com
 # experience entries: title, company, location, start, end, description, bullets
 # education entries:  degree, school, location, start, end, description, bullets
 # heading: when an entry has one, those lines are printed exactly as written instead of the fields above.

@@ -124,6 +124,32 @@ function row(tag, path, value, opts) {
 
 const list = (rows) => (rows ? `<ul>${rows}</ul>` : "");
 
+const SHORT_LINKS = { "linkedin.com": "LinkedIn", "github.com": "GitHub", "gitlab.com": "GitLab" };
+
+/** [label, url] of a contact link: "linkedin.com/in/jane" shows as LinkedIn; {text, url} shows its own text. */
+export function linkParts(link) {
+  const own = link && typeof link === "object";
+  let url = String(own ? link.url : link || "").trim();
+  const text = own ? String(link.text || "").trim() : "";
+  if (!url) return [text, null];
+  if (!/^(https?|mailto):/i.test(url)) url = `https://${url}`;
+  let label = text || url;
+  if (!text) {
+    const m = url.match(/^https?:\/\/(?:www\.)?([^/?#]+)(\/[^?#]*)?/i);
+    if (m && m[2] && m[2].replace(/\//g, "") && SHORT_LINKS[m[1].toLowerCase()]) label = SHORT_LINKS[m[1].toLowerCase()];
+  }
+  return [label, url];
+}
+
+function contactLine(c) {
+  const parts = [c.location, c.phone, c.email].filter(Boolean).map((t) => esc(t));
+  (c.links || []).forEach((l) => {
+    const [label, url] = linkParts(l);
+    if (label) parts.push(url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : esc(label));
+  });
+  return parts.join(" | ");
+}
+
 /**
  * res: resume data. opts.diff + opts.changes: show tailoring changes; opts.editable; opts.approved (keywords).
  * Each line carries data-row/data-path so live tailoring and undo can repaint one line at a time.
@@ -133,8 +159,8 @@ export function renderResume(root, res, opts = {}) {
   let h = res.name ? `<h1>${esc(res.name)}</h1>` : "";
   if (res.headline) h += `<p class="contact">${esc(res.headline)}</p>`;
   const c = res.contact || {};
-  const line = [c.location, c.phone, c.email, ...(c.links || [])].filter(Boolean).join(" | ");
-  if (line) h += `<p class="contact">${esc(line)}</p>`;
+  const line = contactLine(c);
+  if (line) h += `<p class="contact">${line}</p>`;
   (c.other || []).forEach((o) => { h += `<p class="contact">${esc(o)}</p>`; });
   (res.sections || []).forEach((s, si) => {
     const P = `sections.${si}`;
@@ -149,7 +175,7 @@ export function renderResume(root, res, opts = {}) {
       (s.entries || []).forEach((e, ei) => {
         const E = `${P}.entries.${ei}`;
         entryHeading(s.kind, e).forEach(([main, meta]) => {
-          body += `<p class="role"><b>${esc(main)}</b>${meta ? `${main ? " | " : ""}${esc(meta)}` : ""}</p>`;
+          body += `<p class="role">${esc(main)}${meta ? `${main ? " | " : ""}${esc(meta)}` : ""}</p>`;
         });
         body += row("p", `${E}.description`, e.description, opts);
         body += list((e.bullets || []).map((b, k) => row("li", `${E}.bullets.${k}`, b, opts)).join(""));
@@ -204,8 +230,8 @@ export function renderLetter(root, letter, res, opts = {}) {
   }
   let h = res?.name ? `<h1>${esc(res.name)}</h1>` : "";
   const c = res?.contact || {};
-  const line = [c.location, c.phone, c.email, ...(c.links || [])].filter(Boolean).join(" | ");
-  if (line) h += `<p class="contact">${esc(line)}</p>`;
+  const line = contactLine(c);
+  if (line) h += `<p class="contact">${line}</p>`;
   h += `<div class="letter"><p class="lt-date">${esc(longDate(letter.date))}</p>`;
   h += row("p", "greeting", letter.greeting, opts);
   (letter.paragraphs || []).forEach((p, i) => { h += row("p", `paragraphs.${i}`, p, opts); });

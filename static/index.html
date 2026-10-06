@@ -85,6 +85,15 @@
   <label class="check"><input type="checkbox" id="f-nosalary" checked> Include unlisted salary</label>
   <label class="check"><input type="checkbox" id="f-reqopt"> Must match an optional keyword</label>
   <label class="check"><input type="checkbox" id="f-hidden"> Show hidden</label>
+  <div class="filter" title="What the posting says about visa sponsorship, H-1B and H-4 EAD">
+    <span class="flabel">Sponsorship</span>
+    <select id="f-sponsor" class="small-input">
+      <option value="any">Any</option>
+      <option value="offered">Sponsors visas / H-1B</option>
+      <option value="h4ead">Accepts H-4 EAD</option>
+      <option value="not_denied">Not "no sponsorship"</option>
+    </select>
+  </div>
   <label class="check" title="Hide postings with a hard requirement you don't meet: visa sponsorship, citizenship, clearance or degree (Settings > Applicant profile)"><input type="checkbox" id="f-knockouts"> Hide ones I don't qualify for</label>
 </section>
 

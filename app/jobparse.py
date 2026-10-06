@@ -477,6 +477,38 @@ def knockouts_in(text: str):
     return out
 
 
+_SPONSOR_NO = KNOCKOUT_PATTERNS[0][1]
+_SPONSOR_YES = re.compile(
+    r"sponsorship\s+(is\s+|will\s+be\s+|may\s+be\s+)?(available|offered|provided|possible|considered)"
+    r"|(will|can|may|able to|happy to|willing to|open to|we)\s+(also\s+)?(provide\s+|offer\s+|consider\s+)?"
+    r"(visa\s+|immigration\s+|work\s+|employment\s+)?sponsor"
+    r"|we\s+(do\s+)?sponsor|sponsor(s|ing)?\s+(h-?1b|visas?|work\s+(visas?|authorization))"
+    r"|visa\s+(support|assistance)|immigration\s+(support|assistance)", re.I)
+_H1B = re.compile(r"\bh-?\s?1-?b\b", re.I)
+_H4EAD = re.compile(r"\bh-?\s?4\b|\bead\b|employment authorization document", re.I)
+_REFUSES = re.compile(r"\b(no|not|unable|cannot|can't|won't|don't|doesn't|unfortunately|without)\b", re.I)
+SPONSORSHIP_LABELS = {"sponsors": "sponsors visas", "h1b": "H-1B", "h4ead": "H-4 EAD ok", "no": "no sponsorship"}
+
+
+def sponsorship_in(text: str) -> list:
+    """What a posting says about work authorization, as tags: "sponsors" (offers visa sponsorship), "h1b" (names
+    H-1B as possible), "h4ead" (accepts H-4 EAD holders) and "no" (states it won't sponsor). A posting can carry
+    several ("no" and "h4ead": no sponsorship, but EAD holders are welcome). [] when it says nothing."""
+    tags = set()
+    for sentence in _sentences(text or ""):
+        if _SPONSOR_NO.search(sentence):
+            tags.add("no")
+            continue
+        refuses = _REFUSES.search(sentence)
+        if _SPONSOR_YES.search(sentence) and not refuses:
+            tags.add("sponsors")
+        if _H1B.search(sentence) and not refuses:
+            tags.add("h1b")
+        if _H4EAD.search(sentence) and not refuses:
+            tags.add("h4ead")
+    return [t for t in ("sponsors", "h1b", "h4ead", "no") if t in tags]
+
+
 # ---------------------------------------------------------------- seniority
 SENIORITY_LADDER = [  # checked top-down: "Senior Staff Engineer" is staff, "Associate Director" a director
     (7, r"\b(vp|svp|evp|vice president|chief|cto|cio|ciso|head of)\b"),

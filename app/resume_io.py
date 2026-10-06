@@ -238,18 +238,53 @@ def clean_resume(res: dict) -> dict:
     return out
 
 
+SHORT_LINK_NAMES = {"linkedin.com": "LinkedIn", "github.com": "GitHub", "gitlab.com": "GitLab"}
+
+
+def link_parts(link):
+    """(label, url) of one contact link. A link is a plain string ("linkedin.com/in/jane": shown as LinkedIn for the
+    sites in SHORT_LINK_NAMES, as written otherwise) or {text, url} (shown as `text`). url is None when there is none."""
+    if isinstance(link, dict):
+        url, text = str(link.get("url") or "").strip(), str(link.get("text") or "").strip()
+        label = text or url
+    else:
+        url = label = str(link or "").strip()
+    if not url:
+        return "", None
+    if not re.match(r"^(https?|mailto):", url, re.I):
+        url = f"https://{url}"
+    if not isinstance(link, dict) or not str(link.get("text") or "").strip():
+        m = re.match(r"^https?://(?:www\.)?([^/?#]+)(/[^?#]*)?", url, re.I)
+        if m and m.group(2) and m.group(2).strip("/") and m.group(1).lower() in SHORT_LINK_NAMES:
+            label = SHORT_LINK_NAMES[m.group(1).lower()]
+    return label, url
+
+
+def contact_parts(res: dict):
+    """The contact line as [(text, url or None)] pieces, in print order (links keep their address)."""
+    c = res.get("contact") or {}
+    parts = [(x, None) for x in (c.get("location"), c.get("phone"), c.get("email")) if x]
+    for link in c.get("links") or []:
+        label, url = link_parts(link)
+        if label:
+            parts.append((label, url))
+    return parts
+
+
 def layout(res: dict):
-    """Flat list of printable items: (kind, text[, rest]) with kind in name/contact/h2/p/bullet/role."""
+    """Flat list of printable items: (kind, text[, rest]) with kind in name/contact/h2/p/bullet/role.
+    The contact line is ("contact", text, [(piece, url or None)]) so HTML and DOCX can make its links clickable."""
     res = clean_resume(res or {})
     items = []
     if res.get("name"):
         items.append(("name", res["name"]))
     if res.get("headline"):
         items.append(("contact", res["headline"]))
+    parts = contact_parts(res)
     c = res.get("contact") or {}
-    line = " | ".join(x for x in [c.get("location"), c.get("phone"), c.get("email"), *(c.get("links") or [])] if x)
+    line = " | ".join(p for p, _ in parts)
     if line:
-        items.append(("contact", line))
+        items.append(("contact", line, parts))
     items += [("contact", o) for o in c.get("other") or []]
     for s in res.get("sections") or []:
         kind, body = s.get("kind"), []
@@ -289,6 +324,54 @@ def to_text(res: dict) -> str:
     return "\n".join(out).strip() + "\n"
 
 
+def contact_html(text: str, pieces=None) -> str:
+    """A contact line as HTML: each piece that has an address becomes a link (the link text is what shows)."""
+    if not pieces:
+        return html.escape(text)
+    return " | ".join(f'<a href="{html.escape(u, quote=True)}">{html.escape(p)}</a>' if u else html.escape(p)
+                      for p, u in pieces)
+
+
+def add_docx_link(paragraph, text: str, url: str):
+    """Append a clickable hyperlink run to a python-docx paragraph."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    rid = paragraph.part.relate_to(url, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+                                   is_external=True)
+    link = OxmlElement("w:hyperlink")
+    link.set(qn("r:id"), rid)
+    run = OxmlElement("w:r")
+    props = OxmlElement("w:rPr")
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), "0563C1")
+    underline = OxmlElement("w:u")
+    underline.set(qn("w:val"), "single")
+    props.append(color)
+    props.append(underline)
+    run.append(props)
+    t = OxmlElement("w:t")
+    t.text = text
+    t.set(qn("xml:space"), "preserve")
+    run.append(t)
+    link.append(run)
+    paragraph._p.append(link)
+
+
+def add_contact_docx(paragraph, text: str, pieces=None):
+    """Fill a paragraph with a contact line; pieces with an address are hyperlinks."""
+    if not pieces:
+        paragraph.add_run(text)
+        return
+    for i, (piece, url) in enumerate(pieces):
+        if i:
+            paragraph.add_run(" | ")
+        if url:
+            add_docx_link(paragraph, piece, url)
+        else:
+            paragraph.add_run(piece)
+
+
 def to_html(res: dict, title="Resume") -> str:
     parts = []
     for it in layout(res):
@@ -296,7 +379,7 @@ def to_html(res: dict, title="Resume") -> str:
         if kind == "name":
             parts.append(f"<h1>{text}</h1>")
         elif kind == "contact":
-            parts.append(f'<p class="contact">{text}</p>')
+            parts.append(f'<p class="contact">{contact_html(it[1], it[2] if len(it) > 2 else None)}</p>')
         elif kind == "h2":
             parts.append(f"<h2>{text}</h2>")
         elif kind == "bullet":
@@ -304,7 +387,7 @@ def to_html(res: dict, title="Resume") -> str:
             parts.append(f'<p class="bullet">• {text}</p>')
         elif kind == "role":
             rest = f" | {html.escape(it[2])}" if it[2] and it[1] else html.escape(it[2])
-            parts.append(f'<p class="role"><b>{text}</b>{rest}</p>')
+            parts.append(f'<p class="role">{text}{rest}</p>')
         else:
             parts.append(f"<p>{text}</p>")
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>{html.escape(title)}</title>
@@ -315,6 +398,7 @@ def to_html(res: dict, title="Resume") -> str:
  h1 {{ font-size: 18pt; margin: 0 0 2pt; text-align: center; }}
  .contact {{ text-align: center; margin: 0; font-size: 9.5pt; }}
  h2 {{ font-size: 11pt; letter-spacing: .04em; border-bottom: 1px solid #444; margin: 12pt 0 4pt; padding-bottom: 1pt; }}
+ a {{ color: inherit; }}
  p {{ margin: 0 0 3pt; }}
  p.role {{ margin-top: 6pt; }}
  p.bullet {{ padding-left: 12pt; text-indent: -9pt; margin: 0 0 2pt 4pt; }}
@@ -344,7 +428,9 @@ def to_docx(res: dict, path):
             r.bold = True
             r.font.size = Pt(16)
         elif kind == "contact":
-            doc.add_paragraph(text).alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            add_contact_docx(p, text, it[2] if len(it) > 2 else None)
         elif kind == "h2":
             p = doc.add_paragraph()
             p.paragraph_format.space_before = Pt(10)
@@ -356,7 +442,7 @@ def to_docx(res: dict, path):
         elif kind == "role":
             p = doc.add_paragraph()
             p.paragraph_format.space_before = Pt(4)
-            p.add_run(text).bold = True
+            p.add_run(text)  # only section headings are bold
             if it[2]:
                 p.add_run(f" | {it[2]}" if text else it[2])
         else:
@@ -408,7 +494,7 @@ def letter_layout(letter: dict, res: dict):
 
 def letter_text(letter: dict, res: dict) -> str:
     out, prev = [], None
-    for kind, text in letter_layout(letter, res):
+    for kind, text, *_ in letter_layout(letter, res):
         if prev and not (prev in ("name", "contact") and kind == "contact") and not (prev == "signoff"):
             out.append("")
         out.append(text)
@@ -418,12 +504,12 @@ def letter_text(letter: dict, res: dict) -> str:
 
 def letter_html(letter: dict, res: dict, title="Cover letter") -> str:
     parts = []
-    for kind, text in letter_layout(letter, res):
+    for kind, text, *rest in letter_layout(letter, res):
         t = html.escape(text)
         if kind == "name":
             parts.append(f"<h1>{t}</h1>")
         elif kind == "contact":
-            parts.append(f'<p class="contact">{t}</p>')
+            parts.append(f'<p class="contact">{contact_html(text, rest[0] if rest else None)}</p>')
         elif kind == "signoff":
             parts.append(f'<p class="signoff">{t}</p>')
         elif kind == "signature":
@@ -437,6 +523,7 @@ def letter_html(letter: dict, res: dict, title="Cover letter") -> str:
  h1 {{ font-size: 18pt; margin: 0 0 2pt; text-align: center; }}
  .contact {{ text-align: center; margin: 0; font-size: 9.5pt; }}
  .date {{ margin: 22pt 0 14pt; }}
+ a {{ color: inherit; }}
  p {{ margin: 0 0 10pt; }}
  .signoff {{ margin: 16pt 0 2pt; }}
 </style></head><body>{''.join(parts)}</body></html>"""
@@ -455,7 +542,7 @@ def letter_docx(letter: dict, res: dict, path):
     normal.font.name = "Calibri"
     normal.font.size = Pt(11)
     normal.paragraph_format.space_after = Pt(8)
-    for kind, text in letter_layout(letter, res):
+    for kind, text, *rest in letter_layout(letter, res):
         if kind == "name":
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -464,7 +551,8 @@ def letter_docx(letter: dict, res: dict, path):
             r.font.size = Pt(16)
             p.paragraph_format.space_after = Pt(0)
         elif kind == "contact":
-            p = doc.add_paragraph(text)
+            p = doc.add_paragraph()
+            add_contact_docx(p, text, rest[0] if rest else None)
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_after = Pt(0)
         elif kind == "date":

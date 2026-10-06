@@ -1,7 +1,8 @@
 // Injected into Workday application pages opened by Job Agent.
 // Fills standard fields from your profile, your work history and education from master_resume.yaml, voluntary
 // disclosures ("decline to answer" unless you changed it in Settings) and custom questions you answered before (from
-// the answer bank, outlined amber for you to check). It never overwrites something you typed, and it never clicks
+// the answer bank, outlined amber for you to check). It never overwrites something you typed, never refills a field
+// you have touched (so you can clear or retype what it filled), and it never clicks
 // Create Account, Sign In, Next or Submit, or ticks a consent or signature box. The one button it may click is
 // Workday's "Add" / "Add Another" in the Work Experience and Education sections, and only when Settings allows it.
 // (The Create Account / Sign In email + password come from your .env file and are typed by the Python side,
@@ -24,6 +25,8 @@
   let busy = false;
   let reportedApplied = false;
   const gaveUp = new WeakSet();
+  const touched = new WeakSet();     // fields you focused, typed in or clicked: left alone from then on, even if emptied
+  let scripted = 0;                  // until this time, focus events come from this script (the banner), not from you
   const bankFilled = new WeakMap();  // element -> the value filled from the answer bank
   const asked = new Map();           // question -> saved answer (or null)
   const used = new Set();            // answer ids already reported as used
@@ -240,7 +243,7 @@
   async function fillEntry(g, d, kind) {
     const F = (kind === "exp" ? C.exp : C.edu).f;
     for (const el of g.querySelectorAll('input, textarea, button[aria-haspopup="listbox"]')) {
-      if (el.disabled || el.readOnly) continue;
+      if (el.disabled || el.readOnly || touched.has(el)) continue;
       const desc = describe(el);
       if (el.type === "checkbox") {
         if (kind === "exp" && F.current.test(desc) && d.current && !el.checked && safeClick(el, "checkbox")) filled++;
@@ -297,7 +300,7 @@
 
   function fillTextFields(history) {
     for (const el of document.querySelectorAll(TEXT_SEL)) {
-      if (!visible(el) || el.disabled || el.readOnly || el.value || history.some((g) => g.contains(el))) continue;
+      if (!visible(el) || el.disabled || el.readOnly || el.value || touched.has(el) || history.some((g) => g.contains(el))) continue;
       const d = describe(el);
       if (/search/.test(d)) continue;
       for (const [key, re, not] of C.text) {
@@ -314,7 +317,7 @@
     let done = 0;
     for (const btn of document.querySelectorAll('button[aria-haspopup="listbox"]')) {
       if (done >= MAX_DROPDOWNS_PER_TICK) return;
-      if (!visible(btn) || gaveUp.has(btn) || history.some((g) => g.contains(btn))) continue;
+      if (!visible(btn) || gaveUp.has(btn) || touched.has(btn) || history.some((g) => g.contains(btn))) continue;
       if (!placeholder(norm(btn.innerText))) continue;
       const d = describe(btn);
       const disclosure = disclosureOf(d);
@@ -348,7 +351,7 @@
 
   function fillRadios(bank) {
     for (const radios of radioGroups()) {
-      if (radios.some((r) => r.checked)) continue;
+      if (radios.some((r) => r.checked || touched.has(r))) continue;
       const d = `${describe(radios[0])} | ${norm(groupLabel(radios[0]))}`;
       const disclosure = disclosureOf(d);
       let hit = null, m = null;
@@ -374,7 +377,7 @@
       (boxes.get(box) || boxes.set(box, []).get(box)).push(cb);
     }
     for (const [box, cbs] of boxes) {
-      if (cbs.some((c) => c.checked)) continue;
+      if (cbs.some((c) => c.checked || touched.has(c))) continue;
       const kind = disclosureOf(norm(`${groupLabel(cbs[0])} ${box.getAttribute("data-automation-id") || ""} ${headingOf(box)}`));
       if (!declines(kind)) continue;
       const hit = cbs.find((c) => C.decline.test(optionLabel(c)));
@@ -387,19 +390,19 @@
   function customQuestions(history) {
     const out = [];
     for (const el of document.querySelectorAll(TEXT_SEL)) {
-      if (!visible(el) || el.disabled || el.readOnly || el.value || history.some((g) => g.contains(el))) continue;
+      if (!visible(el) || el.disabled || el.readOnly || el.value || touched.has(el) || history.some((g) => g.contains(el))) continue;
       const d = describe(el);
       if (/search|password/.test(d) || isStandard(el, d)) continue;
       const q = labelOf(el);
       if (q.length >= 8) out.push({ el, q, type: "text" });
     }
     for (const btn of document.querySelectorAll('button[aria-haspopup="listbox"]')) {
-      if (!visible(btn) || !placeholder(norm(btn.innerText)) || history.some((g) => g.contains(btn)) || isStandard(btn)) continue;
+      if (!visible(btn) || touched.has(btn) || !placeholder(norm(btn.innerText)) || history.some((g) => g.contains(btn)) || isStandard(btn)) continue;
       const q = labelOf(btn);
       if (q.length >= 8) out.push({ el: btn, q, type: "listbox" });
     }
     for (const radios of radioGroups()) {
-      if (radios.some((r) => r.checked)) continue;
+      if (radios.some((r) => r.checked || touched.has(r))) continue;
       const q = groupLabel(radios[0]);
       if (q.length >= 8 && !isStandard(radios[0], `${describe(radios[0])} | ${norm(q)}`)) out.push({ el: radios[0], q, type: "radio" });
     }
@@ -420,7 +423,7 @@
   function fillTextFromBank(questions, bank) {
     for (const { el, q, type } of questions) {
       const m = bank.get(q);
-      if (type !== "text" || !m || el.value) continue;
+      if (type !== "text" || !m || el.value || touched.has(el)) continue;
       setNativeValue(el, m.answer);
       markFromBank(el, m, m.answer);
     }
@@ -471,6 +474,17 @@
       }, 400);
     }
   }
+  // Anything you focus, type in or click is yours from then on: autofill won't fill it again (not even when you
+  // empty it to retype). Script-made events (isTrusted false) and the banner's own focus() don't count.
+  function markTouched(e) {
+    if (!e.isTrusted || (e.type === "focusin" && Date.now() < scripted)) return;
+    const el = e.target;
+    if (!el || el.nodeType !== 1) return;
+    touched.add(el);
+    const btn = el.closest?.('button[aria-haspopup="listbox"]');
+    if (btn) touched.add(btn);
+  }
+  for (const type of ["focusin", "input", "keydown", "change", "click"]) document.addEventListener(type, markTouched, true);
   document.addEventListener("focusout", onUserInput, true);
   document.addEventListener("change", onUserInput, true);
   document.addEventListener("click", onUserClick, true);
@@ -529,7 +543,7 @@
       const list = node("div", "margin-top:6px");
       list.id = "__jobagent_missing";
       const done = node("button", "margin-top:8px;background:#22c55e;color:#04210f;border:0;border-radius:6px;padding:6px 10px;" +
-        "font-weight:600;cursor:pointer", "I submitted — mark as applied");
+        "font-weight:600;cursor:pointer", "I submitted â€” mark as applied");
       done.id = "__jobagent_done";
       done.onclick = () => markApplied("manual");
       b.append(node("div", "font-weight:600;margin-bottom:4px", "Job Agent autofill"), text, list, done);
@@ -545,11 +559,11 @@
     list.append(node("div", "font-weight:600;color:#fcd34d", `Still to fill on this page (${missing.length}):`));
     for (const m of missing.slice(0, 8)) {
       const item = node("button", "display:block;background:none;border:0;padding:1px 0;color:#bfdbfe;cursor:pointer;" +
-        "text-align:left;font:inherit;text-decoration:underline", `• ${m.label.slice(0, 70)}`);
-      item.onclick = () => { m.el.scrollIntoView({ block: "center" }); m.el.focus?.(); };
+        "text-align:left;font:inherit;text-decoration:underline", `â€¢ ${m.label.slice(0, 70)}`);
+      item.onclick = () => { scripted = Date.now() + 300; m.el.scrollIntoView({ block: "center" }); m.el.focus?.(); };
       list.append(item);
     }
-    if (missing.length > 8) list.append(node("div", "color:#cbd5e1", `…and ${missing.length - 8} more`));
+    if (missing.length > 8) list.append(node("div", "color:#cbd5e1", `â€¦and ${missing.length - 8} more`));
   }
 
   function markApplied(how) {
@@ -600,7 +614,7 @@
         const short = [["job", exp], ["school", edu]].filter(([, r]) => r.wanted > r.have);
         if (short.length && !setup.options?.add_entries) {
           notes.push(`Your resume has ${short.map(([w, r]) => `${r.wanted} ${w}${r.wanted > 1 ? "s" : ""}`).join(" and ")}; ` +
-            "click Add for each (or turn on Settings → Autofill → Add entries).");
+            "click Add for each (or turn on Settings â†’ Autofill â†’ Add entries).");
         }
         notes.push("Check every step, then click Submit yourself.");
         banner(notes.join(" "), missingRequired());

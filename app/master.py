@@ -76,6 +76,23 @@ def _list(v):
     return [x for x in (_s(i) for i in v) if x]
 
 
+def _links(v):
+    """Contact links: a plain string ("linkedin.com/in/jane") or {text: LinkedIn, url: https://...} for a link
+    with its own wording. A mapping without a url is just its text."""
+    if isinstance(v, (str, dict)):
+        v = [v]
+    out = []
+    for x in v or []:
+        if isinstance(x, dict):
+            url, text = _s(x.get("url")), _s(x.get("text"))
+            x = {"text": text, "url": url} if url and text else (url or text)
+        else:
+            x = _s(x)
+        if x:
+            out.append(x)
+    return out
+
+
 def tidy(s: str) -> str:
     """Remove separators left dangling after a piece of a heading was taken out."""
     s = re.sub(r"\(\s*\)", " ", s)
@@ -255,7 +272,7 @@ def normalize(data) -> dict:
     c = data.get("contact") if isinstance(data.get("contact"), dict) else {}
     out = {"name": _s(data.get("name")), "headline": _s(data.get("headline")),
            "contact": {"email": _s(c.get("email")), "phone": _s(c.get("phone")), "location": _s(c.get("location")),
-                       "links": _list(c.get("links")), "other": _list(c.get("other"))},
+                       "links": _links(c.get("links")), "other": _list(c.get("other"))},
            "sections": []}
     sections = data.get("sections") or []
     if not isinstance(sections, list):
@@ -318,6 +335,9 @@ HEADER = """\
 #
 # sections are printed in this order; kind is one of: summary, skills, experience, projects, education,
 #   certifications, other.
+# contact links: a plain address (linkedin.com/in/you shows as "LinkedIn", clickable) or
+#   - text: Portfolio
+#     url: https://example.com
 # experience entries: title, company, location, start, end, description, bullets
 # education entries:  degree, school, location, start, end, description, bullets
 # heading: when an entry has one, those lines are printed exactly as written instead of the fields above.

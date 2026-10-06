@@ -244,6 +244,23 @@ def test_my_information_fills_profile_and_lists_whats_left():
     assert not NEVER & set(st["clicks"])
 
 
+def test_a_field_you_clear_or_retype_is_not_filled_again():
+    async def edit(page):  # empty one filled field and retype another, then give autofill several more passes
+        await page.click("#city")
+        await page.keyboard.press("Control+A")
+        await page.keyboard.press("Delete")
+        await page.fill("#first", "Jo")
+        await page.click("h2")
+        await page.wait_for_timeout(4500)
+
+    st = run_page("my_information", _setup(),
+                  "() => document.getElementById('devtype').textContent === 'Mobile' && "
+                  "document.getElementById('__jobagent_missing')?.innerText.includes('Middle Name')", then=edit)
+    v = st["values"]
+    assert v["city"] == "" and v["first"] == "Jo"  # left as you edited them
+    assert v["last"] == "Avery" and v["zip"] == "78701"  # the fields you didn't touch were still filled
+
+
 def test_my_experience_adds_and_fills_entries_when_allowed():
     st = run_page("my_experience", _setup(autofill={"add_entries": True}),
                   "() => document.getElementById('edu1-to')?.value === '2016' && "

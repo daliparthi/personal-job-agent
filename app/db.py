@@ -136,6 +136,10 @@ MIGRATIONS = [
         last_used_at TEXT
     );
     """,
+    # 9: what a posting says about visa sponsorship / H-1B / H-4 EAD (comma-separated tags, e.g. "h1b,h4ead")
+    """
+    ALTER TABLE jobs ADD COLUMN sponsorship TEXT;
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -280,6 +284,7 @@ DEFAULT_SETTINGS = {
         "require_optional": False,
         "show_hidden": False,
         "hide_knockouts": False,  # hide postings with a hard requirement you don't meet (sponsorship, degree...)
+        "sponsorship": "any",     # any | offered (sponsors / H-1B) | h4ead | not_denied (drop "no sponsorship")
     },
     "profile": {
         "first_name": "", "last_name": "", "email": "", "phone": "", "phone_type": "Mobile",
@@ -376,7 +381,7 @@ JSON_COLS = ("locations_json", "states_json", "matched_json", "missing_json", "o
 LIST_COLS = ("id", "company", "company_key", "title", "url", "location", "locations_json", "states_json",
              "remote_type", "employment_type", "worker_sub_type", "time_type", "salary_min", "salary_max",
              "salary_text", "posted_date", "match_score", "hidden", "status", "folder", "optional_hits_json",
-             "first_seen", "knockouts_json", "feedback", "source")
+             "first_seen", "knockouts_json", "feedback", "source", "sponsorship")
 
 
 def _now():
@@ -466,7 +471,7 @@ PREPARING = ("tailored", "saved", "applying")  # statuses still being worked on 
 
 
 def jobs_for_list(types, show_hidden=False, remote_only=False, min_salary=0, include_no_salary=True,
-                  kw_sig=None, posted_since=None, hide_knockouts=False):
+                  kw_sig=None, posted_since=None, hide_knockouts=False, sponsorship="any"):
     """The job list's cheap filters, done in SQL. kw_sig: keep only jobs whose stored keyword check (for this
     keyword set) passed the mandatory keywords. posted_since: older postings are listed only while you are still
     preparing them (applied ones live on the pipeline board)."""
@@ -480,6 +485,13 @@ def jobs_for_list(types, show_hidden=False, remote_only=False, min_salary=0, inc
         where.append("remote_type = 'Remote'")
     if hide_knockouts:
         where.append("(knockouts_json IS NULL OR knockouts_json = '[]')")
+    tagged = "',' || COALESCE(sponsorship, '') || ','"
+    if sponsorship == "offered":
+        where.append(f"({tagged} LIKE '%,sponsors,%' OR {tagged} LIKE '%,h1b,%')")
+    elif sponsorship == "h4ead":
+        where.append(f"{tagged} LIKE '%,h4ead,%'")
+    elif sponsorship == "not_denied":
+        where.append(f"{tagged} NOT LIKE '%,no,%'")
     if not include_no_salary:
         where.append("salary_max IS NOT NULL")
     if min_salary:
@@ -512,6 +524,12 @@ def set_keyword_hits(kw_sig, hits):
     with conn() as c:
         c.executemany("UPDATE jobs SET kw_sig = ?, mandatory_ok = ?, optional_hits_json = ? WHERE id = ?",
                       [(kw_sig, int(ok), json.dumps(opt), job_id) for job_id, ok, opt in hits])
+
+
+def set_sponsorship(rows):
+    """rows: [(job_id, tags)] where tags is a list like ["h1b", "h4ead"]."""
+    with conn() as c:
+        c.executemany("UPDATE jobs SET sponsorship = ? WHERE id = ?", [(",".join(t), i) for i, t in rows])
 
 
 def set_scores(scores):

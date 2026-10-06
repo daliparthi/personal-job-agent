@@ -14,7 +14,8 @@ from . import alerts, candidate, db, pipeline, scoring, sources
 from .config import (COMPANIES_SHARED, COMPANY_CONCURRENCY, DETAIL_CONCURRENCY, MAX_PAGES_PER_QUERY,
                      MY_COMPANIES, OLD_COMPANIES_COPY, RETENTION_DAYS)
 from .jobparse import (classify_employment, classify_remote, contains_all, html_to_text, is_us_location,
-                       keywords_present, looks_non_us, parse_salary, posted_days_ago, split_keywords, states_in)
+                       keywords_present, looks_non_us, parse_salary, posted_days_ago, split_keywords, sponsorship_in,
+                       states_in)
 from .workday import WorkdayClient, find_job_type_facet, find_us_facet
 
 
@@ -520,7 +521,8 @@ class SearchRunner:
     async def _keep(self, job, ctx, known, pending):
         """Add the keyword check and the match score to a posting that passed the checks, and queue it for saving."""
         hay = f"{job['title']}\n{job['description_text']}"
-        job.update(kw_sig=ctx["kw_sig"], mandatory_ok=1, optional_hits_json=keywords_present(hay, ctx["optional"]))
+        job.update(kw_sig=ctx["kw_sig"], mandatory_ok=1, optional_hits_json=keywords_present(hay, ctx["optional"]),
+                   sponsorship=",".join(sponsorship_in(job["description_text"])))
         if ctx["resume_text"]:
             sc = await asyncio.to_thread(scoring.score, ctx["resume_text"], job["description_text"], job["title"],
                                          ctx["mandatory"] + ctx["optional"], job["company"], ctx["profile"])
@@ -547,14 +549,16 @@ def rescore_all():
     settings = db.get_settings()
     extra = split_keywords(settings["mandatory"]) + split_keywords(settings["optional"])
     prof = candidate.profile(resume["data"], settings["profile"]) if resume else None
-    scores = []
+    scores, sponsorship = [], []
     for j in db.all_jobs(with_text=True):
+        sponsorship.append((j["id"], sponsorship_in(j["description_text"] or "")))
         if resume:
             sc = scoring.score(resume["text"], j["description_text"] or "", j["title"], extra, j["company"], prof)
             scores.append((j["id"], sc["score"], sc["matched"], sc["missing"], blocking_knockouts(sc)))
         else:
             scores.append((j["id"], None, [], [], []))
     db.set_scores(scores)
+    db.set_sponsorship(sponsorship)
     return len(scores)
 
 
@@ -636,7 +640,7 @@ def list_jobs(settings):
                             min_salary=float(f.get("min_salary") or 0),
                             include_no_salary=f.get("include_no_salary", True) is not False,
                             kw_sig=keyword_hits_signature(mandatory, optional), posted_since=posted_since,
-                            hide_knockouts=bool(f.get("hide_knockouts")))
+                            hide_knockouts=bool(f.get("hide_knockouts")), sponsorship=f.get("sponsorship") or "any")
     aliases = {c["key"]: c["aliases"] for c in load_companies() if c["key"]} if employer else {}
     out = []
     for j in rows:
