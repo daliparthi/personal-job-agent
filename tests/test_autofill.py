@@ -246,8 +246,7 @@ def test_my_information_fills_profile_and_lists_whats_left():
 
 def test_a_field_you_clear_or_retype_is_not_filled_again():
     async def edit(page):  # empty one filled field and retype another, then give autofill several more passes
-        await page.click("#city")
-        await page.keyboard.press("Control+A")
+        await page.click("#city", click_count=3)  # selects the text on every platform (Ctrl+A is Cmd+A on macOS)
         await page.keyboard.press("Delete")
         await page.fill("#first", "Jo")
         await page.click("h2")
