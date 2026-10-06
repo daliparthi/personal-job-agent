@@ -77,6 +77,19 @@ def fresh_home():
     _release_db()
 
 
+@pytest.fixture(autouse=True)
+def no_google(request, monkeypatch):
+    """Tests never reach Google: a search finds no Workday sites there and uses the companies.yaml entries.
+    (tests/test_discovery.py opts out and serves its own recorded results.)"""
+    if request.module.__name__.endswith("test_discovery"):
+        return
+    from app import discovery
+
+    async def nothing(*args, **kwargs):
+        return []
+    monkeypatch.setattr(discovery, "find_workday_sites", nothing)
+
+
 @pytest.fixture
 def anon():
     """The local API without the start link's cookie."""

@@ -27,6 +27,11 @@ WORKDAY_PASSWORD=
 # e.g. https://nvidia.wd5.myworkdayjobs.com/... -> NVIDIA
 # NVIDIA_WORKDAY_EMAIL=
 # NVIDIA_WORKDAY_PASSWORD=
+
+# Optional: lets a search with mandatory keywords find Workday companies through Google (see the README,
+# "Finding Workday sites with Google"). Without them the Workday companies in companies.yaml are searched.
+# GOOGLE_API_KEY=
+# GOOGLE_CSE_ID=
 """
 
 PASSWORD_KEY_RE = re.compile(r"(?:[A-Z0-9_]+_)?WORKDAY_PASSWORD")
