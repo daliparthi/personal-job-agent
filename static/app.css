@@ -44,6 +44,7 @@ body {
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 code { font-family: var(--mono); font-size: .92em; }
+.sort-by { display: flex; align-items: center; gap: 6px; color: var(--ink-3); font-size: 12px; font-weight: 400; }
 .hint { color: var(--ink-3); font-weight: 400; font-size: 12px; }
 .empty { color: var(--ink-3); padding: 28px 16px; text-align: center; }
 .spacer { flex: 1; }

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import date, timedelta
 
 import httpx
 import pytest
@@ -218,3 +219,17 @@ def test_one_failing_company_does_not_stop_the_run(fake_site, monkeypatch):
     monkeypatch.setattr(search, "WorkdayClient", lambda: WorkdayClient(transport=httpx.MockTransport(broken)))
     st = _run()
     assert st["running"] is False and st["done"] == 1 and len(st["errors"]) == 1 and st["errors"][0].startswith("Acme")
+
+
+def test_list_jobs_sort_options():
+    day = lambda n: (date.today() - timedelta(days=n)).isoformat()  # noqa: E731
+    db.upsert_job(make_job("s:1", match_score=90, salary_max=100000.0, posted_date=day(2)))
+    db.upsert_job(make_job("s:2", match_score=50, salary_max=200000.0, posted_date=day(1)))
+    db.upsert_job(make_job("s:3", match_score=70, salary_max=None, salary_min=None, posted_date=day(1)))
+    ids = lambda sort: [j["id"] for j in search.list_jobs(_settings(filters={"sort": sort}))]  # noqa: E731
+    assert ids("match_salary") == ["s:1", "s:3", "s:2"]
+    assert ids("date_salary") == ["s:2", "s:3", "s:1"]
+    assert ids("date_match") == ["s:3", "s:2", "s:1"]
+    assert ids("salary_date") == ["s:2", "s:1", "s:3"]
+    assert ids("date_oldest") == ["s:1", "s:3", "s:2"]
+    assert ids("nonsense") == ids("match_salary")  # unknown values fall back to the default

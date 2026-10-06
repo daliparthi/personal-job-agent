@@ -374,6 +374,7 @@ DEFAULT_SETTINGS = {
         "show_hidden": False,
         "hide_knockouts": False,  # hide postings with a hard requirement you don't meet (sponsorship, degree...)
         "sponsorship": "any",     # any | offered (sponsors / H-1B) | h4ead | not_denied (drop "no sponsorship")
+        "sort": "match_salary",   # list order, see SORTS
     },
     "profile": {
         "first_name": "", "last_name": "", "email": "", "phone": "", "phone_type": "Mobile",
@@ -559,8 +560,23 @@ def all_jobs(with_text=False):
 PREPARING = ("tailored", "saved", "applying")  # statuses still being worked on before applying
 
 
+_MATCH = "COALESCE(match_score, -1) DESC"   # unscored last
+_SALARY = "COALESCE(salary_max, 0) DESC"    # unlisted last
+_DATE = "COALESCE(posted_date, '') DESC"    # newest first
+SORTS = {
+    "match_salary": (_MATCH, _SALARY),
+    "match_date": (_MATCH, _DATE),
+    "date_salary": (_DATE, _SALARY),
+    "date_match": (_DATE, _MATCH),
+    "salary_date": (_SALARY, _DATE),
+    "salary_match": (_SALARY, _MATCH),
+    "date_oldest": ("COALESCE(posted_date, '9999') ASC", _MATCH),
+}
+
+
 def jobs_for_list(types, show_hidden=False, remote_only=False, min_salary=0, include_no_salary=True,
-                  kw_sig=None, posted_since=None, hide_knockouts=False, sponsorship="any"):
+                  kw_sig=None, posted_since=None, hide_knockouts=False, sponsorship="any",
+                  sort="match_salary"):
     """The job list's cheap filters, done in SQL. kw_sig: keep only jobs whose stored keyword check (for this
     keyword set) passed the mandatory keywords. posted_since: older postings are listed only while you are still
     preparing them (applied ones live on the pipeline board)."""
@@ -589,9 +605,8 @@ def jobs_for_list(types, show_hidden=False, remote_only=False, min_salary=0, inc
     if kw_sig is not None:
         where.append("kw_sig = ? AND mandatory_ok = 1")
         params.append(kw_sig)
-    # Best match first (unscored last), then the highest salary.
-    sql = (f"SELECT {', '.join(LIST_COLS)} FROM jobs WHERE {' AND '.join(where)} "
-           "ORDER BY COALESCE(match_score, -1) DESC, COALESCE(salary_max, 0) DESC")
+    order = ", ".join(SORTS.get(sort) or SORTS["match_salary"])
+    sql = (f"SELECT {', '.join(LIST_COLS)} FROM jobs WHERE {' AND '.join(where)} ORDER BY {order}, id")
     return _list_rows(sql, params)
 
 

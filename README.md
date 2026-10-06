@@ -111,7 +111,7 @@ options: `--port 8800`, `--no-browser`.
 | Remote only | Tick **Remote only** (uses Workday's remote type, location names and posting text). |
 | Master resume as YAML | On upload the local model builds `master_resume.yaml` (see below). Tailoring always works on a copy; the master changes only when you upload again or edit it. |
 | Match score before tailoring | ATS-style score (0–100) of your **master** resume vs each posting. |
-| Sort | By match score (high → low), then salary (high → low). |
+| Sort | A *Sort* dropdown above the list: match then salary (default), match then newest, newest then salary, newest then match, salary then newest, salary then match, or oldest first. Your choice is remembered. |
 | Side-by-side view | Resume (Master / Tailored tabs) next to the job description, with keywords highlighted: green = already in your resume, red = missing. |
 | Tailor for one position | Only the selected posting. Runs Qwen2.5-0.5B locally and streams the edit **word by word** into the resume. |
 | Missing keywords | Before tailoring, a pop-up walks through each missing keyword with where the JD uses it — **Approve** (you really have it) or **Reject**. Only approved keywords can be added. |

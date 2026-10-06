@@ -23,6 +23,8 @@ class FiltersPatch(_Body):
     show_hidden: bool | None = None
     hide_knockouts: bool | None = None
     sponsorship: Literal["any", "offered", "h4ead", "not_denied"] | None = None
+    sort: Literal["match_salary", "match_date", "date_salary", "date_match", "salary_date", "salary_match",
+                  "date_oldest"] | None = None
 
 
 class AutofillPatch(_Body):

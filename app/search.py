@@ -644,7 +644,8 @@ def list_jobs(settings):
                             min_salary=float(f.get("min_salary") or 0),
                             include_no_salary=f.get("include_no_salary", True) is not False,
                             kw_sig=keyword_hits_signature(mandatory, optional), posted_since=posted_since,
-                            hide_knockouts=bool(f.get("hide_knockouts")), sponsorship=f.get("sponsorship") or "any")
+                            hide_knockouts=bool(f.get("hide_knockouts")), sponsorship=f.get("sponsorship") or "any",
+                            sort=f.get("sort") or "match_salary")
     aliases = {c["key"]: c["aliases"] for c in load_companies() if c["key"]} if employer else {}
     out = []
     for j in rows:
@@ -661,4 +662,4 @@ def list_jobs(settings):
         if city and city not in " ".join(j["locations"]).lower():
             continue
         out.append(j)
-    return out  # already sorted by the query: best match first, then salary
+    return out  # already sorted by the query, in the order chosen under Sort

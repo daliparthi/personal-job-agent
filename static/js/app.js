@@ -202,6 +202,7 @@ function renderFilters() {
   $("#f-hidden").checked = !!f.show_hidden;
   $("#f-knockouts").checked = !!f.hide_knockouts;
   $("#f-sponsor").value = f.sponsorship || "any";
+  $("#f-sort").value = f.sort || "match_salary";
   const on = new Set(f.types || []);
   $("#f-types").innerHTML = '<span class="flabel">Types</span>' + TYPES.map((t) =>
     `<button class="type-toggle t-${t}${on.has(t) ? "" : " off"}" data-type="${t}" aria-pressed="${on.has(t)}" title="Click to ${on.has(t) ? "omit" : "include"} ${t} roles">${t}</button>`).join("");
@@ -1027,6 +1028,7 @@ function bindEvents() {
   $("#f-hidden").onchange = () => saveFilter({ show_hidden: $("#f-hidden").checked });
   $("#f-knockouts").onchange = () => saveFilter({ hide_knockouts: $("#f-knockouts").checked });
   $("#f-sponsor").onchange = () => saveFilter({ sponsorship: $("#f-sponsor").value });
+  $("#f-sort").onchange = () => saveFilter({ sort: $("#f-sort").value });
   $("#jd-view").addEventListener("click", (e) => { const b = e.target.closest("[data-fb]"); if (b) setFeedback(Number(b.dataset.fb)); });
   $("#f-types").onclick = async (e) => {
     const b = e.target.closest("[data-type]");

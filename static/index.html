@@ -102,7 +102,17 @@
     <div class="pane-head">
       <strong id="list-count">0 positions</strong>
       <button type="button" class="linkish" id="list-new" hidden title="Show only postings found since you last opened Job Agent"></button>
-      <span class="hint">sorted by match, then salary</span>
+      <label class="sort-by">Sort
+        <select id="f-sort" class="small-input">
+          <option value="match_salary">Match, then salary</option>
+          <option value="match_date">Match, then newest</option>
+          <option value="date_salary">Newest, then salary</option>
+          <option value="date_match">Newest, then match</option>
+          <option value="salary_date">Salary, then newest</option>
+          <option value="salary_match">Salary, then match</option>
+          <option value="date_oldest">Oldest first</option>
+        </select>
+      </label>
     </div>
     <div class="job-list" id="job-list">
       <div class="empty">Upload your master resume, enter keywords, then run a job search.</div>
