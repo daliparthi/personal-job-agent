@@ -305,6 +305,95 @@ companies:
   - name: "Fox"
     url: https://fox.wd1.myworkdayjobs.com/Domestic
 
+  # --- More Workday sites (added 2026-10-06; each verified against the live Workday API)
+  - name: "Guidehouse"
+    url: https://guidehouse.wd1.myworkdayjobs.com/External
+  - name: "LucyRx"
+    url: https://lucyrx.wd503.myworkdayjobs.com/LucyRX
+  - name: "MUFG"
+    url: https://mufgub.wd3.myworkdayjobs.com/MUFG-Careers
+  - name: "Primoris"
+    url: https://prim.wd108.myworkdayjobs.com/Primoris
+  - name: "Prescryptive Health"
+    url: https://prescryptive.wd503.myworkdayjobs.com/prescryptive_health_external
+  - name: "WellSky"
+    url: https://wellsky.wd1.myworkdayjobs.com/WellSkyCareers
+  - name: "Dentsu"
+    url: https://dentsuaegis.wd3.myworkdayjobs.com/DAN_GLOBAL
+  - name: "Republic Services"
+    url: https://republic.wd5.myworkdayjobs.com/republic
+  - name: "Groundswell"
+    url: https://groundswell.wd12.myworkdayjobs.com/groundswell
+  - name: "FactSet"
+    url: https://factset.wd108.myworkdayjobs.com/FactSetCareers
+  - name: "iA American Warranty"
+    url: https://ia.wd3.myworkdayjobs.com/Professional_US
+  - name: "JLL"
+    url: https://jll.wd1.myworkdayjobs.com/jllcareers
+  - name: "nVent"
+    url: https://nvent.wd5.myworkdayjobs.com/nVent
+  - name: "Salt Lake City Corporation"
+    url: https://slcgov.wd1.myworkdayjobs.com/SLC
+  - name: "Robert Half"
+    url: https://roberthalf.wd1.myworkdayjobs.com/RobertHalfCareers
+  - name: "Flexera"
+    url: https://flexerasoftware.wd1.myworkdayjobs.com/FlexeraSoftware
+  - name: "SHI"
+    url: https://shi.wd12.myworkdayjobs.com/shicareers
+  - name: "Zebra Technologies"
+    url: https://zebra.wd501.myworkdayjobs.com/Zebra_careers
+  - name: "F5"
+    url: https://ffive.wd5.myworkdayjobs.com/f5jobs
+  - name: "Cambium Learning"
+    url: https://cambiumlearning.wd1.myworkdayjobs.com/camb
+  - name: "ICF"
+    url: https://icf.wd5.myworkdayjobs.com/ICFExternal_Career_Site
+  - name: "Washington University in St. Louis"
+    url: https://wustl.wd1.myworkdayjobs.com/External
+  - name: "Ryder"
+    url: https://ryder.wd5.myworkdayjobs.com/RyderCareers
+  - name: "University of Arizona Global Campus"
+    url: https://uagc.wd5.myworkdayjobs.com/UAGC
+  - name: "University of Rochester"
+    url: https://rochester.wd5.myworkdayjobs.com/ur_staff
+  - name: "WEX"
+    url: https://wexinc.wd5.myworkdayjobs.com/wexinc
+  - name: "Altera"
+    url: https://altera.wd1.myworkdayjobs.com/Altera
+  - name: "Graco"
+    url: https://graco.wd501.myworkdayjobs.com/Graco_Careers
+  - name: "MKS Instruments"
+    url: https://mksinst.wd1.myworkdayjobs.com/MKSCareersAmericas
+  - name: "Cox Enterprises"
+    url: https://cox.wd1.myworkdayjobs.com/cox_external_career_site_1
+  - name: "VST"
+    url: https://vst.wd5.myworkdayjobs.com/equest
+  - name: "Crane Company"
+    url: https://cranecompany.wd5.myworkdayjobs.com/Careers
+  - name: "ESS Companies"
+    url: https://emerysapp.wd501.myworkdayjobs.com/ESSC
+  - name: "IQVIA"
+    url: https://iqvia.wd1.myworkdayjobs.com/IQVIA
+  - name: "Evolent Health"
+    url: https://evolent.wd1.myworkdayjobs.com/External
+  - name: "Tokio Marine HCC"
+    url: https://tmhcc.wd108.myworkdayjobs.com/External
+  - name: "Volaris Group"
+    url: https://volarisgroup.wd3.myworkdayjobs.com/AssetWorks
+  - name: "Havas"
+    url: https://havas.wd3.myworkdayjobs.com/GroupExternalCareerSite
+  - name: "Brown & Brown"
+    url: https://bbinsurance.wd1.myworkdayjobs.com/BSGCareers
+  - name: "CareSource"
+    url: https://caresource.wd1.myworkdayjobs.com/CareSource
+  - name: "Aerospace Corporation"
+    url: https://aero.wd5.myworkdayjobs.com/External
+  - name: "CSI"
+    url: https://csiweb.wd1.myworkdayjobs.com/csi_careers
+  - name: "Huntington Bank"
+    url: https://huntington.wd12.myworkdayjobs.com/HNBcareers
+  - name: "Owens & Minor"
+    url: https://owensminor.wd1.myworkdayjobs.com/OMCareers
   # --- Other job boards (Greenhouse, Lever, Ashby, SmartRecruiters), filtered with the same keyword and US checks
   # AI
   - name: "OpenAI"
@@ -363,8 +452,8 @@ companies:
     url: https://jobs.ashbyhq.com/replit
   - name: "Twilio"
     url: https://job-boards.greenhouse.io/twilio
-  - name: "HubSpot"
-    url: https://job-boards.greenhouse.io/hubspotjobs
+  # - name: "HubSpot"   # Greenhouse board returns 404 (checked 2026-10-06)
+  #   url: https://job-boards.greenhouse.io/hubspotjobs
   - name: "Klaviyo"
     url: https://job-boards.greenhouse.io/klaviyo
   - name: "Samsara"
