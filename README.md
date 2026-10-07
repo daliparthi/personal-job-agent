@@ -196,8 +196,8 @@ the Pipeline) to check whether another 60/25/15 split would rank your good match
 A 0.5B model is small, so every line it writes is checked:
 
 * **Changes:** professional summary, up to *N* experience/project bullets (Settings → *Max bullets*, default 12),
-  ordering of skills (job-relevant first). Approved keywords are worked into the summary and the project bullets
-  (experience bullets only if the resume has no projects); there is no separate skills line for them.
+  ordering of skills (job-relevant first). The most important approved keywords (by weight in the posting) go into the summary and the rest into the
+  project bullets (experience bullets only if the resume has no projects); there is no separate skills line for them.
 * **Never changes:** name/contact, employers, titles, dates, education — and never `master_resume.yaml` itself.
 * **Applied (green):** the new wording, with new words highlighted and approved keywords underlined.
 * **Applied, check this (amber bar):** reworded heavily, dropped a skill the line had, added words that aren't in your

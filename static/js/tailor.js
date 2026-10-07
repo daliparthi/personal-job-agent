@@ -194,9 +194,11 @@ function pickBullets(res, jd, approvedInfo, maxBullets) {
 }
 
 function firstBulletPath(res) {
-  for (const [si, s] of res.sections.entries()) {
-    if (s.kind !== "projects" && s.kind !== "experience") continue;
-    for (const [ei, e] of s.entries.entries()) if (e.bullets.length) return `sections.${si}.entries.${ei}.bullets.0`;
+  for (const kind of ["projects", "experience"]) {
+    for (const [si, s] of res.sections.entries()) {
+      if (s.kind !== kind) continue;
+      for (const [ei, e] of s.entries.entries()) if (e.bullets.length) return `sections.${si}.entries.${ei}.bullets.0`;
+    }
   }
   return null;
 }
@@ -206,6 +208,8 @@ function firstBulletPath(res) {
  * ui.onRender(res, changes) repaints everything, ui.onBlock(path) repaints one line, ui.onStatus(text), ui.onTokens(stats).
  * Returns { res, changes, stats }; changes[path] = { orig, alt, state: "alt" | "orig", held?, warn? }.
  */
+const SUMMARY_KEYWORDS = 3;
+
 export async function tailorResume({ llm, master, job, analysis, approved, maxBullets = 12, signal, ui }) {
   const res = structuredClone(master);
   const changes = {};
@@ -215,8 +219,10 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
   const forbidden = missing.filter((m) => !approvedSet.has(m.keyword))
     .map((m) => ({ keyword: m.keyword, aliases: aliases[m.keyword] || [m.keyword] }));
   const approvedInfo = missing.filter((m) => approvedSet.has(m.keyword));
-  const summaryKw = approvedInfo.slice(0, 2).map((m) => m.keyword);
-  const bulletInfo = approvedInfo.slice(2);
+  // The summary gets the most important approved keywords (heaviest weight in the posting first); the rest go to bullets.
+  const byWeight = [...approvedInfo].sort((a, b) => (b.weight || 0) - (a.weight || 0) || (b.count || 0) - (a.count || 0));
+  const summaryKw = byWeight.slice(0, SUMMARY_KEYWORDS).map((m) => m.keyword);
+  const bulletInfo = byWeight.slice(SUMMARY_KEYWORDS);
   const jdTop = [...analysis.matched.slice(0, 8), ...approved].slice(0, 12);
   const stats = { rewritten: 0, flagged: 0, held: 0, tokens: 0, started: performance.now(), reasons: [] };
 
@@ -293,20 +299,27 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
     ], 90, "bullet", t.assigned);
   }
 
-  // An approved keyword the AI did not manage to place is added to the text directly, so none is left out.
-  const unplaced = approvedInfo.map((m) => m.keyword)
-    .filter((k) => !hasAny(aliases[k] || [k], JSON.stringify(res.sections.filter((s) => s.kind !== "skills"))));
-  if (unplaced.length && !signal.aborted) {
-    const list = unplaced.join(", ").replace(/, ([^,]*)$/, " and $1");
+  // An approved keyword the AI did not manage to place is added to the text directly, so none is left out:
+  // summary keywords to the summary, the others to a bullet (project bullets first).
+  const placed = () => JSON.stringify(res.sections.filter((s) => s.kind !== "skills"));
+  const unplaced = (kws) => kws.filter((k) => !hasAny(aliases[k] || [k], placed()));
+  const joinList = (kws) => kws.join(", ").replace(/, ([^,]*)$/, " and $1");
+  const append = (path, make) => {
+    const cur = getAt(res, path);
+    const next = make(cur);
+    changes[path] = { orig: changes[path]?.orig ?? cur, alt: next, state: "alt" };
+    setAt(res, path, next);
+    ui.onBlock(path);
+  };
+  if (!signal.aborted) {
     const sumIdx = res.sections.findIndex((s) => s.kind === "summary" && (s.text || "").length > 0);
-    const path = sumIdx >= 0 ? `sections.${sumIdx}.text` : targets[0]?.path || firstBulletPath(res);
-    if (path) {
-      const cur = getAt(res, path);
-      const next = sumIdx >= 0 ? `${cur.replace(/\s+$/, "")} Hands-on experience with ${list}.` : `${cur.replace(/[.\s]+$/, "")}, using ${list}.`;
-      changes[path] = { orig: changes[path]?.orig ?? cur, alt: next, state: "alt" };
-      setAt(res, path, next);
-      ui.onBlock(path);
+    const lateSummary = unplaced(summaryKw);
+    if (lateSummary.length && sumIdx >= 0) {
+      append(`sections.${sumIdx}.text`, (cur) => `${cur.replace(/s+$/, "")} Hands-on experience with ${joinList(lateSummary)}.`);
     }
+    const lateBullets = unplaced(bulletInfo.map((m) => m.keyword).concat(sumIdx >= 0 ? [] : summaryKw));
+    const path = lateBullets.length && firstBulletPath(res);
+    if (path) append(path, (cur) => `${cur.replace(/[.s]+$/, "")}, using ${joinList(lateBullets)}.`);
   }
 
   stats.seconds = (performance.now() - stats.started) / 1000;
