@@ -92,7 +92,11 @@ async def _api_page(http, query, page, key, cx) -> str:
         params["dateRestrict"] = f"{RECENCY}1"
     r = await http.get("https://www.googleapis.com/customsearch/v1", params=params)
     if r.status_code in (403, 429):
-        raise DiscoveryError(f"Google search API refused the request ({r.status_code}): quota used up or key invalid.")
+        try:
+            why = r.json()["error"]["message"]
+        except (ValueError, KeyError, TypeError):
+            why = r.text[:200]
+        raise DiscoveryError(f"Google search API refused the request ({r.status_code}): {why}")
     r.raise_for_status()
     return " ".join(i.get("link", "") for i in r.json().get("items", []))
 
