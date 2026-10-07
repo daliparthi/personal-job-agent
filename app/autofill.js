@@ -127,13 +127,21 @@
     return norm((l && l.innerText) || input.getAttribute("aria-label") || input.value);
   };
 
+  /** The profile rule for a choice question: decided by the question's own label when that names a rule, so text
+   *  around it (ids, a wrapper holding other questions) can't turn it into a different question. [re, value, not, key]. */
+  function ruleFor(label, d) {
+    const rules = choiceRules();
+    const pick = (text) => text && rules.find(([re, v, not]) => v && re.test(text) && !(not && not.test(text)));
+    return pick(norm(label)) || pick(d) || null;
+  }
+
   function choiceRules() {
     const values = {
       how_heard: profile.how_heard, phone_type: profile.phone_type, authorized_us: profile.authorized_us,
       needs_sponsorship: profile.needs_sponsorship, previously_employed: profile.previously_employed,
       state: STATE_NAMES[(profile.state || "").toUpperCase()] || profile.state, country: profile.country,
     };
-    return C.choices.map(([k, re, not]) => [re, values[k], not]);
+    return C.choices.map(([k, re, not]) => [re, values[k], not, k]);
   }
 
   const disclosureOf = (d) => (C.disclosures.find(([, re]) => re.test(d)) || [null])[0];
@@ -307,7 +315,21 @@
   /** Workday's "Type to Add Skills" box: type each skill of the tailored resume, press Enter and pick the suggestion
    *  that is that skill (never a different one). A few per pass; a skill Workday doesn't list is skipped. */
   const skillsTried = new Set();
-  const MAX_SKILLS = 30, SKILLS_PER_TICK = 3;
+  const MAX_SKILLS = 30, SKILLS_PER_TICK = 6;
+  /** The suggestion that is this skill: exact, else one that starts with it ("Python (Programming Language)"), else one
+   *  that has it as a whole word ("Apache Spark"); the shortest of those. null when nothing names the skill. */
+  function bestSkillOption(opts, skill) {
+    const s = norm(skill);
+    const escaped = s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const whole = new RegExp(`(^|[^a-z0-9+#])${escaped}($|[^a-z0-9+#])`);
+    const text = (o) => norm(o.innerText);
+    const plain = (o) => text(o).replace(/\s*\([^)]*\)\s*/g, " ").trim();
+    const shortest = (list) => list.sort((a, b) => text(a).length - text(b).length)[0] || null;
+    return opts.find((o) => text(o) === s) || opts.find((o) => plain(o) === s)
+      || shortest(opts.filter((o) => text(o).startsWith(s) && whole.test(text(o))))
+      || shortest(opts.filter((o) => whole.test(text(o))));
+  }
+
   async function fillSkills() {
     const skills = ((setup.history || {}).skills || []).slice(0, MAX_SKILLS);
     const todo = skills.filter((s) => !skillsTried.has(norm(s)));
@@ -325,10 +347,9 @@
         input.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
       }
       let hit = null;
-      for (let i = 0; i < 12 && !hit; i++) {
-        await sleep(150);
-        const opts = [...document.querySelectorAll(C.skillOption)].filter(visible);
-        hit = opts.find((o) => norm(o.innerText) === norm(skill));
+      for (let i = 0; i < 24 && !hit; i++) {  // Workday's search can take a few seconds
+        await sleep(200);
+        hit = bestSkillOption([...document.querySelectorAll(C.skillOption)].filter(visible), skill);
       }
       if (hit && safeClick(hit, "option")) filled++;
       else setNativeValue(input, "");
@@ -367,8 +388,8 @@
       let wanted = null;
       if (disclosure) wanted = disclosureWanted(disclosure);
       else {
-        const rule = choiceRules().find(([re, v, not]) => v && re.test(d) && !(not && not.test(d)));
-        if (rule) wanted = rule[1];
+        const rule = ruleFor(labelOf(btn), d);
+        if (rule) { wanted = rule[1]; btn.title = `Job Agent used your "${rule[3]}" setting (${rule[1]}) for this question.`; }
         else {
           const m = bank.get(labelOf(btn));
           if (m) wanted = [m.answer];
@@ -402,7 +423,7 @@
         const wanted = disclosureWanted(disclosure);
         if (wanted) hit = radios.find((r) => wanted.test(optionLabel(r)));
       } else {
-        const rule = choiceRules().find(([re, v, not]) => v && re.test(d) && !(not && not.test(d)));
+        const rule = ruleFor(groupLabel(radios[0]), d);
         if (rule) {
           const want = norm(rule[1]);
           hit = radios.find((r) => optionLabel(r) === want) || radios.find((r) => optionLabel(r).startsWith(`${want} `));

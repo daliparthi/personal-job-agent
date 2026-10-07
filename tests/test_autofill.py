@@ -399,8 +399,10 @@ def test_skills_are_typed_in_and_picked_from_workdays_suggestions():
     setup = formfill.page_setup(PROFILE, settings(), MASTER, JOB, resume={"sections": [{"kind": "skills", "groups": [
         {"name": "Tools", "items": ["Python", "Spark", "COBOL", "SQL"]}]}]})
     st = run_page("my_experience", setup,
-                  "() => document.querySelectorAll('[data-automation-id=selectedItem]').length === 2", timeout=40)
-    assert st["chips"] == ["Python", "SQL"]  # "Spark" has two suggestions, neither exactly it; COBOL has none
+                  "() => document.querySelectorAll('[data-automation-id=selectedItem]').length === 3", timeout=40)
+    # "Python" is listed as "Python (Programming Language)"; "Spark" has two suggestions (the one starting with it wins);
+    # COBOL has none, so nothing is picked
+    assert st["chips"] == ["Python (Programming Language)", "Spark Streaming", "SQL"]
     assert st["values"]["skills"] == ""  # nothing is left typed in the box
     assert not db.answers_all()
 
