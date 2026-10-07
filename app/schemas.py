@@ -63,6 +63,7 @@ class SettingsPatch(_Body):
     """Only the fields you send change; filters, profile, autofill and disclosures are merged into what is stored."""
     mandatory: str | None = None
     optional: str | None = None
+    omit: str | None = None
     current_employer: str | None = None
     disabled_companies: list[str] | None = None
     filters: FiltersPatch | None = None
@@ -163,6 +164,7 @@ class SavedSearchIn(_Body):
     name: str = Field(..., min_length=1, max_length=80)
     mandatory: str = Field("", max_length=500)
     optional: str = Field("", max_length=500)
+    omit: str = Field("", max_length=500)
     every_hours: int | None = Field(None, ge=1, le=168)        # None: only when you click Run
     notify_min_score: int | None = Field(None, ge=0, le=100)   # None: no alerts
     enabled: bool = True
@@ -178,6 +180,7 @@ class SavedSearchPatch(_Body):
     name: str | None = Field(None, min_length=1, max_length=80)
     mandatory: str | None = Field(None, max_length=500)
     optional: str | None = Field(None, max_length=500)
+    omit: str | None = Field(None, max_length=500)
     every_hours: int | None = Field(None, ge=1, le=168)
     notify_min_score: int | None = Field(None, ge=0, le=100)
     enabled: bool | None = None

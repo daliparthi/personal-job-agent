@@ -110,6 +110,19 @@ def test_keyword_checks_are_stored_and_reused():
     assert search.refresh_keyword_hits([], ["excel"]) == 2  # new keywords: every job re-checked once
 
 
+def test_omit_words_leave_out_postings_and_can_be_blank():
+    db.upsert_jobs([make_job("a:1", description_text="Python and SQL"),
+                    make_job("a:2", description_text="Python, active security clearance required")])
+    s = db.get_settings()
+    s["mandatory"], s["optional"] = "python", ""
+    assert sorted(j["id"] for j in search.list_jobs(s)) == ["a:1", "a:2"]  # blank omit: nothing is left out
+    s["omit"] = "clearance, Senior"
+    assert [j["id"] for j in search.list_jobs(s)] == ["a:1"]
+    s["omit"] = ""
+    assert sorted(j["id"] for j in search.list_jobs(s)) == ["a:1", "a:2"]  # removing the word brings it back
+    assert search.keyword_hits_signature(["python"], []) == search.keyword_hits_signature(["python"], [], [])
+
+
 def test_list_jobs_is_fast_with_thousands_of_postings():
     jobs = [make_job(f"bulk:{i}", match_score=i % 100, description_text=("Python SQL Spark AWS " * 200),
                      employment_type="Full-time" if i % 3 else "Contract") for i in range(5000)]

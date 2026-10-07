@@ -145,6 +145,10 @@ MIGRATIONS = [
     """
     DELETE FROM settings WHERE key = 'keep_new_days' AND value = '7';
     """,
+    # 11: omit words: a posting containing any of them is left out (saved searches keep their own list)
+    """
+    ALTER TABLE saved_searches ADD COLUMN omit TEXT NOT NULL DEFAULT '';
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -372,6 +376,7 @@ def enforce_size_limit(max_bytes: int | None = None) -> int:
 DEFAULT_SETTINGS = {
     "mandatory": "",
     "optional": "",
+    "omit": "",
     "current_employer": "",
     "disabled_companies": [],
     "filters": {
@@ -636,7 +641,7 @@ def jobs_needing_keywords(kw_sig):
 
 
 def set_keyword_hits(kw_sig, hits):
-    """hits: [(job_id, mandatory_ok, optional_hits)]"""
+    """hits: [(job_id, mandatory_ok, optional_hits)]; mandatory_ok is also False for a posting with an omit word."""
     with conn() as c:
         c.executemany("UPDATE jobs SET kw_sig = ?, mandatory_ok = ?, optional_hits_json = ? WHERE id = ?",
                       [(kw_sig, int(ok), json.dumps(opt), job_id) for job_id, ok, opt in hits])
@@ -747,7 +752,7 @@ def set_checked(job_id, at, closed=False):
 
 
 # ---------- saved searches, run history, alerts ----------
-SEARCH_FIELDS = ("name", "mandatory", "optional", "every_hours", "notify_min_score", "enabled")
+SEARCH_FIELDS = ("name", "mandatory", "optional", "omit", "every_hours", "notify_min_score", "enabled")
 
 
 def saved_searches():

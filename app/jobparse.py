@@ -242,6 +242,10 @@ def contains_all(text: str, keywords) -> bool:
     return all(kw_pattern(k).search(text) for k in keywords)
 
 
+def contains_any(text: str, keywords) -> bool:
+    return any(kw_pattern(k).search(text) for k in keywords)
+
+
 def keywords_present(text: str, keywords):
     return [k for k in keywords if kw_pattern(k).search(text)]
 

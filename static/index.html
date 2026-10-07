@@ -47,6 +47,10 @@
     <label for="optional">Optional keywords <span class="hint">refine and highlight · can be blank</span></label>
     <input id="optional" placeholder="e.g. spark, airflow, snowflake" autocomplete="off">
   </div>
+  <div class="field grow">
+    <label for="omit">Omit words <span class="hint">leave out postings containing any · can be blank</span></label>
+    <input id="omit" placeholder="e.g. clearance, security clearance, senior" autocomplete="off">
+  </div>
   <div class="run">
     <label class="check" title="Ignore the incremental cursor and re-pull the full last 5 days">
       <input type="checkbox" id="full-refresh"> Full refresh
@@ -119,6 +123,11 @@
     </div>
   </section>
 
+  <div class="splitter" id="split-list" role="separator" aria-orientation="vertical" aria-label="Resize the positions list"
+    tabindex="0" title="Drag to resize · double-click to collapse or expand">
+    <button type="button" class="split-toggle" aria-label="Collapse the positions list"></button>
+  </div>
+
   <section class="pane resume-pane" aria-label="Resume">
     <div class="pane-head">
       <div class="tabs" role="tablist">
@@ -143,6 +152,11 @@
       <div class="empty">No master resume yet. Use <b>Upload master resume</b> (DOCX, PDF or TXT).</div>
     </article></div>
   </section>
+
+  <div class="splitter" id="split-jd" role="separator" aria-orientation="vertical" aria-label="Resize the job description"
+    tabindex="0" title="Drag to resize · double-click to collapse or expand">
+    <button type="button" class="split-toggle" aria-label="Collapse the job description"></button>
+  </div>
 
   <section class="pane jd-pane" aria-label="Job description">
     <div class="pane-head"><strong>Job description</strong><a id="jd-link" target="_blank" rel="noopener" hidden>Open posting ↗</a></div>
@@ -302,6 +316,7 @@
     <label>Name<input name="name" maxlength="80" required placeholder="e.g. Data engineering, Austin"></label>
     <label>Mandatory keywords<input name="mandatory" maxlength="500" placeholder="every one must appear"></label>
     <label>Optional keywords<input name="optional" maxlength="500" placeholder="refine and highlight"></label>
+    <label>Omit words<input name="omit" maxlength="500" placeholder="leave out postings containing any (can be blank)"></label>
     <div class="grid2">
       <label>Run on its own
         <select name="every_hours">

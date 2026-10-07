@@ -31,6 +31,8 @@ def test_keyword_signature():
     assert sig(["Python", "sql"], []) == sig(["SQL", "python"], ["anything"])  # optional ignored with mandatory
     assert sig([], ["spark"]) != sig(["spark"], [])
     assert len(sig([], [])) == 12
+    assert sig(["python"], [], []) == sig(["python"], [])           # no omit words: the same search as before
+    assert sig(["python"], [], ["senior"]) != sig(["python"], [])   # omit words change which postings are kept
 
 
 # ---------------------------------------------------------------- company lists

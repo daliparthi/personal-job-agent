@@ -5,6 +5,7 @@ import { tailorResume } from "./tailor.js";
 import { draftLetter } from "./coverletter.js";
 import { initPipeline, openPipeline } from "./pipeline.js";
 import { initSearches, selectedSearch, syncPicker } from "./searches.js";
+import { initPanes } from "./panes.js";
 
 // ---------------------------------------------------------------- helpers
 const $ = (s, r = document) => r.querySelector(s);
@@ -87,7 +88,7 @@ function watchRescore() {
   tick();
 }
 const saveKeywords = debounce(async () => {
-  await saveSettings({ mandatory: $("#mandatory").value, optional: $("#optional").value });
+  await saveSettings({ mandatory: $("#mandatory").value, optional: $("#optional").value, omit: $("#omit").value });
   syncPicker(); // typed keywords may now match a saved search, or no longer do
 }, 700);
 const saveFilter = (patch) => saveSettings({ filters: { ...S.settings.filters, ...patch } });
@@ -140,11 +141,12 @@ async function loadModel() {
 function fillSearchInputs() {
   $("#mandatory").value = S.settings.mandatory || "";
   $("#optional").value = S.settings.optional || "";
+  $("#omit").value = S.settings.omit || "";
 }
 
 /** Run the keywords in the boxes; when they are a saved search's, the run is recorded under it. */
 async function runSearch(searchId) {
-  await saveSettings({ mandatory: $("#mandatory").value, optional: $("#optional").value });
+  await saveSettings({ mandatory: $("#mandatory").value, optional: $("#optional").value, omit: $("#omit").value });
   if (!S.settings.mandatory.trim() && !S.settings.optional.trim()) return toast("Enter at least one keyword first.");
   syncPicker();
   const search_id = typeof searchId === "number" ? searchId : selectedSearch()?.id ?? null;
@@ -1019,7 +1021,8 @@ function bindEvents() {
   $("#btn-log").onclick = () => { $("#log").hidden = !$("#log").hidden; };
   $("#mandatory").addEventListener("input", saveKeywords);
   $("#optional").addEventListener("input", saveKeywords);
-  [$("#mandatory"), $("#optional")].forEach((el) => el.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); }));
+  $("#omit").addEventListener("input", saveKeywords);
+  [$("#mandatory"), $("#optional"), $("#omit")].forEach((el) => el.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); }));
   $("#btn-load-model").onclick = loadModel;
 
   $("#resume-file").onchange = (e) => {
@@ -1166,14 +1169,16 @@ async function init() {
   updateChips();
   renderResumePane();
   bindEvents();
+  initPanes();
   try { S.lastVisit = (await api("/api/visit", { method: "POST" })).previous; } catch { /* no "new" badges */ }
   await initSearches({
     api, toast,
-    getKeywords: () => ({ mandatory: $("#mandatory").value, optional: $("#optional").value }),
-    setKeywords: async (mandatory, optional) => {
+    getKeywords: () => ({ mandatory: $("#mandatory").value, optional: $("#optional").value, omit: $("#omit").value }),
+    setKeywords: async (mandatory, optional, omit = "") => {
       $("#mandatory").value = mandatory;
       $("#optional").value = optional;
-      await saveSettings({ mandatory, optional });
+      $("#omit").value = omit;
+      await saveSettings({ mandatory, optional, omit });
     },
     runSearch: (id) => runSearch(id),
     selectJob: (id) => selectJob(id),

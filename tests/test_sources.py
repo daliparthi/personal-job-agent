@@ -202,6 +202,12 @@ def test_select_applies_the_window_location_and_keywords():
     assert sources.select([sr], 7, ["python"], []) == [sr]
 
 
+def test_select_leaves_out_postings_with_an_omit_word():
+    board = [greenhouse.posting(j) for j in load("greenhouse_jobs.json")["jobs"]]
+    assert [p["ref"] for p in sources.select(board, 7, ["python"], [], omit=["dbt"])] == ["101"]  # 103 mentions dbt
+    assert [p["ref"] for p in sources.select(board, 7, ["python"], [], omit=[])] == ["101", "103"]
+
+
 def test_to_job_matches_the_workday_row():
     s = site("https://job-boards.greenhouse.io/globex")
     job = sources.to_job(s, "Globex", greenhouse.posting(load("greenhouse_jobs.json")["jobs"][0]))

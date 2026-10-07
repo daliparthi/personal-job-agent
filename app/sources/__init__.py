@@ -20,7 +20,8 @@ import re
 from datetime import date
 
 from ..jobparse import (CITY_STATE, NON_US_COUNTRIES, US_STATES, classify_employment, classify_remote,
-                        contains_all, html_to_text, is_us_location, keywords_present, parse_salary, states_in)
+                        contains_all, contains_any, html_to_text, is_us_location, keywords_present, parse_salary,
+                       states_in)
 from ..workday import Site
 from ..workday import parse_site as parse_workday
 from . import ashby, greenhouse, lever, smartrecruiters
@@ -112,10 +113,10 @@ def text_of(p) -> str:
     return p["text"]
 
 
-def select(postings, window: int, mandatory, optional, today=None):
+def select(postings, window: int, mandatory, optional, today=None, omit=()):
     """The postings a Workday keyword search would have returned: posted within `window` days, open in the US,
     and (when the board sent the description) containing every mandatory keyword, or any optional one when there
-    are no mandatory keywords. Boards that search (SmartRecruiters) are checked for keywords after detail()."""
+    are no mandatory keywords, and without any omit word. Boards that search (SmartRecruiters) are checked for keywords after detail()."""
     today = today or date.today()
     out = []
     for p in postings:
@@ -125,6 +126,8 @@ def select(postings, window: int, mandatory, optional, today=None):
             continue
         if p.get("html") is not None:
             hay = f"{p['title']}\n{text_of(p)}"
+            if omit and contains_any(hay, omit):
+                continue
             if mandatory and not contains_all(hay, mandatory):
                 continue
             if not mandatory and optional and not keywords_present(hay, optional):

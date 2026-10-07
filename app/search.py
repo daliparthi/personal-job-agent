@@ -13,7 +13,7 @@ import yaml
 from . import alerts, candidate, db, pipeline, scoring, sources
 from .config import (COMPANIES_SHARED, COMPANY_CONCURRENCY, DETAIL_CONCURRENCY, MAX_PAGES_PER_QUERY,
                      MY_COMPANIES, OLD_COMPANIES_COPY, RETENTION_DAYS)
-from .jobparse import (classify_employment, classify_remote, contains_all, html_to_text, is_us_location,
+from .jobparse import (classify_employment, classify_remote, contains_all, contains_any, html_to_text, is_us_location,
                        keywords_present, looks_non_us, parse_salary, posted_days_ago, split_keywords, sponsorship_in,
                        states_in)
 from .workday import WorkdayClient, find_job_type_facet, find_us_facet
@@ -136,8 +136,10 @@ def is_current_employer(company_name: str, site_key: str, employer: str, aliases
     return e == tenant
 
 
-def keyword_signature(mandatory, optional):
+def keyword_signature(mandatory, optional, omit=()):
     basis = sorted(k.lower() for k in mandatory) or ["opt:" + k.lower() for k in sorted(optional)]
+    # Omit words change which postings are kept, so a new list starts a fresh pull (an empty list changes nothing).
+    basis += ["omit:" + k.lower() for k in sorted(omit)]
     return hashlib.sha1("|".join(basis).encode()).hexdigest()[:12]
 
 
@@ -198,6 +200,7 @@ class SearchRunner:
             source = self.spec or settings
             mandatory = split_keywords(source["mandatory"])
             optional = split_keywords(source["optional"])
+            omit = split_keywords(source.get("omit"))
             if self.spec:
                 self.log(f"Saved search \"{self.spec['name']}\"")
             if not mandatory and not optional:
@@ -208,8 +211,9 @@ class SearchRunner:
             if purged:
                 self.log(f"Purged {purged} untouched postings older than {keep_days} days")
             resume = await asyncio.to_thread(db.get_resume)
-            ctx = {"mandatory": mandatory, "optional": optional, "full_refresh": full_refresh, "keep_days": keep_days,
-                   "sig": keyword_signature(mandatory, optional), "kw_sig": keyword_hits_signature(mandatory, optional),
+            ctx = {"mandatory": mandatory, "optional": optional, "omit": omit, "full_refresh": full_refresh,
+                   "keep_days": keep_days, "sig": keyword_signature(mandatory, optional, omit),
+                   "kw_sig": keyword_hits_signature(mandatory, optional, omit),
                    "resume_text": resume["text"] if resume else "",
                    "profile": candidate.profile_for(resume, settings)}
             disabled = set(settings.get("disabled_companies") or [])
@@ -334,7 +338,7 @@ class SearchRunner:
             if self.stop_requested:
                 break
         picked = await asyncio.to_thread(sources.select, list(listed.values()), window, ctx["mandatory"],
-                                         ctx["optional"])
+                                         ctx["optional"], omit=ctx["omit"])
         todo, seen = [], set()
         for p in picked:
             job_id = f"{site.key}:{p['ref']}"
@@ -365,7 +369,8 @@ class SearchRunner:
                     return
             p = {**p, **{k: v for k, v in d.items() if v is not None}}
         job = await asyncio.to_thread(sources.to_job, site, company, p)
-        if ctx["mandatory"] and not contains_all(f"{job['title']}\n{job['description_text']}", ctx["mandatory"]):
+        hay = f"{job['title']}\n{job['description_text']}"
+        if (ctx["mandatory"] and not contains_all(hay, ctx["mandatory"])) or contains_any(hay, ctx["omit"]):
             self.state["rejected"] += 1
             return
         await self._keep(job, ctx, known, pending)
@@ -488,7 +493,8 @@ class SearchRunner:
         alpha2 = (req_loc.get("country") or {}).get("alpha2Code", "")
         us_ok = alpha2 == "US" or "united states" in country.lower() or any(is_us_location(l) for l in locations[1:])
         mandatory = ctx["mandatory"]
-        if not us_ok or (mandatory and not contains_all(f"{title}\n{text}", mandatory)):
+        if (not us_ok or (mandatory and not contains_all(f"{title}\n{text}", mandatory))
+                or contains_any(f"{title}\n{text}", ctx["omit"])):
             self.state["rejected"] += 1
             return
 
@@ -609,20 +615,22 @@ class Rescorer:
 rescorer = Rescorer()
 
 
-def keyword_hits_signature(mandatory, optional) -> str:
-    """Identifies the keyword set a job's stored mandatory/optional check was made for."""
-    return hashlib.sha1(json.dumps([mandatory, optional]).encode()).hexdigest()[:16]
+def keyword_hits_signature(mandatory, optional, omit=()) -> str:
+    """Identifies the keyword set a job's stored mandatory/optional/omit check was made for."""
+    basis = [mandatory, optional, list(omit)] if omit else [mandatory, optional]  # no omit words: the old signature
+    return hashlib.sha1(json.dumps(basis).encode()).hexdigest()[:16]
 
 
-def refresh_keyword_hits(mandatory, optional) -> int:
+def refresh_keyword_hits(mandatory, optional, omit=()) -> int:
     """Re-check the keywords only for jobs stored under a different keyword set. Returns how many were updated."""
-    sig = keyword_hits_signature(mandatory, optional)
+    sig = keyword_hits_signature(mandatory, optional, omit)
     rows = db.jobs_needing_keywords(sig)
     if rows:
         hits = []
         for r in rows:
             hay = f"{r['title']}\n{r['description_text'] or ''}"
-            hits.append((r["id"], contains_all(hay, mandatory), keywords_present(hay, optional)))
+            ok = contains_all(hay, mandatory) and not contains_any(hay, omit)
+            hits.append((r["id"], ok, keywords_present(hay, optional)))
         db.set_keyword_hits(sig, hits)
     return len(rows)
 
@@ -631,19 +639,20 @@ def list_jobs(settings):
     f = settings["filters"]
     mandatory = split_keywords(settings["mandatory"])
     optional = split_keywords(settings["optional"])
+    omit = split_keywords(settings.get("omit"))
     employer = settings.get("current_employer")
     wanted_types = list(f.get("types") or [])
     if not wanted_types:
         return []
     wanted_states = set(f.get("states") or [])
     city = (f.get("city") or "").strip().lower()
-    refresh_keyword_hits(mandatory, optional)
+    refresh_keyword_hits(mandatory, optional, omit)
     # Postings from the keep window, plus older ones you are still preparing; applied ones live on the pipeline board.
     posted_since = (date.today() - timedelta(days=settings.get("keep_new_days") or RETENTION_DAYS)).isoformat()
     rows = db.jobs_for_list(wanted_types, show_hidden=bool(f.get("show_hidden")), remote_only=bool(f.get("remote_only")),
                             min_salary=float(f.get("min_salary") or 0),
                             include_no_salary=f.get("include_no_salary", True) is not False,
-                            kw_sig=keyword_hits_signature(mandatory, optional), posted_since=posted_since,
+                            kw_sig=keyword_hits_signature(mandatory, optional, omit), posted_since=posted_since,
                             hide_knockouts=bool(f.get("hide_knockouts")), sponsorship=f.get("sponsorship") or "any",
                             sort=f.get("sort") or "match_salary")
     aliases = {c["key"]: c["aliases"] for c in load_companies() if c["key"]} if employer else {}
