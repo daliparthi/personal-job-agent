@@ -196,7 +196,8 @@ the Pipeline) to check whether another 60/25/15 split would rank your good match
 A 0.5B model is small, so every line it writes is checked:
 
 * **Changes:** professional summary, up to *N* experience/project bullets (Settings → *Max bullets*, default 12),
-  ordering of skills (job-relevant first), plus an `Additional:` skills line with approved keywords not used elsewhere.
+  ordering of skills (job-relevant first). Approved keywords are worked into the summary and the project bullets
+  (experience bullets only if the resume has no projects); there is no separate skills line for them.
 * **Never changes:** name/contact, employers, titles, dates, education — and never `master_resume.yaml` itself.
 * **Applied (green):** the new wording, with new words highlighted and approved keywords underlined.
 * **Applied, check this (amber bar):** reworded heavily, dropped a skill the line had, added words that aren't in your
@@ -204,8 +205,7 @@ A 0.5B model is small, so every line it writes is checked:
 * **Held back (dashed bar):** the AI line added a fact you didn't approve — a new number, a tool or company name your
   resume doesn't mention, or a keyword you rejected. Your original stays; hover → **Use AI version** if it is true.
 * **Dropped:** garbled output (repeating the instructions, repeating itself, copying the prompt's example) is discarded.
-* **Undo / Redo:** hover any changed line; the control appears at the end of the line. Removed lines (such as an undone
-  `Additional:` line) stay visible struck through so you can redo them. Click any line to edit it yourself — your edit
+* **Undo / Redo:** hover any changed line; the control appears at the end of the line. Removed lines stay visible struck through so you can redo them. Click any line to edit it yourself — your edit
   can be undone too. Everything is saved and re-scored as you go.
 
 ## Cover letters and short answers

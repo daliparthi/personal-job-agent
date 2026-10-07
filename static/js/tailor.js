@@ -3,7 +3,7 @@
 // What changes:                        what never changes:
 //  - professional summary                - name, contact, employers, titles, dates, education
 //  - selected bullets                    - master_resume.yaml itself (this works on a copy)
-//  - skills order + approved keywords
+//  - skills order; approved keywords are worked into the summary and project bullets
 //
 // Every AI line is checked. A line that adds facts you did not approve (a new number, a keyword you rejected or
 // did not approve) is held back: your original stays, and "Use AI version" at the end of the line puts it in.
@@ -144,47 +144,44 @@ export function validate(original, out, { forbidden, kind, allowed = [], extraCo
   return { hard: null, soft };
 }
 
-/** Reorder each skills line so the job's keywords come first; add approved keywords that appear nowhere yet. */
-function tailorSkills(res, changes, jdKeywords, approved, aliases, resumeText) {
-  let si = res.sections.findIndex((s) => s.kind === "skills");
+/** Reorder each skills line so the job's keywords come first. Approved keywords are worked into the summary and
+ *  project bullets instead (see tailorResume), never listed as a separate skills line. */
+function orderSkills(res, changes, jdKeywords, aliases) {
+  const si = res.sections.findIndex((s) => s.kind === "skills");
+  if (si < 0) return;
   const isJd = (item) => jdKeywords.some((k) => hasAny(aliases[k] || [k], item));
-  if (si >= 0) {
-    res.sections[si].groups.forEach((g, gi) => {
-      if (!g || g.items.length < 2) return;
-      const items = [...g.items.filter(isJd), ...g.items.filter((i) => !isJd(i))];
-      if (items.join("\n") === g.items.join("\n")) return;
-      const next = { ...g, items };
-      changes[`sections.${si}.groups.${gi}`] = { orig: g, alt: next, state: "alt" };
-      res.sections[si].groups[gi] = next;
-    });
-  }
-  const toAdd = approved.filter((k) => !hasAny(aliases[k] || [k], resumeText));
-  if (!toAdd.length) return [];
-  if (si < 0) {
-    si = res.sections.findIndex((s) => s.kind === "summary") + 1;
-    res.sections.splice(si, 0, { title: "Skills", kind: "skills", groups: [], lines: [] });
-  }
-  const group = { name: "Additional", items: toAdd };
-  const gi = res.sections[si].groups.push(group) - 1;
-  changes[`sections.${si}.groups.${gi}`] = { orig: null, alt: group, state: "alt" };
-  return toAdd;
+  res.sections[si].groups.forEach((g, gi) => {
+    if (!g || g.items.length < 2) return;
+    const items = [...g.items.filter(isJd), ...g.items.filter((i) => !isJd(i))];
+    if (items.join("\n") === g.items.join("\n")) return;
+    const next = { ...g, items };
+    changes[`sections.${si}.groups.${gi}`] = { orig: g, alt: next, state: "alt" };
+    res.sections[si].groups[gi] = next;
+  });
 }
 
 const roleOf = (kind, e) => (kind === "experience" ? [e.title, e.company].filter(Boolean).join(" at ") : e.name || "");
 
 function pickBullets(res, jd, approvedInfo, maxBullets) {
   const bullets = [];
+  const isProject = new Set();
   res.sections.forEach((s, si) => {
     if (s.kind === "summary") (s.bullets || []).forEach((b, k) => bullets.push({ path: `sections.${si}.bullets.${k}`, text: b, role: "" }));
     if (s.kind !== "experience" && s.kind !== "projects") return;
-    s.entries.forEach((e, ei) => e.bullets.forEach((b, k) => bullets.push({ path: `sections.${si}.entries.${ei}.bullets.${k}`, text: b, role: roleOf(s.kind, e) })));
+    s.entries.forEach((e, ei) => e.bullets.forEach((b, k) => {
+      const path = `sections.${si}.entries.${ei}.bullets.${k}`;
+      if (s.kind === "projects") isProject.add(path);
+      bullets.push({ path, text: b, role: roleOf(s.kind, e) });
+    }));
   });
   bullets.forEach((x, i) => { x.order = i; x.assigned = []; x.rel = jd.matched.filter((k) => hasAny(jd.aliases[k] || [k], x.text)).length; });
   // Give each approved keyword to the bullet whose wording is closest to where the JD uses it.
+  // Project bullets come first; other bullets only when the resume has no project bullets.
+  const pool = bullets.some((x) => isProject.has(x.path)) ? bullets.filter((x) => isProject.has(x.path)) : bullets;
   for (const kw of approvedInfo) {
     const ctx = new Set(contentWords(`${kw.context} ${kw.keyword}`));
     let best = null, bestScore = -1;
-    for (const x of bullets) {
+    for (const x of pool) {
       if (x.assigned.length >= 2) continue;
       const sc = contentWords(x.text).filter((w) => ctx.has(w)).length * 2 + x.rel;
       if (sc > bestScore) { best = x; bestScore = sc; }
@@ -194,6 +191,14 @@ function pickBullets(res, jd, approvedInfo, maxBullets) {
   const chosen = bullets.filter((x) => x.assigned.length);
   const rest = bullets.filter((x) => !x.assigned.length && x.rel > 0).sort((a, b) => b.rel - a.rel);
   return [...chosen, ...rest].slice(0, Math.max(maxBullets, chosen.length)).sort((a, b) => a.order - b.order);
+}
+
+function firstBulletPath(res) {
+  for (const [si, s] of res.sections.entries()) {
+    if (s.kind !== "projects" && s.kind !== "experience") continue;
+    for (const [ei, e] of s.entries.entries()) if (e.bullets.length) return `sections.${si}.entries.${ei}.bullets.0`;
+  }
+  return null;
 }
 
 /**
@@ -210,12 +215,13 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
   const forbidden = missing.filter((m) => !approvedSet.has(m.keyword))
     .map((m) => ({ keyword: m.keyword, aliases: aliases[m.keyword] || [m.keyword] }));
   const approvedInfo = missing.filter((m) => approvedSet.has(m.keyword));
+  const summaryKw = approvedInfo.slice(0, 2).map((m) => m.keyword);
+  const bulletInfo = approvedInfo.slice(2);
   const jdTop = [...analysis.matched.slice(0, 8), ...approved].slice(0, 12);
-  const masterText = JSON.stringify(master);
   const stats = { rewritten: 0, flagged: 0, held: 0, tokens: 0, started: performance.now(), reasons: [] };
 
   ui.onStatus("Ordering skills for this job…");
-  const added = tailorSkills(res, changes, analysis.matched, approved, aliases, masterText);
+  orderSkills(res, changes, analysis.matched, aliases);
   ui.onRender(res, changes);
 
   async function rewrite(path, messages, maxTokens, kind, allowed = [], extraContext = "") {
@@ -272,11 +278,11 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
     await rewrite(`sections.${si}.text`, [
       { role: "system", content: SUMMARY_SYSTEM },
       ...SUMMARY_EXAMPLES,
-      { role: "user", content: `Target job: ${job.title} at ${job.company}\nJob keywords to emphasize: ${jdTop.join(", ") || "(none)"}\nMust include: ${approved.slice(0, 4).join(", ") || "(none)"}\nCandidate's roles: ${roles || "(not listed)"}\nCandidate's skills: ${skills}\nOriginal summary: ${res.sections[si].text}\nTailored summary:` },
-    ], 170, "summary", approved.slice(0, 4), `${skills} ${roles} ${job.title}`);
+      { role: "user", content: `Target job: ${job.title} at ${job.company}\nJob keywords to emphasize: ${jdTop.join(", ") || "(none)"}\nMust include: ${summaryKw.join(", ") || "(none)"}\nCandidate's roles: ${roles || "(not listed)"}\nCandidate's skills: ${skills}\nOriginal summary: ${res.sections[si].text}\nTailored summary:` },
+    ], 170, "summary", summaryKw, `${skills} ${roles} ${job.title}`);
   }
 
-  const targets = pickBullets(res, analysis, approvedInfo, maxBullets);
+  const targets = pickBullets(res, analysis, bulletInfo, maxBullets);
   for (let i = 0; i < targets.length && !signal.aborted; i++) {
     const t = targets[i];
     ui.onStatus(`Rewriting bullet ${i + 1} of ${targets.length}…`);
@@ -287,7 +293,22 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
     ], 90, "bullet", t.assigned);
   }
 
+  // An approved keyword the AI did not manage to place is added to the text directly, so none is left out.
+  const unplaced = approvedInfo.map((m) => m.keyword)
+    .filter((k) => !hasAny(aliases[k] || [k], JSON.stringify(res.sections.filter((s) => s.kind !== "skills"))));
+  if (unplaced.length && !signal.aborted) {
+    const list = unplaced.join(", ").replace(/, ([^,]*)$/, " and $1");
+    const sumIdx = res.sections.findIndex((s) => s.kind === "summary" && (s.text || "").length > 0);
+    const path = sumIdx >= 0 ? `sections.${sumIdx}.text` : targets[0]?.path || firstBulletPath(res);
+    if (path) {
+      const cur = getAt(res, path);
+      const next = sumIdx >= 0 ? `${cur.replace(/\s+$/, "")} Hands-on experience with ${list}.` : `${cur.replace(/[.\s]+$/, "")}, using ${list}.`;
+      changes[path] = { orig: changes[path]?.orig ?? cur, alt: next, state: "alt" };
+      setAt(res, path, next);
+      ui.onBlock(path);
+    }
+  }
+
   stats.seconds = (performance.now() - stats.started) / 1000;
-  stats.addedToSkills = added;
   return { res, changes, stats };
 }
