@@ -886,6 +886,7 @@ async function openSettings() {
   form.upload_format.value = s.upload_format || "docx";
   form.max_bullets.value = s.max_bullets ?? 12;
   form.keep_new_days.value = s.keep_new_days ?? 5;
+  form.max_db_mb.value = s.max_db_mb ?? 50;
   form.ghost_after_days.value = s.ghost_after_days ?? 21;
   $("#profile-fields").innerHTML = PROFILE_FIELDS.map(([k, label, opts]) => {
     const v = s.profile[k] ?? "";
@@ -899,16 +900,27 @@ async function openSettings() {
   form.af_add_entries.checked = !!af.add_entries;
   form.af_answers.checked = af.answers !== false;
   form.af_capture.checked = af.capture !== false;
-  $("#disclosure-fields").innerHTML = DISCLOSURES.map(([k, label]) => `<label>${esc(label)}<select name="d_${k}">`
-    + `<option value="decline"${(s.disclosures || {})[k] !== "skip" ? " selected" : ""}>Decline to answer</option>`
-    + `<option value="skip"${(s.disclosures || {})[k] === "skip" ? " selected" : ""}>Leave for me</option></select></label>`).join("");
+  $("#disclosure-fields").innerHTML = DISCLOSURES.map(([k, label, answers]) => {
+    const have = (s.disclosures || {})[k] || "decline";
+    const opts = [["decline", "Decline to answer"], ["skip", "Leave for me"], ...answers];
+    return `<label>${esc(label)}<select name="d_${k}">`
+      + opts.map(([v, text]) => `<option value="${v}"${v === have ? " selected" : ""}>${esc(text)}</option>`).join("") + "</select></label>";
+  }).join("");
   api("/api/answers").then((list) => { $("#answers-count").textContent = `${list.length} saved answer${list.length === 1 ? "" : "s"}`; });
   await renderCompanies();
   $("#settings-dialog").showModal();
 }
 
 // ---------------------------------------------------------------- answer bank
-const DISCLOSURES = [["gender", "Gender"], ["ethnicity", "Ethnicity / race"], ["veteran", "Veteran status"], ["disability", "Disability"]];
+// [key, label, [[answer, text]...]]; the answer keys are the ones autofill_rules.json ("disclosure_options") knows.
+const DISCLOSURES = [
+  ["gender", "Gender", [["male", "Male"], ["female", "Female"]]],
+  ["ethnicity", "Ethnicity / race", [["asian", "Asian"], ["white", "White"], ["black", "Black or African American"],
+    ["hispanic", "Hispanic or Latino"], ["native", "American Indian or Alaska Native"],
+    ["pacific", "Native Hawaiian or Pacific Islander"], ["two_or_more", "Two or more races"]]],
+  ["veteran", "Veteran status", [["not_veteran", "I am not a protected veteran"], ["veteran", "I am a protected veteran"]]],
+  ["disability", "Disability", [["yes", "Yes, I have a disability"], ["no", "No, I don't have a disability"]]],
+];
 
 async function openAnswers() {
   await renderAnswers();
@@ -975,7 +987,8 @@ async function saveSettingsDialog() {
   await saveSettings({
     current_employer: form.current_employer.value.trim(), engine: form.engine.value,
     upload_format: form.upload_format.value, max_bullets: Number(form.max_bullets.value || 12),
-    keep_new_days: Number(form.keep_new_days.value || 5), ghost_after_days: Number(form.ghost_after_days.value || 21),
+    keep_new_days: Number(form.keep_new_days.value || 5), max_db_mb: Number(form.max_db_mb.value || 50),
+    ghost_after_days: Number(form.ghost_after_days.value || 21),
     profile, disabled_companies: disabled,
     autofill: { experience: form.af_experience.checked, add_entries: form.af_add_entries.checked,
                 answers: form.af_answers.checked, capture: form.af_capture.checked },

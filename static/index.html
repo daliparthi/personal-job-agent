@@ -224,8 +224,10 @@
           <select name="upload_format"><option value="docx">DOCX (best for Workday parsing)</option><option value="pdf">PDF</option></select>
         </label>
         <label>Max bullets rewritten per job<input name="max_bullets" type="number" min="0" max="40"></label>
-        <label>Keep untouched postings for (days) <span class="hint">jobs you worked on are kept forever</span>
+        <label>Keep untouched postings for (days) <span class="hint">searches look back this far · jobs you worked on are kept forever</span>
           <input name="keep_new_days" type="number" min="1" max="365"></label>
+        <label>Database size limit (MB) <span class="hint">when full, the oldest untouched postings go first: a longer window needs more room</span>
+          <input name="max_db_mb" type="number" min="10" max="5000"></label>
         <label>Suggest "Ghosted" after (days without news)<input name="ghost_after_days" type="number" min="3" max="365"></label>
       </div>
     </fieldset>
@@ -242,7 +244,7 @@
         <label class="check"><input type="checkbox" name="af_capture"> Remember my answers to custom questions</label>
       </div>
       <div class="grid3" id="disclosure-fields"></div>
-      <p class="hint">Voluntary disclosures are never stored: on <b>Decline</b> the apply window picks the “I don't wish to answer” option, on <b>Leave for me</b> it doesn't touch the question.</p>
+      <p class="hint">Voluntary disclosures: <b>Decline</b> picks the “I don't wish to answer” option, <b>Leave for me</b> doesn't touch the question, and an answer (Male, Asian, …) is picked when the form offers it. Your choice is kept only in this computer's settings, never in the answer bank.</p>
       <div class="path-row"><button type="button" class="btn small" id="btn-answers">Answer bank…</button> <span class="hint" id="answers-count"></span></div>
     </fieldset>
     <fieldset>

@@ -50,7 +50,10 @@
       exp: { section: rx(r.experience.section), entry: rx(r.experience.entry), f: fields(r.experience.fields) },
       edu: { section: rx(r.education.section), entry: rx(r.education.entry), f: fields(r.education.fields) },
       add: rx(r.add_button), never: rx(r.never_click), decline: rx(r.decline),
+      skills: rx(r.skills_field || "\\bskills?\\b"), skillOption: r.skill_option || '[role="option"]',
       disclosures: Object.entries(r.disclosures || {}).map(([k, p]) => [k, rx(p)]),
+      disclosureOptions: Object.fromEntries(Object.entries(r.disclosure_options || {})
+        .map(([kind, opts]) => [kind, Object.fromEntries(Object.entries(opts).map(([k, p]) => [k, rx(p)]))])),
     };
   }
 
@@ -134,12 +137,20 @@
   }
 
   const disclosureOf = (d) => (C.disclosures.find(([, re]) => re.test(d)) || [null])[0];
-  const declines = (kind) => !!kind && (setup.disclosures || {})[kind] !== "skip";
+  /** The option to pick for a disclosure question (a RegExp), or null to leave it to you: Settings says "Leave for me",
+   *  or the answer you chose (say "Male") is not one of the rules' options. Anything but a chosen answer declines. */
+  function disclosureWanted(kind) {
+    const choice = kind && (setup.disclosures || {})[kind];
+    if (!kind || choice === "skip") return null;
+    if (!choice || choice === "decline") return C.decline;
+    return (C.disclosureOptions[kind] || {})[choice] || null;
+  }
 
   /** Fields the rules fill from the profile, history or disclosure settings (everything else is a custom question). */
   function isStandard(el, d = describe(el)) {
     if (C.text.some(([, re, not]) => re.test(d) && !(not && not.test(d)))) return true;
     if (C.choices.some(([, re, not]) => re.test(d) && !(not && not.test(d)))) return true;
+    if (el.tagName === "INPUT" && C.skills.test(d)) return true;
     return !!disclosureOf(d);
   }
 
@@ -293,6 +304,38 @@
     return { wanted: sections.length ? items.length : 0, have: entries.length };
   }
 
+  /** Workday's "Type to Add Skills" box: type each skill of the tailored resume, press Enter and pick the suggestion
+   *  that is that skill (never a different one). A few per pass; a skill Workday doesn't list is skipped. */
+  const skillsTried = new Set();
+  const MAX_SKILLS = 30, SKILLS_PER_TICK = 3;
+  async function fillSkills() {
+    const skills = ((setup.history || {}).skills || []).slice(0, MAX_SKILLS);
+    const todo = skills.filter((s) => !skillsTried.has(norm(s)));
+    if (!todo.length) return;
+    const input = [...document.querySelectorAll(TEXT_SEL)]
+      .find((el) => el.tagName === "INPUT" && visible(el) && !el.disabled && !el.readOnly && !touched.has(el) && C.skills.test(describe(el)));
+    if (!input) return;
+    const section = input.closest('[data-automation-id*="kills"], [role="group"], fieldset') || input.parentElement;
+    for (const skill of todo.slice(0, SKILLS_PER_TICK)) {
+      skillsTried.add(norm(skill));
+      const chips = [...section.querySelectorAll('[data-automation-id="selectedItem"], [data-automation-id="selectedItemList"] li')];
+      if (chips.some((c) => norm(c.innerText) === norm(skill))) continue;  // already added
+      setNativeValue(input, skill);
+      for (const type of ["keydown", "keypress", "keyup"]) {
+        input.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+      }
+      let hit = null;
+      for (let i = 0; i < 12 && !hit; i++) {
+        await sleep(150);
+        const opts = [...document.querySelectorAll(C.skillOption)].filter(visible);
+        hit = opts.find((o) => norm(o.innerText) === norm(skill));
+      }
+      if (hit && safeClick(hit, "option")) filled++;
+      else setNativeValue(input, "");
+      await sleep(200);
+    }
+  }
+
   const inHistory = (el) => groupsMatching(C.exp.entry).concat(groupsMatching(C.edu.entry)).some((g) => g.contains(el));
 
   // ---------------------------------------------------------------- profile fields, dropdowns, radios, checkboxes
@@ -322,7 +365,7 @@
       const d = describe(btn);
       const disclosure = disclosureOf(d);
       let wanted = null;
-      if (disclosure) wanted = declines(disclosure) ? C.decline : null;
+      if (disclosure) wanted = disclosureWanted(disclosure);
       else {
         const rule = choiceRules().find(([re, v, not]) => v && re.test(d) && !(not && not.test(d)));
         if (rule) wanted = rule[1];
@@ -356,10 +399,14 @@
       const disclosure = disclosureOf(d);
       let hit = null, m = null;
       if (disclosure) {
-        if (declines(disclosure)) hit = radios.find((r) => C.decline.test(optionLabel(r)));
+        const wanted = disclosureWanted(disclosure);
+        if (wanted) hit = radios.find((r) => wanted.test(optionLabel(r)));
       } else {
         const rule = choiceRules().find(([re, v, not]) => v && re.test(d) && !(not && not.test(d)));
-        if (rule) hit = radios.find((r) => optionLabel(r) === norm(rule[1]));
+        if (rule) {
+          const want = norm(rule[1]);
+          hit = radios.find((r) => optionLabel(r) === want) || radios.find((r) => optionLabel(r).startsWith(`${want} `));
+        }
         else if ((m = bank.get(groupLabel(radios[0])))) hit = radios.find((r) => optionLabel(r) === norm(m.answer));
       }
       if (hit && safeClick(hit, "radio")) {
@@ -379,8 +426,9 @@
     for (const [box, cbs] of boxes) {
       if (cbs.some((c) => c.checked || touched.has(c))) continue;
       const kind = disclosureOf(norm(`${groupLabel(cbs[0])} ${box.getAttribute("data-automation-id") || ""} ${headingOf(box)}`));
-      if (!declines(kind)) continue;
-      const hit = cbs.find((c) => C.decline.test(optionLabel(c)));
+      const wanted = disclosureWanted(kind);
+      if (!wanted) continue;
+      const hit = cbs.find((c) => wanted.test(optionLabel(c)));
       if (hit && safeClick(hit, "checkbox")) filled++;
     }
   }
@@ -602,6 +650,7 @@
       const edu = await fillHistory("edu");
       const history = groupsMatching(C.exp.entry).concat(groupsMatching(C.edu.entry));
       fillTextFields(history);
+      await fillSkills();
       const questions = customQuestions(history);
       const bank = questions.length ? await bankAnswers(questions) : new Map();
       fillTextFromBank(questions, bank);

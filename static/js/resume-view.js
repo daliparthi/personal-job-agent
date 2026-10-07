@@ -105,10 +105,14 @@ function row(tag, path, value, opts) {
   const text = textOf(value);
   if (!text && !rec) return "";
   const ce = opts.editable && value != null ? ' contenteditable="true" spellcheck="true"' : "";
-  let cls = "blk", rowCls = "row", ctl = "", body = esc(text);
+  const named = value && typeof value === "object" && value.name; // a skills line: the group name is bold, its items are not
+  const lead = named ? `<b>${esc(value.name)}:</b> ` : "";
+  const itemsOf = (v) => (v && typeof v === "object" ? v : parseGroup(textOf(v))).items.join(", ");
+  let cls = "blk", rowCls = "row", ctl = "", body = named ? lead + esc(itemsOf(value)) : esc(text);
   if (rec?.state === "editing") cls += " editing";
   else if (rec?.state === "alt") {
-    body = highlightText(text, textOf(rec.orig), opts.approved);
+    body = named ? lead + highlightText(itemsOf(value), itemsOf(rec.orig), opts.approved)
+      : highlightText(text, textOf(rec.orig), opts.approved);
     rowCls += rec.warn ? " chg warn" : " chg";
     const what = rec.orig == null ? "Remove this added line" : "Restore the wording from your master resume";
     ctl = control("undo", "↶ Undo", rec.warn ? `Check this line: ${rec.warn}.\n${what}.` : what);

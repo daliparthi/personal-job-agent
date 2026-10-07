@@ -267,9 +267,9 @@ def _drop_orphans(c):
 
 def purge_old(keep_days: int = RETENTION_DAYS) -> int:
     """Drop untouched postings older than keep_days (Settings: "Keep new postings"), then keep jobs.db under
-    MAX_DB_BYTES (see enforce_size_limit). Returns rows removed from jobs."""
+    the size limit (see enforce_size_limit). Returns rows removed from jobs."""
     cutoff = (date.today() - timedelta(days=keep_days)).isoformat()
-    stale_run = (datetime.now() - timedelta(days=RETENTION_DAYS)).isoformat(timespec="seconds")
+    stale_run = (datetime.now() - timedelta(days=keep_days)).isoformat(timespec="seconds")
     with conn() as c:
         n = c.execute(f"DELETE FROM jobs WHERE (posted_date IS NULL OR posted_date < ?) AND {UNTOUCHED}",
                       (cutoff,)).rowcount
@@ -310,12 +310,23 @@ def _shrink():
         pass
 
 
-def enforce_size_limit(max_bytes: int = MAX_DB_BYTES) -> int:
-    """Keep jobs.db under max_bytes so the app stays quick. Returns the number of postings removed.
+def size_limit_bytes() -> int:
+    """The size jobs.db is kept under: Settings > "Database size limit" (MB), 50 MB until you change it."""
+    try:
+        mb = int(get_settings().get("max_db_mb") or 0)
+    except (TypeError, ValueError):
+        mb = 0
+    return mb * 1024 * 1024 if mb >= 10 else MAX_DB_BYTES
+
+
+def enforce_size_limit(max_bytes: int | None = None) -> int:
+    """Keep jobs.db under max_bytes (default: size_limit_bytes()) so the app stays quick. Returns the number of
+    postings removed.
 
     Order of what goes, stopping as soon as it fits: free space from earlier deletes; the oldest untouched postings
     (jobs you worked on are never deleted); run logs; the raw HTML of the oldest worked-on postings (their plain
     text stays and is what the page falls back to)."""
+    max_bytes = max_bytes or size_limit_bytes()
     if _free_bytes() >= max(1024 * 1024, db_bytes() // 5):  # a fifth of the file is deleted rows: give it back
         _shrink()
     size = db_bytes()
@@ -387,7 +398,8 @@ DEFAULT_SETTINGS = {
     "engine": "auto",           # auto = CPU model by default, GPU when this browser has a usable one; "onnx" = CPU only
     "upload_format": "docx",
     "max_bullets": 12,
-    "keep_new_days": RETENTION_DAYS,  # untouched postings expire after this; jobs you worked on never do
+    "keep_new_days": RETENTION_DAYS,  # untouched postings expire after this (and a search looks back this far)
+    "max_db_mb": MAX_DB_BYTES // (1024 * 1024),  # jobs.db is kept under this; the oldest untouched postings go first
     "ghost_after_days": 21,     # suggest "Ghosted" when an application has had no update for this long
     "last_visit": None,         # when the page was last opened ("new since your last visit")
     "scoring_version": 1,       # scoring.VERSION the stored match scores were computed with

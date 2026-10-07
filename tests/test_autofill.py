@@ -4,6 +4,7 @@
 The fixture pages are hand-built and anonymized: they follow Workday's markup (data-automation-id names, listbox
 dropdowns, numbered "Work Experience 1" groups, "Add" buttons) rather than being copies of a real tenant's pages."""
 import asyncio
+import re
 from types import SimpleNamespace as NS
 
 import pytest
@@ -136,10 +137,32 @@ def test_history_from_the_master_resume():
 
 def test_page_setup():
     s = formfill.page_setup(PROFILE, settings(autofill={"experience": False}), MASTER, JOB)
-    assert s["history"] == {"experience": [], "education": []}
+    assert s["history"] == {"experience": [], "education": [], "skills": []}
     assert s["rules"]["version"] == 1 and s["options"] == {"add_entries": False, "answers": True, "capture": True}
     assert s["disclosures"]["gender"] == "decline" and s["job"] == JOB
     assert len(formfill.page_setup(PROFILE, settings(), MASTER, JOB)["history"]["experience"]) == 2
+
+
+TAILORED = {
+    "name": "Jordan Avery",
+    "sections": [
+        {"title": "Skills", "kind": "skills", "groups": [
+            {"name": "Languages", "items": ["Python", "SQL"]}, {"name": "Big data", "items": ["Apache Spark", "python"]}],
+         "lines": ["Cloud: AWS, Azure"]},
+        {"title": "Experience", "kind": "experience", "entries": [
+            {"title": "Senior Data Engineer", "company": "Northwind Analytics", "location": "Austin, TX",
+             "start": "Mar 2021", "end": "Present", "bullets": ["Tailored Spark bullet."]}]},
+    ],
+}
+
+
+def test_history_comes_from_the_tailored_resume():
+    s = formfill.page_setup(PROFILE, settings(), MASTER, JOB, resume=TAILORED)
+    assert s["history"]["experience"][0]["description"] == "• Tailored Spark bullet."
+    assert s["history"]["skills"] == ["Python", "SQL", "Apache Spark", "AWS", "Azure"]  # in order, no duplicates
+    assert formfill.page_setup(PROFILE, settings(), MASTER, JOB)["history"]["skills"] == []  # the master has none
+    assert formfill.page_setup(PROFILE, settings(autofill={"experience": False}), MASTER, JOB,
+                               resume=TAILORED)["history"]["skills"] == []
 
 
 def test_binding_events():
@@ -213,6 +236,7 @@ def run_page(name, setup, done_js, then=None, timeout=20):
                         .map((b) => [b.id, b.textContent.trim()])),
                       checked: [...document.querySelectorAll('input:checked')].map((e) => e.id),
                       outlined: [...document.querySelectorAll('*')].filter((e) => e.style.outlineColor).map((e) => e.id || e.tagName),
+                      chips: [...document.querySelectorAll('[data-automation-id=selectedItem]')].map((e) => e.textContent),
                       clicks: window.__clicks,
                       banner: document.getElementById('__jobagent_banner')?.innerText || '',
                     })""")
@@ -328,6 +352,57 @@ def test_voluntary_disclosures_decline_and_leave_consent_alone():
     assert "terms" not in st["checked"]
     assert not NEVER & set(st["clicks"])
     assert not db.answers_all()  # nothing about you is stored
+
+
+@pytest.mark.parametrize("question, key", [
+    ("Are you legally authorized to work in the United States?", "authorized_us"),
+    ("Do you have authorization to work in the United States?", "authorized_us"),
+    ("Are you currently eligible to work in the U.S.?", "authorized_us"),
+    ("What is your work authorization status in the US?", "authorized_us"),
+    ("Will you now or in the future require sponsorship for employment visa status?", "needs_sponsorship"),
+    ("Do you have temporary authorization (e.g., OPT, CPT) to currently work in the United States?", None),
+    ("Are you legally authorized to work in Canada?", None),
+])
+def test_which_profile_answer_a_work_authorization_question_gets(question, key):
+    rules = formfill.load_rules()["choices"]
+    hit = next((k for k, pattern, exclude in rules if re.search(pattern, question, re.I)
+                and not (exclude and re.search(exclude, question, re.I))), None)
+    assert hit == key
+
+
+def test_voluntary_disclosures_pick_the_answers_you_chose():
+    st = run_page("disclosures", _setup(disclosures={"gender": "male", "ethnicity": "asian", "veteran": "not_veteran"}),
+                  "() => document.getElementById('veteran').textContent !== 'Select One'")
+    assert st["buttons"] == {"gender": "Male", "ethnicity": "Asian", "veteran": "I am not a protected veteran"}
+    assert "terms" not in st["checked"]
+    assert not NEVER & set(st["clicks"])
+
+
+def test_a_chosen_answer_the_form_does_not_offer_is_left_alone():
+    async def settle(page):
+        await page.wait_for_timeout(3500)  # several passes: the other two stay as they are
+
+    st = run_page("disclosures", _setup(disclosures={"gender": "female", "ethnicity": "native", "veteran": "skip"}),
+                  "() => document.getElementById('gender').textContent !== 'Select One'", then=settle)
+    assert st["buttons"]["gender"] == "Female"
+    assert st["buttons"]["ethnicity"] == "Select One"  # no such option on this form: not replaced by "decline"
+    assert st["buttons"]["veteran"] == "Select One"
+
+
+def test_self_identify_ticks_yes_when_you_have_a_disability():
+    st = run_page("self_identify", _setup(disclosures={"disability": "yes"}), "() => document.getElementById('dis-yes').checked")
+    assert st["checked"] == ["dis-yes"]
+    assert st["values"]["sig-name"] == "" and st["values"]["sig-date"] == ""
+
+
+def test_skills_are_typed_in_and_picked_from_workdays_suggestions():
+    setup = formfill.page_setup(PROFILE, settings(), MASTER, JOB, resume={"sections": [{"kind": "skills", "groups": [
+        {"name": "Tools", "items": ["Python", "Spark", "COBOL", "SQL"]}]}]})
+    st = run_page("my_experience", setup,
+                  "() => document.querySelectorAll('[data-automation-id=selectedItem]').length === 2", timeout=40)
+    assert st["chips"] == ["Python", "SQL"]  # "Spark" has two suggestions, neither exactly it; COBOL has none
+    assert st["values"]["skills"] == ""  # nothing is left typed in the box
+    assert not db.answers_all()
 
 
 def test_self_identify_declines_disability_and_leaves_the_signature():

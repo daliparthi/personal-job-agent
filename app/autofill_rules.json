@@ -21,7 +21,7 @@
   "choices": [
     ["how_heard", "how did you hear|referral source|\\bsource\\b", null],
     ["phone_type", "phone device type|device type", null],
-    ["authorized_us", "authori[sz]ed to work|legally (authorized|eligible|permitted)|eligible to work|right to work", "canada|mexico|united kingdom|\\buk\\b|europe|\\beu\\b|india|australia|germany|france|ireland|singapore|japan|china|brazil|israel|netherlands|poland|spain"],
+    ["authorized_us", "authori[sz](ed|ation) to work|work authori[sz]ation|legally (authori[sz]ed|eligible|permitted|able)|(eligible|permitted|legal right) to work|right to work", "temporary|\\bopt\\b|\\bcpt\\b|canada|mexico|united kingdom|\\buk\\b|europe|\\beu\\b|india|australia|germany|france|ireland|singapore|japan|china|brazil|israel|netherlands|poland|spain"],
     ["needs_sponsorship", "sponsor", "canada|mexico|united kingdom|\\buk\\b|europe|\\beu\\b|india|australia|germany|france|ireland|singapore|japan|china|brazil|israel|netherlands|poland|spain"],
     ["previously_employed", "previously (worked|been employed)|former (employee|worker)|ever (worked|been employed)|have you worked for|previousworker", null],
     ["state", "\\bstate\\b|region|province", null],
@@ -53,12 +53,31 @@
       "to": "\\bto\\b|last year|lastyearattended|end ?date|enddate|graduat"
     }
   },
+  "skills_field": "\\bskills?\\b",
+  "skill_option": "[data-automation-id=\"promptOption\"], [role=\"option\"]",
   "add_button": "^\\s*(add|add another)\\s*$",
   "disclosures": {
     "gender": "gender|\\bsex\\b",
     "ethnicity": "ethnic|\\brace\\b|hispanic|latino",
     "veteran": "veteran|military",
     "disability": "disabilit"
+  },
+  "disclosure_options": {
+    "gender": {"male": "^\\s*(male|man)\\s*$", "female": "^\\s*(female|woman)\\s*$"},
+    "ethnicity": {
+      "asian": "^\\s*asian\\b",
+      "white": "^\\s*white\\b",
+      "black": "^\\s*black\\b",
+      "hispanic": "^\\s*hispanic\\b",
+      "native": "^\\s*american indian",
+      "pacific": "^\\s*native hawaiian",
+      "two_or_more": "^\\s*two or more"
+    },
+    "veteran": {
+      "not_veteran": "(^|\\b)(i am )?not (a )?(protected )?veteran|non.?veteran|not a (protected )?veteran",
+      "veteran": "identify as one or more|^\\s*(i am )?a (protected )?veteran|^\\s*yes"
+    },
+    "disability": {"yes": "^\\s*yes\\b", "no": "^\\s*no\\b"}
   },
   "decline": "decline|do not wish|don.?t wish|not wish to|prefer not|choose not|not to (disclose|answer|self.?identify)|do not want to answer|don.?t want to answer|not declared|rather not",
   "never_click": "submit|^\\s*next\\s*$|continue|save and continue|create account|sign in|apply|review|i agree|agree|accept|consent|acknowledge|signature|delete|remove"

@@ -190,6 +190,10 @@ def test_pipeline_endpoints(client):
     s = client.put("/api/settings", json={"keep_new_days": 30, "ghost_after_days": 14}).json()
     assert (s["keep_new_days"], s["ghost_after_days"]) == (30, 14)
     assert client.get("/api/status").json()["retention_days"] == 30
+    assert client.get("/api/status").json()["db_limit"] == 50 * 1024 * 1024
+    assert client.put("/api/settings", json={"max_db_mb": 300}).json()["max_db_mb"] == 300
+    assert client.get("/api/status").json()["db_limit"] == 300 * 1024 * 1024
+    assert client.put("/api/settings", json={"max_db_mb": 5}).status_code == 422
     assert client.put("/api/settings", json={"keep_new_days": 0}).status_code == 422
 
 

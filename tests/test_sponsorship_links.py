@@ -74,13 +74,16 @@ def test_html_and_text_show_the_short_label():
     assert "| LinkedIn" in text and "linkedin.com/in/" not in text
 
 
-def test_only_headings_are_bold(tmp_path):
-    assert "<b>" not in resume_io.to_html(SAMPLE_MASTER)
+def test_only_headings_and_skill_group_names_are_bold(tmp_path):
+    import re
+    assert re.findall(r"<b>(.*?)</b>", resume_io.to_html(SAMPLE_MASTER)) == ["Languages:", "Data:"]
     path = tmp_path / "cv.docx"
     resume_io.to_docx(SAMPLE_MASTER, path)
     bold = {p.text for p in Document(path).paragraphs if any(r.bold for r in p.runs)}
     assert "EDUCATION" in bold and "Jordan Avery" in bold
     assert not any("University" in t or "Senior Data Engineer" in t for t in bold)
+    skills = next(p for p in Document(path).paragraphs if p.text.startswith("Languages:"))
+    assert [r.text for r in skills.runs if r.bold] == ["Languages:"]  # the items after the name are not bold
 
 
 def test_docx_link_is_a_real_hyperlink(tmp_path):

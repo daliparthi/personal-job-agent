@@ -34,14 +34,14 @@ class AutofillPatch(_Body):
     capture: bool | None = None
 
 
-Disclosure = Literal["decline", "skip"]
-
-
+# "decline" picks the "I don't wish to answer" option, "skip" leaves the question to you, anything else picks that answer.
+# The same keys are in autofill_rules.json ("disclosure_options") and static/js/app.js (DISCLOSURES).
 class DisclosuresPatch(_Body):
-    gender: Disclosure | None = None
-    ethnicity: Disclosure | None = None
-    veteran: Disclosure | None = None
-    disability: Disclosure | None = None
+    gender: Literal["decline", "skip", "male", "female"] | None = None
+    ethnicity: Literal["decline", "skip", "asian", "white", "black", "hispanic", "native", "pacific",
+                       "two_or_more"] | None = None
+    veteran: Literal["decline", "skip", "not_veteran", "veteran"] | None = None
+    disability: Literal["decline", "skip", "yes", "no"] | None = None
 
 
 class AnswerIn(_Body):
@@ -71,6 +71,7 @@ class SettingsPatch(_Body):
     upload_format: Literal["docx", "pdf"] | None = None
     max_bullets: int | None = Field(None, ge=0, le=40)
     keep_new_days: int | None = Field(None, ge=1, le=365)
+    max_db_mb: int | None = Field(None, ge=10, le=5000)
     ghost_after_days: int | None = Field(None, ge=3, le=365)
     autofill: AutofillPatch | None = None
     disclosures: DisclosuresPatch | None = None

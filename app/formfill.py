@@ -1,11 +1,12 @@
 """What the apply window's autofill (autofill.js) gets: your profile, the field rules (autofill_rules.json), your work
-history and education from master_resume.yaml, your voluntary-disclosure choices and the autofill settings."""
+history and education (from the tailored resume), your voluntary-disclosure choices and the autofill settings."""
 import json
 import re
 from pathlib import Path
 
 from .candidate import parse_when
 from .jobparse import degree_level
+from .resume_io import split_items
 
 RULES_PATH = Path(__file__).parent / "autofill_rules.json"
 
@@ -77,15 +78,35 @@ def education(master: dict) -> list:
     return out[:5]
 
 
-def page_setup(profile: dict, settings: dict, master: dict | None, job: dict) -> dict:
-    """Everything autofill.js needs for one apply window (it asks for it once, through the page binding)."""
+def skills(resume: dict) -> list:
+    """The skills of the resume (one entry per skill, in resume order): what Workday's "Type to Add Skills" gets."""
+    out, seen = [], set()
+    for s in (resume or {}).get("sections") or []:
+        if s.get("kind") != "skills":
+            continue
+        items = [i for g in s.get("groups") or [] if isinstance(g, dict) for i in g.get("items") or []]
+        for line in s.get("lines") or []:
+            items += split_items(re.sub(r"^[^:]{1,40}:\s*", "", line or ""))
+        for item in items:
+            item = " ".join(str(item).split())
+            if 1 < len(item) <= 60 and item.lower() not in seen:
+                seen.add(item.lower())
+                out.append(item)
+    return out[:50]
+
+
+def page_setup(profile: dict, settings: dict, master: dict | None, job: dict, resume: dict | None = None) -> dict:
+    """Everything autofill.js needs for one apply window (it asks for it once, through the page binding).
+    resume: the tailored resume for this posting; the work history and skills come from it (else from the master)."""
     opts = settings.get("autofill") or {}
     with_history = opts.get("experience", True) is not False
+    master = resume or master
     return {
         "profile": profile,
         "rules": load_rules(),
         "history": {"experience": experience(master) if with_history else [],
-                    "education": education(master) if with_history else []},
+                    "education": education(master) if with_history else [],
+                    "skills": skills(master) if with_history else []},
         "options": {"add_entries": bool(opts.get("add_entries")), "answers": opts.get("answers", True) is not False,
                     "capture": opts.get("capture", True) is not False},
         "disclosures": settings.get("disclosures") or {},

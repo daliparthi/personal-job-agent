@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from . import alerts, answers, apply, candidate, db, envfile, formfill, master, pipeline, scheduler, scoring, search
-from .config import HOME, HOME_ID, MAX_DB_BYTES, MODELS, PORT, STATIC, ensure_home, session_key
+from .config import HOME, HOME_ID, MODELS, PORT, STATIC, ensure_home, session_key
 from .jobparse import jd_digest
 from .resume_io import clean_resume, parse_resume, to_text
 from .schemas import (AlertsSeenIn, AnswerIn, AnswerPatch, CompanyIn, FeedbackIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn,
@@ -185,7 +185,7 @@ def status():
     return {"resume": {"filename": resume["filename"], "uploaded_at": resume["uploaded_at"]} if resume else None,
             "master_error": yaml_error, "jobs": db.count_jobs(), "last_run": db.last_run_overall(),
             "rescoring": search.rescorer.running, "rescore_error": search.rescorer.last_error,
-            "retention_days": db.get_settings()["keep_new_days"], "db_bytes": db.db_bytes(), "db_limit": MAX_DB_BYTES,
+            "retention_days": db.get_settings()["keep_new_days"], "db_bytes": db.db_bytes(), "db_limit": db.size_limit_bytes(),
             "models": _bundled_models(), "search": runner.state,
             "home": str(HOME), "profile": HOME.name, "account": envfile.status()}
 
@@ -516,7 +516,7 @@ async def package(job_id: str, body: PackageIn):
         cover = result.get("cover_letter") or {}
         cover_path = cover.get("pdf") if fmt == "pdf" and cover.get("pdf") else cover.get("docx")
         resume = db.get_resume()
-        setup = formfill.page_setup(profile, settings, resume["data"] if resume else None, j)
+        setup = formfill.page_setup(profile, settings, resume["data"] if resume else None, j, clean_resume(doc["resume"]))
         try:
             await apply.worker.open_application(job_id, j["url"], profile, resume_path, result["folder"], j["tenant"],
                                                 cover_path, setup)

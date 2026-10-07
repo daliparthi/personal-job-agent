@@ -208,7 +208,7 @@ class SearchRunner:
             if purged:
                 self.log(f"Purged {purged} untouched postings older than {keep_days} days")
             resume = await asyncio.to_thread(db.get_resume)
-            ctx = {"mandatory": mandatory, "optional": optional, "full_refresh": full_refresh,
+            ctx = {"mandatory": mandatory, "optional": optional, "full_refresh": full_refresh, "keep_days": keep_days,
                    "sig": keyword_signature(mandatory, optional), "kw_sig": keyword_hits_signature(mandatory, optional),
                    "resume_text": resume["text"] if resume else "",
                    "profile": candidate.profile_for(resume, settings)}
@@ -285,10 +285,10 @@ class SearchRunner:
                 site = sources.parse_site(name, comp["url"], comp.get("ats"), comp.get("board"))
                 last = None if ctx["full_refresh"] else await asyncio.to_thread(db.last_success, site.key, ctx["sig"])
                 if last:
-                    window = min(RETENTION_DAYS, (date.today() - last.date()).days + 1)
+                    window = min(ctx["keep_days"], (date.today() - last.date()).days + 1)
                     self.log(f"{name}: incremental — postings from the last {window} day(s)")
                 else:
-                    window = RETENTION_DAYS
+                    window = ctx["keep_days"]
                     self.log(f"{name}: pulling the last {window} days")
                 known = await asyncio.to_thread(db.job_ids, site.key)
                 if site.source == "workday":
@@ -502,7 +502,7 @@ class SearchRunner:
         if cand["days"] is not None:
             dates.append(today - timedelta(days=cand["days"]))
         posted = max(dates) if dates else today
-        if (today - posted).days > RETENTION_DAYS:
+        if (today - posted).days > ctx["keep_days"]:
             return
 
         us_locs = [l for l in locations if is_us_location(l) or alpha2 == "US"]

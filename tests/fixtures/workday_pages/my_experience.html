@@ -25,7 +25,31 @@
 <div data-automation-id="formField-skills">
   <label for="skills">Type to Add Skills</label>
   <input type="text" id="skills" data-automation-id="searchBox">
+  <div id="skill-chips"></div>
 </div>
+<script>
+// Workday's skills box: Enter lists the matching skills (promptOption), clicking one adds it as a chip (selectedItem).
+const KNOWN_SKILLS = ["Python", "Apache Spark", "SQL", "Spark Streaming"];
+document.getElementById("skills").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  document.querySelectorAll('[data-automation-id="promptOption"]').forEach((o) => o.remove());
+  const q = e.target.value.toLowerCase();
+  for (const name of KNOWN_SKILLS.filter((s) => q && s.toLowerCase().includes(q))) {
+    const o = document.createElement("div");
+    o.dataset.automationId = "promptOption";
+    o.textContent = name;
+    o.onclick = () => {
+      const chip = document.createElement("div");
+      chip.dataset.automationId = "selectedItem";
+      chip.textContent = name;
+      document.getElementById("skill-chips").appendChild(chip);
+      e.target.value = "";
+      document.querySelectorAll('[data-automation-id="promptOption"]').forEach((x) => x.remove());
+    };
+    document.getElementById("skill-chips").before(o);
+  }
+});
+</script>
 
 <template id="tpl-exp">
   <div role="group" aria-labelledby="h-exp-{n}" data-automation-id="workExperience-{n}">

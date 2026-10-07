@@ -69,6 +69,20 @@ def test_text_and_html_rendering():
     assert "<h1>&lt;Jordan&gt;</h1>" in html and "font-variant-ligatures: none" in html
 
 
+def test_skill_group_names_are_bold_but_not_their_items(tmp_path):
+    res = {"name": "A", "sections": [{"title": "Skills", "kind": "skills", "groups": [
+        {"name": "Languages", "items": ["Python", "SQL"]}, {"name": "", "items": ["Git"]}], "lines": ["Other: x"]}]}
+    assert "Languages: Python, SQL" in resume_io.to_text(res)  # the plain text is unchanged
+    html = resume_io.to_html(res)
+    assert "<p><b>Languages:</b> Python, SQL</p>" in html and "<p>Git</p>" in html and "<p>Other: x</p>" in html
+    path = tmp_path / "r.docx"
+    resume_io.to_docx(res, path)
+    para = next(p for p in Document(path).paragraphs if p.text.startswith("Languages"))
+    assert [(r.text, bool(r.bold)) for r in para.runs] == [("Languages:", True), (" Python, SQL", False)]
+    plain = next(p for p in Document(path).paragraphs if p.text == "Git")
+    assert not any(r.bold for r in plain.runs)
+
+
 def test_clean_resume_drops_empty_placeholders():
     res = {"sections": [{"kind": "skills", "groups": [None, {"name": "", "items": ["x"]}], "lines": [""]}]}
     out = resume_io.clean_resume(res)

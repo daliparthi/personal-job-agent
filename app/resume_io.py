@@ -182,7 +182,7 @@ def structure_from_lines(lines, wrapped_lines: bool):
 ENTRY_KINDS = ("experience", "projects", "education")
 ENTRY_FIELDS = {  # the first two make the bold part of an entry's heading line
     "experience": ("title", "company", "location", "start", "end"),
-     "education": ("degree", "school", "location", "start", "end"),
+    "education": ("degree", "school", "location", "start", "end"),
     "projects": ("name", "organization", "location", "start", "end"),
 }
 
@@ -292,7 +292,7 @@ def layout(res: dict):
             body += [("p", t) for t in (s.get("text") or "").split("\n") if t.strip()]
             body += [("bullet", b) for b in s.get("bullets") or []]
         elif kind == "skills":
-            body += [("p", group_text(g)) for g in s.get("groups") or []]
+            body += [("skill", group_text(g), g.get("name") or "") for g in s.get("groups") or []]
             body += [("p", t) for t in s.get("lines") or []]
         elif kind in ENTRY_KINDS:
             for e in s.get("entries") or []:
@@ -388,6 +388,9 @@ def to_html(res: dict, title="Resume") -> str:
         elif kind == "role":
             rest = f" | {html.escape(it[2])}" if it[2] and it[1] else html.escape(it[2])
             parts.append(f'<p class="role">{text}{rest}</p>')
+        elif kind == "skill":  # the group name is bold, its items are not
+            n = len(it[2]) + 1 if it[2] else 0
+            parts.append(f"<p><b>{html.escape(it[1][:n])}</b>{html.escape(it[1][n:])}</p>" if n else f"<p>{text}</p>")
         else:
             parts.append(f"<p>{text}</p>")
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>{html.escape(title)}</title>
@@ -439,6 +442,12 @@ def to_docx(res: dict, path):
             r.font.size = Pt(11)
         elif kind == "bullet":
             doc.add_paragraph(text, style="List Bullet")
+        elif kind == "skill":  # the group name is bold, its items are not
+            p = doc.add_paragraph()
+            n = len(it[2]) + 1 if it[2] else 0
+            if n:
+                p.add_run(text[:n]).bold = True
+            p.add_run(text[n:])
         elif kind == "role":
             p = doc.add_paragraph()
             p.paragraph_format.space_before = Pt(4)

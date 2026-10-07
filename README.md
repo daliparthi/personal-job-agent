@@ -103,7 +103,7 @@ options: `--port 8800`, `--no-browser`.
 | Incremental by default | Later runs only pull postings newer than that company's last successful run, and skip jobs already stored. |
 | Full refresh flag | Tick **Full refresh** to ignore the incremental cursor and re-pull/re-parse the whole 5-day window. |
 | New keywords | Changing mandatory keywords starts a fresh 5-day pull for the new set (the cursor is per keyword set). |
-| DB purge | `jobs.db` in your personal folder; untouched postings (status *new*, no notes or follow-up) posted more than 5 days ago (Settings → *Keep untouched postings for*) are deleted on start-up, before every search, and hourly. `jobs.db` is also kept under 50 MB (shown in the top bar): if it is still over after that, the oldest untouched postings go first, then run logs, then the raw HTML of old postings you worked on (their text stays). Jobs you tailored, saved, applied to or moved along the [pipeline](#pipeline) are kept forever, and saved application folders are never deleted. |
+| DB purge | `jobs.db` in your personal folder; untouched postings (status *new*, no notes or follow-up) posted more than 5 days ago (Settings → *Keep untouched postings for*, up to 365; searches look back that far too) are deleted on start-up, before every search, and hourly. `jobs.db` is also kept under 50 MB by default (Settings → *Database size limit*, shown in the top bar; a 30-day window needs a bigger limit): if it is still over after that, the oldest untouched postings go first, then run logs, then the raw HTML of old postings you worked on (their text stays). Jobs you tailored, saved, applied to or moved along the [pipeline](#pipeline) are kept forever, and saved application folders are never deleted. |
 | Skip current employer | Settings → *Current employer*. That company is skipped during search and hidden from results. |
 | USA only + state filters | Searches use each site's "United States" filter when it has one, then every posting is checked for a US location. Filter by **state** (multi-select) and **city**. Remote roles with no state stay visible when you pick states. |
 | Contract / Full-time / Temporary | From Workday's *Job Type* (worker sub-type) facet, falling back to the posting text. Colour badges: **Full-time** green, **Contract** amber, **Temporary** purple, **Part-time** blue, Internship grey. Click a type chip to omit it; ✕ on a card hides one posting. |
@@ -281,9 +281,14 @@ a GPU folder you don't need; keep `models/onnx`.
   years. Workday starts with no entries; tick Settings → *Autofill* → *…click Workday's Add buttons* and it adds one
   per job and school. That **Add** / **Add Another** button inside those two sections is the only button autofill
   ever clicks.
+* **Skills:** Workday's *Type to Add Skills* box gets the skills of your **tailored** resume (typed one by one; the
+  suggestion that is exactly that skill is picked, a skill Workday doesn't list is skipped). The work experience
+  bullets also come from the tailored resume, not the master.
 * **Voluntary disclosures** (gender, ethnicity, veteran status, disability) are set to *Decline to answer* by
-  default: the window picks the "I don't wish to answer" option. Settings → *Autofill* can leave any of them to you.
-  Nothing about them is stored, and the self-identification form's name and date (your signature) are left to you.
+  default: the window picks the "I don't wish to answer" option. In Settings → *Autofill* you can instead leave any
+  of them to you or choose an answer (e.g. Male, Asian, "I am not a protected veteran", "Yes, I have a disability");
+  it is picked only when the form offers that option. The choice lives in your settings only, never in the answer
+  bank, and the self-identification form's name and date (your signature) are left to you.
 * **Answer bank:** when you answer one of a company's own questions ("Are you willing to relocate?", "Salary
   expectations", "Why do you want to work here?"), Job Agent remembers it. The next form that asks the same question,
   or one worded almost the same, gets your answer filled in and **outlined amber** so you check it (the outline's

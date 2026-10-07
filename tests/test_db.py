@@ -95,6 +95,14 @@ def test_retention_default_is_five_days():
     assert db.DEFAULT_SETTINGS["keep_new_days"] == 5
 
 
+def test_size_limit_is_a_setting_with_50_mb_as_the_default():
+    assert db.size_limit_bytes() == 50 * 1024 * 1024
+    db.save_settings({"max_db_mb": 200})
+    assert db.size_limit_bytes() == 200 * 1024 * 1024
+    db.save_settings({"max_db_mb": 1})  # below the allowed minimum: the default
+    assert db.size_limit_bytes() == 50 * 1024 * 1024
+
+
 def test_size_limit_drops_oldest_untouched_first_and_keeps_applied():
     for n in range(40):
         db.upsert_job(_bulky(f"a:new{n}", posted_date=(date.today() - timedelta(days=n % 5)).isoformat()))
