@@ -387,19 +387,6 @@ When a company's careers page lives on its own domain but is powered by one of t
 
 A job you track on one of these boards is marked *closed* on the Pipeline board once it disappears from the board.
 
-## Finding Workday sites with Google
-
-When a search has **mandatory keywords**, Job Agent first asks Google for `site:myworkdayjobs.com "<your keywords>"` (e.g. `site:myworkdayjobs.com "sql"`), turns every Workday address in the results into a career site, and searches those sites with the usual Workday API instead of the Workday entries in `companies.yaml`. Those entries are the **fallback**: they are used when the search has no mandatory keywords, or when Google finds nothing or can't be reached (the Log says why). Greenhouse, Lever, Ashby and SmartRecruiters entries in the lists are always searched. Your current employer and companies you unticked in Settings are skipped for discovered sites too.
-
-Google only returns results to a real browser, so reading its results page from a program normally fails. For reliable discovery use Google's free Programmable Search API (100 queries a day): create a search engine at <https://programmablesearchengine.google.com> covering `*.myworkdayjobs.com`, create an API key, and put both in your `.env`:
-
-```
-GOOGLE_API_KEY=...
-GOOGLE_CSE_ID=...
-```
-
-Results are limited to the past week and to 5 pages (50 results) per search; see `app/discovery.py`.
-
 ## Privacy
 
 Everything stays on this computer, in your personal folder. The only network traffic is to the Workday sites and

@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 import httpx
 import yaml
 
-from . import alerts, candidate, db, discovery, pipeline, scoring, sources
+from . import alerts, candidate, db, pipeline, scoring, sources
 from .config import (COMPANIES_SHARED, COMPANY_CONCURRENCY, DETAIL_CONCURRENCY, MAX_PAGES_PER_QUERY,
                      MY_COMPANIES, OLD_COMPANIES_COPY, RETENTION_DAYS)
 from .jobparse import (classify_employment, classify_remote, contains_all, html_to_text, is_us_location,
@@ -103,18 +103,6 @@ def _load_companies():
             index[k] = len(out)
             out.append(c)
     return out
-
-
-def plan_companies(listed, discovered):
-    """The career sites one search covers. The other job boards in the company lists are always searched. Workday
-    sites come from Google when it found some (`discovered`); the Workday entries in the lists are the fallback.
-    A discovered site that is also listed keeps the listed name and aliases (the current-employer check uses them)."""
-    boards = [c for c in listed if c["ats"] != "workday"]
-    workday = [c for c in listed if c["ats"] == "workday"]
-    if not discovered:
-        return boards + workday
-    known = {c["key"]: c for c in workday}
-    return boards + [known.get(d["key"], d) for d in discovered]
 
 
 def append_company(name: str, url: str, enabled=True, aliases=()):
@@ -225,18 +213,12 @@ class SearchRunner:
                    "resume_text": resume["text"] if resume else "",
                    "profile": candidate.profile_for(resume, settings)}
             disabled = set(settings.get("disabled_companies") or [])
-            listed = []
+            companies = []
             for c in await asyncio.to_thread(load_companies):
                 if c["error"]:
                     self.state["errors"].append(f"{c['name']}: {c['error']}")
                     continue
                 if not c["enabled"] or c["key"] in disabled:
-                    continue
-                listed.append(c)
-            discovered = await self._discover(mandatory)
-            companies = []
-            for c in plan_companies(listed, discovered):
-                if c["key"] in disabled:
                     continue
                 if is_current_employer(c["name"], c["key"], settings.get("current_employer"), c["aliases"]):
                     self.log(f"Skipping {c['name']} (your current employer)")
@@ -262,25 +244,6 @@ class SearchRunner:
             except Exception as e:
                 self.state["errors"].append(f"Saving the run failed: {e!r}")
             self.state["running"] = False
-
-    async def _discover(self, mandatory):
-        """Workday sites found by a Google search for the mandatory keywords, or None when there are none to search
-        for or Google gave nothing (the Workday entries of companies.yaml are then the fallback)."""
-        if not mandatory:
-            return None
-        self.log(f"Searching Google for Workday sites: {discovery.build_query(mandatory)}")
-        try:
-            sites = await discovery.find_workday_sites(mandatory, log=self.log)
-        except discovery.DiscoveryError as e:
-            self.log(f"Google discovery failed: {e}")
-            self.state["errors"].append(f"Google discovery failed: {e}")
-            sites = []
-        if not sites:
-            self.log("No Workday sites from Google; using the Workday companies in companies.yaml instead")
-            return None
-        self.log(f"Google found {len(sites)} Workday career site(s)")
-        return [{"name": s.name, "url": s.url, "key": s.key, "error": None, "enabled": True, "aliases": [],
-                 "source": "google", "ats": "workday", "board": None} for s in sites]
 
     def _finish(self) -> int:
         """Record the run in the history, mark the saved search as run, and raise alerts for strong new matches
