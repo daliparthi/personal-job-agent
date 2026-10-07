@@ -193,14 +193,23 @@ function pickBullets(res, jd, approvedInfo, maxBullets) {
   return [...chosen, ...rest].slice(0, Math.max(maxBullets, chosen.length)).sort((a, b) => a.order - b.order);
 }
 
-function firstBulletPath(res) {
-  for (const kind of ["projects", "experience"]) {
-    for (const [si, s] of res.sections.entries()) {
-      if (s.kind !== kind) continue;
-      for (const [ei, e] of s.entries.entries()) if (e.bullets.length) return `sections.${si}.entries.${ei}.bullets.0`;
-    }
+/** The bullet whose current wording is closest to where the posting uses `kw` (project bullets first; other
+ *  bullets only when the resume has none). `taken` counts keywords already given to a bullet, to spread them out. */
+function bestBulletFor(res, kw, jd, taken) {
+  const all = [];
+  res.sections.forEach((s, si) => {
+    if (s.kind !== "projects" && s.kind !== "experience") return;
+    s.entries.forEach((e, ei) => e.bullets.forEach((b, k) => all.push({ path: `sections.${si}.entries.${ei}.bullets.${k}`, text: b, project: s.kind === "projects" })));
+  });
+  const pool = all.some((x) => x.project) ? all.filter((x) => x.project) : all;
+  const ctx = new Set(contentWords(`${kw.context || ""} ${kw.keyword}`));
+  let best = null, bestScore = -Infinity;
+  for (const x of pool) {
+    const rel = jd.matched.filter((k) => hasAny(jd.aliases[k] || [k], x.text)).length;
+    const sc = contentWords(x.text).filter((w) => ctx.has(w)).length * 2 + rel - (taken.get(x.path) || 0) * 3;
+    if (sc > bestScore) { best = x; bestScore = sc; }
   }
-  return null;
+  return best?.path || null;
 }
 
 /**
@@ -315,11 +324,19 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
     const sumIdx = res.sections.findIndex((s) => s.kind === "summary" && (s.text || "").length > 0);
     const lateSummary = unplaced(summaryKw);
     if (lateSummary.length && sumIdx >= 0) {
-      append(`sections.${sumIdx}.text`, (cur) => `${cur.replace(/s+$/, "")} Hands-on experience with ${joinList(lateSummary)}.`);
+      append(`sections.${sumIdx}.text`, (cur) => `${cur.replace(/\s+$/, "")} Hands-on experience with ${joinList(lateSummary)}.`);
     }
-    const lateBullets = unplaced(bulletInfo.map((m) => m.keyword).concat(sumIdx >= 0 ? [] : summaryKw));
-    const path = lateBullets.length && firstBulletPath(res);
-    if (path) append(path, (cur) => `${cur.replace(/[.s]+$/, "")}, using ${joinList(lateBullets)}.`);
+    // Every other keyword goes to the project bullet that fits it best; keywords sharing a bullet are added together.
+    const lateInfo = [...bulletInfo, ...(sumIdx >= 0 ? [] : byWeight.slice(0, SUMMARY_KEYWORDS))]
+      .filter((m) => unplaced([m.keyword]).length);
+    const taken = new Map(), perBullet = new Map();
+    for (const m of lateInfo) {
+      const path = bestBulletFor(res, m, analysis, taken);
+      if (!path) continue;
+      taken.set(path, (taken.get(path) || 0) + 1);
+      perBullet.set(path, [...(perBullet.get(path) || []), m.keyword]);
+    }
+    for (const [path, kws] of perBullet) append(path, (cur) => `${cur.replace(/[.\s]+$/, "")}, using ${joinList(kws)}.`);
   }
 
   stats.seconds = (performance.now() - stats.started) / 1000;
