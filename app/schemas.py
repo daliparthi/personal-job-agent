@@ -120,6 +120,16 @@ class PreviewIn(_Body):
     how: str | None = None
 
 
+class LooseIn(_Body):
+    """One part of an uploaded resume the model rewrote as YAML (see master.loose_part)."""
+    kind: str = Field("other", max_length=40)
+    title: str = Field("", max_length=200)
+    scope: Literal["section", "entry"] = "section"
+    source: list[str] = Field(default_factory=list, max_length=600)  # that part's lines, as written
+    src: list[str] = Field(default_factory=list, max_length=20)      # an entry's heading lines
+    yaml: str = Field("", max_length=60000)
+
+
 class ResumeSaveIn(_Body):
     yaml: str
     filename: str | None = None

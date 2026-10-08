@@ -16,7 +16,7 @@ from . import (alerts, answers, apply, candidate, db, envfile, formfill, llm, ma
 from .config import HOME, HOME_ID, MODELS, PORT, STATIC, ensure_home, session_key
 from .jobparse import jd_digest
 from .resume_io import clean_resume, parse_resume, to_text
-from .schemas import (AlertsSeenIn, AnswerIn, AnswerPatch, ApiKeyIn, ChatIn, CompanyIn, FeedbackIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn,
+from .schemas import (AlertsSeenIn, AnswerIn, AnswerPatch, ApiKeyIn, ChatIn, CompanyIn, FeedbackIn, FollowUpIn, HideIn, LooseIn, NoteIn, OpenIn, PackageIn, PasswordIn,
                       PathIn, PreviewIn, ResumeSaveIn, RunIn, SavedSearchIn, SavedSearchPatch, ScoreIn,
                       SettingsPatch, StageIn, TailoredIn)
 
@@ -375,6 +375,17 @@ def preview_master(body: PreviewIn):
         return {"yaml": master.dump(body.data, note)}
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+@app.post("/api/resume/loose")
+def loose_part(body: LooseIn):
+    """Step 1b: one section (or job) the model rewrote as loose YAML. Used only when every value in it is in that
+    part of your resume and it leaves out almost nothing; ok: false (with the reason) keeps the rule-based parse."""
+    try:
+        part = master.loose_part(body.kind, body.title, body.scope, body.source, body.yaml, body.src)
+    except ValueError as e:
+        return {"ok": False, "reason": str(e)}
+    return {"ok": True, "part": part}
 
 
 @app.put("/api/resume")

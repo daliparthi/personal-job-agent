@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from app import config, db, master
+from app import candidate, config, db, master, resume_io
 from tests.conftest import SAMPLE_MASTER
 
 
@@ -61,6 +61,45 @@ def test_normalize_dump_parse_round_trip():
     assert norm["sections"][1]["groups"][-1]["items"] == ["AWS (S3, EMR)", "Docker", "Terraform"]
     assert norm["sections"][-1] == {"title": "Other", "kind": "other", "items": ["Volunteer"], "style": "lines"}
     assert master.parse_yaml(master.dump(data, "note")) == norm
+
+
+def test_loose_yaml_keeps_extra_lines_and_understands_other_key_names():
+    data = {"name": "Jordan Avery", "email": "jordan@example.com", "linkedin": "linkedin.com/in/jordan",
+            "sections": [
+                {"title": "Work History", "jobs": [{
+                    "position": "Data Engineer", "employer": "Contoso", "dates": "2018 - 2021",
+                    "Technologies": ["SQL", "Python"], "responsibilities": ["Built ETL jobs.", {"Result": "fewer errors"}],
+                    "Environment": "AWS", "_hint": "dropped"}]},
+                {"title": "Technical Skills", "groups": {"Languages": "Python, SQL", "Cloud": ["AWS", "Docker"]}},
+                {"title": "Certifications", "items": ["AWS Certified Developer",
+                                                      {"name": "SnowPro Core", "issuer": "Snowflake", "date": "2024"}]},
+            ]}
+    norm = master.normalize(data)
+    assert norm["contact"]["email"] == "jordan@example.com" and norm["contact"]["links"] == ["linkedin.com/in/jordan"]
+    exp, skills, certs = norm["sections"]
+    assert (exp["kind"], skills["kind"], certs["kind"]) == ("experience", "skills", "certifications")
+    e = exp["entries"][0]
+    assert (e["title"], e["company"], e["start"], e["end"]) == ("Data Engineer", "Contoso", "2018", "2021")
+    assert e["bullets"] == ["Built ETL jobs.", "Result: fewer errors"]
+    assert list(e)[-3:] == ["Technologies", "bullets", "Environment"]  # extra lines keep their place around the bullets
+    assert e["Technologies"] == "SQL, Python" and "_hint" not in e
+    assert skills["groups"] == [{"name": "Languages", "items": ["Python", "SQL"]}, {"name": "Cloud", "items": ["AWS", "Docker"]}]
+    assert certs["items"] == ["AWS Certified Developer"]
+    assert {k: certs["entries"][0][k] for k in ("name", "organization", "end")} == {
+        "name": "SnowPro Core", "organization": "Snowflake", "end": "2024"}
+    text = master.dump(data)
+    assert "Technologies: SQL, Python" in text
+    assert master.parse_yaml(text) == norm
+    plain = resume_io.to_text(norm)
+    assert "Technologies: SQL, Python" in plain and "Environment: AWS" in plain and "SnowPro Core — Snowflake" in plain
+    assert plain.index("Technologies") < plain.index("Built ETL jobs") < plain.index("Environment")
+
+
+def test_extra_lines_count_toward_the_years_of_a_skill():
+    data = copy.deepcopy(SAMPLE_MASTER)
+    data["sections"][2]["entries"][0]["Technologies"] = "Kafka, dbt"
+    prof = candidate.profile(master.normalize(data), {})
+    assert prof["years_by_skill"].get("dbt")
 
 
 def test_entry_heading_kept_when_fields_would_drop_words():

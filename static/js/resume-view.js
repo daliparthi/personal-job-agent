@@ -36,10 +36,15 @@ const isGroupPath = (path) => /\.groups\.\d+$/.test(path);
 export const valueFromText = (path, text) => (isGroupPath(path) ? parseGroup(text) : text);
 
 export const ENTRY_FIELDS = { experience: ["title", "company"], education: ["degree", "school"], projects: ["name", "organization"] };
+const GENERIC_FIELDS = ["name", "organization"]; // entries in any other section (a certification, an award...)
+// Every other key of an entry ("Technologies", "GPA"...) is an extra line, shown as "Label: value".
+const ENTRY_CORE = new Set(["title", "company", "degree", "school", "name", "organization", "location", "start", "end",
+  "heading", "description", "bullets"]);
+const isExtra = (k, v) => !ENTRY_CORE.has(k) && !k.startsWith("_") && typeof v === "string" && v.trim() !== "";
 const entryDates = (e) => (e.start && e.end ? `${e.start} – ${e.end}` : e.start || e.end || "");
 function entryHeading(kind, e) {
   if (e.heading?.length) return e.heading.map((l) => [l, ""]);
-  const [a, b] = ENTRY_FIELDS[kind];
+  const [a, b] = ENTRY_FIELDS[kind] || GENERIC_FIELDS;
   const main = [e[a], e[b]].filter(Boolean).join(" — ");
   const meta = [e.location, entryDates(e)].filter(Boolean).join(" | ");
   return main || meta ? [[main, meta]] : [];
@@ -175,19 +180,24 @@ export function renderResume(root, res, opts = {}) {
     } else if (s.kind === "skills") {
       body += (s.groups || []).map((g, k) => row("p", `${P}.groups.${k}`, g, opts)).join("");
       body += (s.lines || []).map((t, k) => row("p", `${P}.lines.${k}`, t, opts)).join("");
-    } else if (ENTRY_FIELDS[s.kind]) {
+    } else {
+      // Any section may hold entries; extra lines ("Technologies: ...") keep their place around the bullets.
       (s.entries || []).forEach((e, ei) => {
         const E = `${P}.entries.${ei}`;
         entryHeading(s.kind, e).forEach(([main, meta]) => {
           body += `<p class="role">${esc(main)}${meta ? `${main ? " | " : ""}${esc(meta)}` : ""}</p>`;
         });
         body += row("p", `${E}.description`, e.description, opts);
-        body += list((e.bullets || []).map((b, k) => row("li", `${E}.bullets.${k}`, b, opts)).join(""));
+        for (const [k, v] of Object.entries(e)) {
+          if (k === "bullets") body += list((v || []).map((b, i) => row("li", `${E}.bullets.${i}`, b, opts)).join(""));
+          else if (isExtra(k, v)) body += `<p class="extra"><b>${esc(k)}:</b> ${esc(v)}</p>`;
+        }
       });
-    } else {
-      const tag = s.style === "bullets" ? "li" : "p";
-      const rows = (s.items || []).map((t, k) => row(tag, `${P}.items.${k}`, t, opts)).join("");
-      body += tag === "li" ? list(rows) : rows;
+      if (!ENTRY_FIELDS[s.kind]) {
+        const tag = s.style === "bullets" ? "li" : "p";
+        const rows = (s.items || []).map((t, k) => row(tag, `${P}.items.${k}`, t, opts)).join("");
+        body += tag === "li" ? list(rows) : rows;
+      }
     }
     if (body) h += `<h2>${esc((s.title || s.kind).toUpperCase())}</h2>${body}`;
   });

@@ -8,14 +8,17 @@ master_resume.yaml: the master resume as structured data, kept in your personal 
 
 Tailoring always works on a copy. Only a new upload or your own edit (in the app or a text editor) changes it.
 """
+import json
 import re
 from datetime import datetime
+from difflib import SequenceMatcher
+from functools import lru_cache
 
 import yaml
 
 from . import db
 from .config import MASTER_YAML
-from .resume_io import ENTRY_FIELDS, ENTRY_KINDS, split_items, to_text
+from .resume_io import ENTRY_CORE, ENTRY_KINDS, entry_fields, is_extra, section_kind, split_items, to_text
 
 KINDS = ("summary", "skills", "experience", "projects", "education", "certifications", "other")
 
@@ -71,9 +74,10 @@ def _ml(v) -> str:
 def _list(v):
     if v is None:
         return []
-    if isinstance(v, (str, int, float)):
+    if isinstance(v, (str, int, float, dict)):
         v = [v]
-    return [x for x in (_s(i) for i in v) if x]
+    # a list item the YAML read as a mapping ("- Built X: did Y") is kept as its text
+    return [x for x in (_s("; ".join(f"{k}: {t}" for k, t in i.items()) if isinstance(i, dict) else i) for i in v) if x]
 
 
 def _links(v):
@@ -189,7 +193,7 @@ def _entries(kind: str, blocks):
         src = e.pop("_src")
         e.pop("_dated")
         start, end, rest = split_dates(" | ".join(src))
-        fields = {f: "" for f in ENTRY_FIELDS[kind]}
+        fields = {f: "" for f in entry_fields(kind)}
         fields.update(guess_fields(kind, rest) if rest else {})
         fields.update(start=start, end=end)
         out.append({**fields, **e, "_src": src, "_rest": rest})
@@ -223,7 +227,9 @@ def draft(structured: dict) -> dict:
            "_header_rest": c["_header_rest"]}
     for s in structured.get("sections") or []:
         kind, blocks = s["kind"], s["blocks"]
-        sec = {"title": s["title"], "kind": kind}
+        # _lines: the section as written, for the model to rewrite as YAML (see loose_part)
+        sec = {"title": s["title"], "kind": kind,
+               "_lines": [("• " if b["type"] == "bullet" else "") + b["text"] for b in blocks]}
         if kind == "summary":
             sec["text"] = "\n".join(b["text"] for b in blocks if b["type"] != "bullet")
             sec["bullets"] = [b["text"] for b in blocks if b["type"] == "bullet"]
@@ -242,18 +248,88 @@ def draft(structured: dict) -> dict:
 
 
 # ---------------------------------------------------------------- normalize / YAML
+# master_resume.yaml is read loosely, so a hand-edited file or the model's YAML of an upload never loses a line:
+# other names for the usual keys are understood (position -> title, employer -> company, dates -> start/end,
+# responsibilities -> bullets...), a section's kind comes from its title when it has none, any section may hold
+# entries, and every other key of an entry (Technologies, GPA, Tools...) is kept as its own "Label: value" line.
 def _words(s: str):
     return set(re.findall(r"[a-z0-9]+", s.lower()))
+
+
+def _key(k) -> str:
+    return re.sub(r"[\s_-]+", "_", str(k).strip().rstrip(":").strip().lower())
+
+
+def _flat(v) -> str:
+    """One line of text from a value of any shape: a list is joined, a mapping becomes "key: value; ..."."""
+    if v is None:
+        return ""
+    if isinstance(v, dict):
+        return "; ".join(f"{_s(k)}: {t}" for k, t in ((k, _flat(x)) for k, x in v.items()) if t)
+    if isinstance(v, (list, tuple)):
+        parts = [t for t in (_flat(x) for x in v) if t]
+        return ("; " if any(len(p.split()) > 6 for p in parts) else ", ").join(parts)
+    return _s(v)
+
+
+def _as_list(v):
+    if v is None or v == "":
+        return []
+    return list(v) if isinstance(v, (list, tuple)) else [v]
+
+
+_COMMON_KEYS = {
+    "location": ("location", "city", "place"), "start": ("start", "from", "start_date", "started"),
+    "end": ("end", "to", "end_date", "until", "ended"), "dates": ("dates", "date", "duration", "period", "when"),
+    "heading": ("heading",), "description": ("description", "summary", "about", "overview"),
+    "bullets": ("bullets", "responsibilities", "highlights", "achievements", "accomplishments", "details", "points",
+                "duties", "bullet_points"),
+}
+_NAME_KEYS = {  # the two heading fields of each kind; core names of other kinds map here too, so nothing is lost
+    "experience": {"title": ("title", "position", "role", "job_title", "job", "name", "degree"),
+                   "company": ("company", "employer", "organization", "org", "company_name", "firm", "school")},
+    "education": {"degree": ("degree", "qualification", "program", "title", "name"),
+                  "school": ("school", "institution", "university", "college", "company", "organization")},
+    "projects": {"name": ("name", "project", "project_name", "title", "degree"),
+                 "organization": ("organization", "org", "company", "school")},
+}
+_GENERIC_KEYS = {"name": ("name", "title", "certification", "award", "publication", "degree"),
+                 "organization": ("organization", "org", "issuer", "company", "school", "institution", "publisher")}
+
+
+@lru_cache(maxsize=None)
+def _synonyms(kind: str) -> dict:
+    out = {}
+    for canon, names in {**_NAME_KEYS.get(kind, _GENERIC_KEYS), **_COMMON_KEYS}.items():
+        for n in names:
+            out.setdefault(n, canon)
+    return out
+
+
+def _label(k: str) -> str:
+    """How an extra line's key is shown ("Tech. Stack:" -> "Tech Stack"); never the name of a core field."""
+    label = re.sub(r"\s+", " ", str(k).replace(".", " ")).strip().rstrip(":").strip()
+    return label[:1].upper() + label[1:] if label in ENTRY_CORE else label
 
 
 def _entry(kind: str, e) -> dict:
     if not isinstance(e, dict):
         e = {"heading": [e]}
-    fields = ENTRY_FIELDS[kind]
-    o = {f: _s(e.get(f)) for f in fields}
-    if e.get("dates") and not (o["start"] or o["end"]):
-        o["start"], o["end"], _ = split_dates(_s(e["dates"]))
-    heading = _list(e.get("heading"))
+    fields = entry_fields(kind)
+    syn = _synonyms(kind)
+    got, before, after = {}, [], []
+    for k, v in e.items():
+        if str(k).startswith("_"):
+            continue
+        canon = syn.get(_key(k))
+        if canon and canon not in got:
+            got[canon] = v
+        elif _flat(v):  # an extra line, in its place before or after the bullets
+            (after if "bullets" in got else before).append((_label(k), _flat(v)))
+    o = {f: _s(_flat(got.get(f))) for f in fields}
+    if got.get("dates") and not (o["start"] or o["end"]):
+        o["start"], o["end"], _ = split_dates(_flat(got["dates"]))
+    heading = _list(got.get("heading"))
     src = _list(e.get("_src"))
     if not heading and src:
         covered = set().union(*(_words(v) for v in o.values()))
@@ -261,47 +337,112 @@ def _entry(kind: str, e) -> dict:
         if (_words(" ".join(src)) - covered - _STOP) or not (o[fields[0]] or o[fields[1]]):
             heading = src
     o["heading"] = heading
-    o["description"] = _ml(e.get("description"))
-    o["bullets"] = _list(e.get("bullets"))
+    o["description"] = _ml(_flat(got.get("description")) if not isinstance(got.get("description"), str)
+                           else got.get("description"))
+    for label, text in before:
+        o.setdefault(label, text)
+    o["bullets"] = _list(got.get("bullets"))
+    for label, text in after:
+        o.setdefault(label, text)
     return o
+
+
+def _groups(v) -> list:
+    """Skill groups from a list of {name, items}, "Name: a, b" lines, or a {name: items} mapping."""
+    if isinstance(v, dict):
+        v = [{"name": k, "items": x} for k, x in v.items()]
+    out = []
+    for g in _as_list(v):
+        if isinstance(g, dict) and not ({"name", "items"} & set(g)):
+            out += _groups({k: x for k, x in g.items()})
+            continue
+        if isinstance(g, dict):
+            name, items = _s(g.get("name")), g.get("items")
+        else:
+            m = re.match(r"^([^:]{1,40}):\s*(.+)$", _s(g))
+            name, items = (m.group(1).strip(), m.group(2)) if m else ("", _s(g))
+        items = [i for x in _as_list(items) for i in (split_items(x) if isinstance(x, str) else [_flat(x)])
+                 if i] if isinstance(items, (str, list, tuple)) else _list(items)
+        if items:
+            out.append({"name": name, "items": items})
+    return out
+
+
+def _section(sec: dict) -> dict:
+    keys = {_key(k): v for k, v in sec.items() if not str(k).startswith("_")}
+    title = _s(keys.get("title"))
+    kind = keys.get("kind") if keys.get("kind") in KINDS else section_kind(title)
+    o = {"title": title or kind.title(), "kind": kind}
+
+    def pick(*names):
+        return next((keys[n] for n in names if keys.get(n) not in (None, "", [], {})), None)
+
+    if kind == "summary":
+        text = pick("text", "summary", "paragraph", "content", "description", "about", "profile")
+        o["text"] = _ml("\n".join(_flat(t) for t in _as_list(text)))
+        o["bullets"] = _list(pick("bullets", "highlights", "points", "items"))
+    elif kind == "skills":
+        o["groups"] = _groups(pick("groups", "categories", "entries"))
+        o["lines"] = _list(pick("lines", "text"))
+        flat = pick("items", "skills", "list")
+        if flat:
+            o["groups"] += _groups([{"name": "", "items": flat}])
+    elif kind in ENTRY_KINDS:
+        raw = pick("entries", "jobs", "positions", "roles", "schools", "degrees", "projects", "items")
+        o["entries"] = [_entry(kind, e) for e in _as_list(raw)]
+    else:
+        entries = [_entry(kind, e) for e in _as_list(pick("entries")) if isinstance(e, dict)]
+        lines = []
+        for it in _as_list(pick("items", "list", "lines", "text", "certifications", "awards")):
+            if isinstance(it, dict):
+                entries.append(_entry(kind, it))
+            else:
+                lines.append(it)
+        if entries:
+            o["entries"] = entries
+        o["items"] = _list(lines)
+        o["style"] = "bullets" if keys.get("style") == "bullets" else "lines"
+    return o
+
+
+def _sections_list(sections) -> list:
+    """sections as a list; a mapping {title: content} (a loosely written file) is turned into one."""
+    if not isinstance(sections, dict):
+        return sections
+    out = []
+    for title, body in sections.items():
+        if isinstance(body, dict):
+            out.append({"title": title, **body})
+        elif isinstance(body, list):
+            out.append({"title": title, ("entries" if body and all(isinstance(x, dict) for x in body) else "items"): body})
+        else:
+            out.append({"title": title, "text": body})
+    return out
 
 
 def normalize(data) -> dict:
     if not isinstance(data, dict):
         raise ValueError("master_resume.yaml must be a mapping with name, contact and sections")
-    c = data.get("contact") if isinstance(data.get("contact"), dict) else {}
-    out = {"name": _s(data.get("name")), "headline": _s(data.get("headline")),
-           "contact": {"email": _s(c.get("email")), "phone": _s(c.get("phone")), "location": _s(c.get("location")),
-                       "links": _links(c.get("links")), "other": _list(c.get("other"))},
+    top = {_key(k): v for k, v in data.items()}
+    c = {_key(k): v for k, v in (top.get("contact") if isinstance(top.get("contact"), dict) else {}).items()}
+
+    def get(name):  # a contact field, inside contact: or (loosely) at the top
+        return c.get(name) if c.get(name) not in (None, "") else top.get(name)
+
+    links = _links(c.get("links") or top.get("links"))
+    for name in ("linkedin", "github", "website", "portfolio"):
+        if _s(get(name)) and _s(get(name)) not in links:
+            links.append(_s(get(name)))
+    out = {"name": _s(top.get("name")), "headline": _s(top.get("headline") or top.get("tagline")),
+           "contact": {"email": _s(get("email")), "phone": _s(get("phone")), "location": _s(get("location")),
+                       "links": links, "other": _list(c.get("other"))},
            "sections": []}
-    sections = data.get("sections") or []
+    sections = _sections_list(top.get("sections") or [])
     if not isinstance(sections, list):
         raise ValueError("'sections' must be a list")
     for sec in sections:
-        if not isinstance(sec, dict):
-            continue
-        kind = sec.get("kind") if sec.get("kind") in KINDS else "other"
-        o = {"title": _s(sec.get("title")) or kind.title(), "kind": kind}
-        if kind == "summary":
-            o["text"] = _ml(sec.get("text"))
-            o["bullets"] = _list(sec.get("bullets"))
-        elif kind == "skills":
-            o["groups"] = []
-            for g in sec.get("groups") or []:
-                if isinstance(g, dict):
-                    items = g.get("items")
-                    items = split_items(items) if isinstance(items, str) else _list(items)
-                    if items:
-                        o["groups"].append({"name": _s(g.get("name")), "items": items})
-                elif _s(g):
-                    o["groups"].append({"name": "", "items": split_items(_s(g))})
-            o["lines"] = _list(sec.get("lines"))
-        elif kind in ENTRY_KINDS:
-            o["entries"] = [_entry(kind, e) for e in sec.get("entries") or []]
-        else:
-            o["items"] = _list(sec.get("items"))
-            o["style"] = "bullets" if sec.get("style") == "bullets" else "lines"
-        out["sections"].append(o)
+        if isinstance(sec, dict):
+            out["sections"].append(_section(sec))
     if not out["name"] and not out["sections"]:
         raise ValueError("No name and no sections found")
     return out
@@ -340,6 +481,7 @@ HEADER = """\
 #     url: https://example.com
 # experience entries: title, company, location, start, end, description, bullets
 # education entries:  degree, school, location, start, end, description, bullets
+# Any other line of an entry (Technologies: ..., GPA: ...) is kept and printed as "Label: value".
 # heading: when an entry has one, those lines are printed exactly as written instead of the fields above.
 """
 
@@ -364,6 +506,191 @@ def parse_yaml(text: str) -> dict:
         where = f" on line {mark.line + 1}" if mark else ""
         raise ValueError(f"YAML error{where}: {getattr(e, 'problem', None) or e}") from None
     return normalize(raw)
+
+
+# ---------------------------------------------------------------- the model's YAML for one part of an upload
+# The model rewrites each section (or, for a long one, each job) of an uploaded resume as loose YAML. Its YAML is
+# only used when every value in it can be found in that part of the resume (a typo is put back to your own wording)
+# and it leaves out almost nothing; otherwise the rule-based parse of that part is kept.
+_FENCE = re.compile(r"^\s*```[A-Za-z]*[ \t]*\n?|\n?[ \t]*```\s*$")
+_TOKEN = re.compile(r"[A-Za-z0-9+#%$&]+")
+_PLAIN = re.compile(r"^(\s*(?:-\s+)?)([A-Za-z][\w .&/()'-]{0,40}):[ \t]+(.+?)\s*$")
+_ITEM = re.compile(r"^(\s*-\s+)(.+?)\s*$")
+_FILLER = {"and", "the", "of", "in", "for", "to", "a", "an", "with", "at", "on", "by", "or", "as", "from"}
+
+
+def _quote_values(text: str) -> str:
+    """Second try at the model's YAML: quote plain values (a bullet with ": " in it breaks YAML)."""
+    out = []
+    for line in text.split("\n"):
+        m = _PLAIN.match(line)
+        if m and m.group(3)[0] not in "\"'[{|>":
+            line = f"{m.group(1)}{m.group(2)}: {json.dumps(m.group(3), ensure_ascii=False)}"
+        elif (m := _ITEM.match(line)) and m.group(2)[0] not in "\"'[{" and not _PLAIN.match(m.group(2)):
+            line = f"{m.group(1)}{json.dumps(m.group(2), ensure_ascii=False)}"
+        out.append(line)
+    return "\n".join(out)
+
+
+def _model_yaml(text: str):
+    t = _FENCE.sub("", (text or "").strip()).strip()
+    if not t:
+        raise ValueError("the model wrote nothing")
+    for attempt in (t, _quote_values(t)):
+        try:
+            return yaml.safe_load(attempt)
+        except yaml.YAMLError:
+            continue
+    raise ValueError("the model's YAML could not be read")
+
+
+class _Source:
+    """The text of one part of the uploaded resume, to find the model's values in."""
+
+    def __init__(self, lines):
+        self.lines = [x for x in (re.sub(r"^\s*[•●▪◦‣∙·■]\s*", "", str(line or "")).strip() for line in lines) if x]
+        self.text = "\n".join(self.lines)
+        self.norm = " " + " ".join(t.lower() for t in _TOKEN.findall(self.text)) + " "
+
+    def has(self, words: str) -> bool:
+        toks = [t.lower() for t in _TOKEN.findall(words)]
+        return bool(toks) and f" {' '.join(toks)} " in self.norm
+
+    def find(self, value: str):
+        """Your own wording of `value`: the same words in the resume (any case or punctuation between them), or the
+        closest stretch of one line when the model mistyped a little. None when it isn't in the resume."""
+        toks = _TOKEN.findall(value)
+        if not toks:
+            return None
+        rx = (r"(?<![A-Za-z0-9+#%$&])" + r"[^A-Za-z0-9+#%$&]{1,6}".join(map(re.escape, toks))
+              + r"(?![A-Za-z0-9+#%$&])")
+        m = re.search(rx, self.text, re.I)
+        if m:
+            span = self.text[m.start():m.end()] + self._tail(self.text, m.end(), value)
+            return re.sub(r"\s*\n\s*", " ", span)
+        return self._closest(toks, value)
+
+    @staticmethod
+    def _tail(text, end, value) -> str:
+        """The closing punctuation after a match ("35%." / "(EMR)"), when it ends the line or the value had it."""
+        tail = re.match(r"[.%)!?\]]+", text[end:])
+        if not tail:
+            return ""
+        after = end + len(tail.group(0))
+        return tail.group(0) if after == len(text) or text[after] == "\n" or value.rstrip()[-1:] in tail.group(0) else ""
+
+    def _closest(self, toks, value):
+        want = " ".join(t.lower() for t in toks)
+        n = len(toks)
+        best, best_ratio = None, 0.0
+        for line in self.lines:
+            words = list(_TOKEN.finditer(line))
+            low = [w.group(0).lower() for w in words]
+            for size in sorted({max(1, n - 1), n, n + 1}):
+                for i in range(max(1, len(words) - size + 1)):
+                    cand = " ".join(low[i:i + size])
+                    sm = SequenceMatcher(None, want, cand)
+                    if sm.real_quick_ratio() < 0.88 or sm.quick_ratio() < 0.88:
+                        continue
+                    r = sm.ratio()
+                    if r > best_ratio:
+                        end = words[min(i + size, len(words)) - 1].end()
+                        best_ratio, best = r, line[words[i].start():end] + self._tail(line, end, value)
+        return best if best_ratio >= 0.88 else None
+
+
+def _snap(part, src: _Source, section_level: bool):
+    """Put every value of `part` back into the resume's own wording. Returns the values that aren't in it."""
+    bad = []
+
+    def fix(v):
+        if not isinstance(v, str) or not v.strip():
+            return v
+        lines = [x for x in v.split("\n") if x.strip()]
+        got = [src.find(x) for x in lines]
+        bad.extend(x for x, g in zip(lines, got) if g is None)
+        return "\n".join(g or x for x, g in zip(lines, got))
+
+    def entry(e):
+        for k, v in list(e.items()):
+            if isinstance(v, list):
+                e[k] = [fix(x) for x in v]
+            elif is_extra(k, v):
+                if not src.has(k):
+                    bad.append(f"{k}:")
+                e[k] = fix(v)
+            elif isinstance(v, str):
+                e[k] = fix(v)
+
+    if not section_level:
+        entry(part)
+        return bad
+    for k in ("text", "bullets", "items", "lines"):
+        if isinstance(part.get(k), list):
+            part[k] = [fix(x) for x in part[k]]
+        elif isinstance(part.get(k), str):
+            part[k] = fix(part[k])
+    for g in part.get("groups") or []:
+        if g["name"] and not src.has(g["name"]):
+            g["name"] = ""  # a group name the resume doesn't use is left out, never made up
+        g["items"] = [fix(x) for x in g["items"]]
+    for e in part.get("entries") or []:
+        entry(e)
+    return bad
+
+
+def _strings(v, skip=()):
+    if isinstance(v, dict):
+        for k, x in v.items():
+            if k not in skip:
+                yield str(k)
+                yield from _strings(x)
+    elif isinstance(v, list):
+        for x in v:
+            yield from _strings(x)
+    elif isinstance(v, str):
+        yield v
+
+
+def _content_words(text: str) -> set:
+    return {w for w in (t.lower() for t in _TOKEN.findall(text)) if len(w) > 1 and w not in _FILLER}
+
+
+def loose_part(kind: str, title: str, scope: str, source, text: str, src=()) -> dict:
+    """The section (scope "section") or entry (scope "entry", `src` = its heading lines) the model wrote as YAML in
+    `text`, normalized and in your own wording. ValueError (the reason) when it can't be used."""
+    kind = kind if kind in KINDS else "other"
+    data = _model_yaml(text)
+    if scope == "entry":
+        if isinstance(data, dict) and isinstance(data.get("entries"), list) and len(data["entries"]) == 1:
+            data = data["entries"][0]
+        if isinstance(data, list) and len(data) == 1:
+            data = data[0]
+        if not isinstance(data, dict):
+            raise ValueError("the model's YAML is not one entry")
+        part = _entry(kind, {**data, "_src": list(src or [])})
+    else:
+        if isinstance(data, list):
+            data = {"entries" if data and all(isinstance(x, dict) for x in data) else "items": data}
+        elif isinstance(data, str):
+            data = {"text": data}
+        elif not isinstance(data, dict):
+            raise ValueError("the model's YAML is not a section")
+        keys = {_key(k) for k in data}
+        if kind in ENTRY_KINDS and not keys & {"entries", "jobs", "positions", "roles", "schools", "degrees",
+                                               "projects", "items"}:
+            data = {"entries": [data]}  # one job written without "entries:"
+        data = {k: v for k, v in data.items() if _key(k) not in ("title", "kind")}
+        part = _section({**data, "title": title, "kind": kind})
+    where = _Source(source)
+    bad = _snap(part, where, scope != "entry")
+    if bad:
+        raise ValueError(f"adds text that is not in your resume (“{bad[0][:50]}”)")
+    written = " ".join(_strings(part, () if scope == "entry" else ("title", "kind", "style")))
+    left = _content_words(where.text) - _content_words(written)
+    if where.text and len(left) > 0.1 * len(_content_words(where.text)):
+        raise ValueError(f"left out part of it ({', '.join(sorted(left)[:4])}…)")
+    return part
 
 
 # ---------------------------------------------------------------- file <-> database

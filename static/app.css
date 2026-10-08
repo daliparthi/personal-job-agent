@@ -176,6 +176,7 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .paper h2 { font-size: 13px; letter-spacing: .06em; border-bottom: 1.5px solid var(--ink); margin: 16px 0 6px; padding-bottom: 2px; }
 .paper p { margin: 0 0 4px; }
 .paper p.role { font-weight: 600; margin-top: 8px; }
+.paper p.extra { margin: 2px 0 4px; }
 .paper ul { margin: 0 0 4px 18px; padding: 0; }
 .paper li { margin-bottom: 3px; }
 .paper [contenteditable="true"] { outline: none; border-radius: 3px; }

@@ -128,16 +128,24 @@ options: `--port 8800`, `--no-browser`.
 When you upload a resume:
 
 1. Job Agent reads the file and makes a rule-based first draft (sections, jobs, bullets, dates, email/phone/links).
-2. **The local model** reads the top of your resume (name, headline, location) and every job and education heading,
-   and splits them into fields — `title`, `company`, `location`, `degree`, `school`. You watch the YAML fill in live.
-3. **Bullets and the summary are copied word for word** — the model never retypes them. Every value the model returns
-   must appear in the text it came from (otherwise the rule-based guess is kept), so it cannot invent anything; if
-   its fields would drop words from a heading, the heading is kept exactly as written.
+2. **The model** (the bundled one, or the engine chosen in Settings) reads the top of your resume (name, headline,
+   location), then writes **every section as loose YAML** — a long work-experience section job by job. It uses the
+   usual fields where they fit (`title`, `company`, `location`, `start`, `end`, `bullets`, skill `groups`, `items`…)
+   and keeps **any other labelled line as a field of its own** (`Technologies: …`, `Environment: …`, `GPA: …`), so
+   nothing is squeezed into the wrong place or dropped. You watch the YAML being written live.
+3. **It cannot invent anything.** A part is used only when every value in it is found in that part of your resume
+   (a small typo is put back to your own wording, and a skill-group name your resume doesn't use is left out) and it
+   leaves out almost nothing. Otherwise that part keeps the rule-based draft, and the model only splits its job and
+   education headings into fields. The status line says which parts kept the draft and why.
 4. You review the YAML (and can edit it), then **Save master resume**.
 
 Later: **Master tab → Edit YAML**, or edit the file in any text editor — Job Agent notices and re-scores. A YAML
-mistake is reported with its line number and the last good copy stays in use. On a CPU the build takes about 30–40
-seconds for a two-page resume; **Skip AI, use quick parse** uses the rule-based draft only.
+mistake is reported with its line number and the last good copy stays in use. The file is read loosely: other
+names for the usual keys work (`position`, `employer`, `dates: 2019 - 2021`, `responsibilities`…), a section without
+a `kind` gets one from its title, any section can hold `entries`, and every extra field of an entry is shown (bold
+label) in the Master and Tailored views and in the DOCX / PDF, and counts toward the match score. With the bundled
+model on a CPU the build takes a few minutes for a two-page resume (under a minute on a GPU or an external engine);
+**Skip AI, use quick parse** uses the rule-based draft only.
 
 ```yaml
 name: Jordan Avery
@@ -156,6 +164,7 @@ sections:
         end: Present
         bullets:
           - Designed Spark and Airflow pipelines that ...
+        Technologies: Spark, Airflow, Snowflake   # any other field is kept and printed as "Technologies: ..."
 ```
 
 ## The match score

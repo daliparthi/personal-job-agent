@@ -43,6 +43,15 @@ def _clean(s):
     return re.sub(r"\s+", " ", (s or "").replace("\xa0", " ")).strip()
 
 
+def section_kind(title: str) -> str:
+    """The kind of a section from its title ("Technical Skills" -> skills); "other" when it names none."""
+    low = re.sub(r"[:#*_]+$|^[#*_]+", "", (title or "").strip()).strip().lower().replace("&amp;", "&")
+    if low in _HEADINGS:
+        return _HEADINGS[low]
+    best = max((w for w in _HEADINGS if re.search(rf"\b{re.escape(w)}\b", low)), key=len, default=None)
+    return _HEADINGS[best] if best else "other"
+
+
 def _heading_kind(line: str):
     t = re.sub(r"[:#*_]+$|^[#*_]+", "", line.strip()).strip()
     low = t.lower().replace("&amp;", "&")
@@ -185,6 +194,24 @@ ENTRY_FIELDS = {  # the first two make the bold part of an entry's heading line
     "education": ("degree", "school", "location", "start", "end"),
     "projects": ("name", "organization", "location", "start", "end"),
 }
+# Entries in any other section (a certification, an award, a publication) use these.
+GENERIC_FIELDS = ("name", "organization", "location", "start", "end")
+# Every other key of an entry ("Technologies", "GPA", "Tools"...) is an extra line, printed as "Label: value".
+ENTRY_CORE = {"title", "company", "degree", "school", "name", "organization", "location", "start", "end", "heading",
+              "description", "bullets"}
+
+
+def entry_fields(kind: str):
+    return ENTRY_FIELDS.get(kind, GENERIC_FIELDS)
+
+
+def is_extra(key, value) -> bool:
+    return key not in ENTRY_CORE and not str(key).startswith("_") and isinstance(value, str) and bool(value.strip())
+
+
+def entry_extras(e: dict):
+    """[(label, text)] of an entry's extra lines, in their order."""
+    return [(k, v) for k, v in (e or {}).items() if is_extra(k, v)]
 
 
 def split_items(text: str):
@@ -218,7 +245,7 @@ def entry_heading(kind: str, e: dict):
     """[(bold part, rest)] lines for an entry's heading."""
     if e.get("heading"):
         return [(line, "") for line in e["heading"]]
-    f = ENTRY_FIELDS[kind]
+    f = entry_fields(kind)
     main = " — ".join(x for x in (e.get(f[0]), e.get(f[1])) if x)
     meta = " | ".join(x for x in (e.get("location"), entry_dates(e)) if x)
     return [(main, meta)] if main or meta else []
@@ -294,15 +321,20 @@ def layout(res: dict):
         elif kind == "skills":
             body += [("skill", group_text(g), g.get("name") or "") for g in s.get("groups") or []]
             body += [("p", t) for t in s.get("lines") or []]
-        elif kind in ENTRY_KINDS:
+        else:
+            # Any section may hold entries; extra lines ("Technologies: ...") keep their place around the bullets.
             for e in s.get("entries") or []:
                 body += [("role", main, meta) for main, meta in entry_heading(kind, e)]
                 if e.get("description"):
                     body.append(("p", e["description"]))
-                body += [("bullet", b) for b in e.get("bullets") or []]
-        else:
-            style = "bullet" if s.get("style") == "bullets" else "p"
-            body += [(style, t) for t in s.get("items") or []]
+                for k, v in e.items():
+                    if k == "bullets":
+                        body += [("bullet", b) for b in v or []]
+                    elif is_extra(k, v):
+                        body.append(("skill", f"{k}: {v}", k))
+            if kind not in ENTRY_KINDS:
+                style = "bullet" if s.get("style") == "bullets" else "p"
+                body += [(style, t) for t in s.get("items") or []]
         if body:
             items.append(("h2", (s.get("title") or kind or "").upper()))
             items += body

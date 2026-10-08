@@ -753,7 +753,7 @@ async function onResumeFile(file) {
   const { draft, filename } = parsed;
   const dlg = yamlDialog("build");
   const live = $("#yaml-live"), status = $("#yaml-status");
-  $("#yaml-intro").innerHTML = `The local model reads the top of <b>${esc(filename)}</b> and each job and education heading, and splits them into fields. Bullets and your summary are copied word for word, and every field it fills must appear in your resume text, so it can't invent anything.`;
+  $("#yaml-intro").innerHTML = `The model reads each part of <b>${esc(filename)}</b> and writes it as YAML: the usual fields where they fit, and any other labelled line (like “Technologies:”) as a field of its own. A part is used only when every value in it is in your resume (a small typo is put back to your own wording) and nothing is left out; otherwise it keeps the quick parse. So it can't invent anything.`;
   const abort = new AbortController();
   const show = (task) => {
     live.innerHTML = yamlHtml(draft, task?.target, task?.live);
@@ -773,17 +773,18 @@ async function onResumeFile(file) {
   if (!dlg.open) return;
   if (llm.state === "ready" && !abort.signal.aborted) {
     const r = await refineWithModel({
-      llm, draft, signal: abort.signal, ui: {
+      llm, draft, signal: abort.signal, check: (body) => api("/api/resume/loose", { method: "POST", body }), ui: {
         onStatus: (t) => { status.innerHTML = `<span class="dot"></span>${esc(t)} <span class="hint" id="yaml-rate"></span>`; },
         onTokens: (n) => { const el = $("#yaml-rate"); if (el) el.textContent = `${n} tokens · ${llm.label}`; },
         onUpdate: show,
       },
     });
     if (!dlg.open) return;
-    if (r.done) how = `fields split by ${llm.backend === "remote" ? llm.label : `Qwen2.5-0.5B, ${llm.label}`}`;
+    if (r.done) how = `read as YAML by ${llm.backend === "remote" ? llm.label : `Qwen2.5-0.5B, ${llm.label}`}`;
+    const keptNote = r.kept.length ? ` ${r.kept.length} part(s) kept the quick parse (${r.kept[0]}${r.kept.length > 1 ? "; …" : ""}).` : "";
     status.textContent = abort.signal.aborted
-      ? "Stopped. The rest uses the quick rule-based parse."
-      : `Done in ${Math.round((performance.now() - started) / 1000)}s. The model filled ${r.used} field(s) from ${r.done} part(s) of your resume.`;
+      ? `Stopped. The rest uses the quick rule-based parse.${keptNote}`
+      : `Done in ${Math.round((performance.now() - started) / 1000)}s. The model wrote ${r.parts} part(s) of your resume as YAML${r.used ? ` and filled ${r.used} heading field(s)` : ""}.${keptNote}`;
   } else {
     status.textContent = llm.state === "ready" ? "Skipped the model: this is the quick rule-based parse."
       : `The model is unavailable (${llm.label || "not loaded"}), so this is the quick rule-based parse.`;

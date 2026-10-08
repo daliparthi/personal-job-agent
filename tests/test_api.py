@@ -119,6 +119,78 @@ def test_resume_errors(client):
     assert client.put("/api/resume", json={"yaml": "name: [oops"}).status_code == 400
 
 
+def test_parse_draft_carries_each_sections_lines_for_the_model(client):
+    r = client.post("/api/resume/parse", files={"file": (SAMPLE_RESUME.name, SAMPLE_RESUME.read_bytes(), "text/plain")})
+    exp = next(s for s in r.json()["draft"]["sections"] if s["kind"] == "experience")
+    assert exp["_lines"][0].startswith("Senior Data Engineer, Northwind Analytics")
+    assert exp["_lines"][1].startswith("• Designed Spark and Airflow pipelines")
+
+
+JOB_LINES = ["Senior Data Engineer, Northwind Analytics | Austin, TX | 2021 - Present",
+             "• Designed Spark and Airflow pipelines that process 3 TB of data per day.",
+             "• Migrated a legacy warehouse to Snowflake, cutting cost by 35%.",
+             "Technologies: Spark, Airflow, Snowflake"]
+JOB_YAML = """```yaml
+title: Senior Data Engineer
+company: Northwind Analytics
+location: Austin, TX
+start: 2021
+end: Present
+bullets:
+  - Designed Spark and Airflow pipelines that proces 3 TB of data per day
+  - migrated a legacy warehouse to Snowflake, cutting cost by 35%
+Technologies: Spark, Airflow, Snowflake
+```"""
+
+
+def _loose(client, yaml_text, scope="entry", kind="experience", source=JOB_LINES, src=JOB_LINES[:1]):
+    return client.post("/api/resume/loose", json={"kind": kind, "title": "Experience", "scope": scope,
+                                                  "source": source, "src": src, "yaml": yaml_text}).json()
+
+
+def test_loose_part_is_put_back_into_your_own_wording(client):
+    r = _loose(client, JOB_YAML)
+    assert r["ok"], r
+    e = r["part"]
+    assert (e["title"], e["company"], e["location"], e["start"], e["end"]) == (
+        "Senior Data Engineer", "Northwind Analytics", "Austin, TX", "2021", "Present")
+    assert e["bullets"] == [JOB_LINES[1][2:], JOB_LINES[2][2:]]  # the typo and the lost capital and period are fixed
+    assert e["Technologies"] == "Spark, Airflow, Snowflake"
+    assert e["heading"] == []  # the fields hold every word of the heading
+
+
+def test_loose_part_that_adds_or_drops_text_is_not_used(client):
+    invented = JOB_YAML.replace("Technologies:", "  - Led a team of 8 engineers to rebuild the platform.\nTechnologies:")
+    assert _loose(client, invented) == {"ok": False, "reason": _loose(client, invented)["reason"]}
+    assert "not in your resume" in _loose(client, invented)["reason"]
+    dropped = "\n".join(line for line in JOB_YAML.split("\n") if "Migrated" not in line.title() and "Technologies" not in line)
+    r = _loose(client, dropped)
+    assert not r["ok"] and r["reason"].startswith("left out part of it")
+    assert not _loose(client, "")["ok"]
+    assert "could not be read" in _loose(client, "title: [unclosed")["reason"]
+
+
+def test_loose_section_splits_lines_and_quotes_broken_yaml(client):
+    certs = ["AWS Certified Developer – Associate, SnowPro Core Certification"]
+    r = _loose(client, "items:\n  - AWS Certified Developer – Associate\n  - SnowPro Core Certification\n",
+               scope="section", kind="certifications", source=certs, src=[])
+    assert r["ok"] and r["part"]["items"] == ["AWS Certified Developer – Associate", "SnowPro Core Certification"]
+    skills = ["Languages: Python, SQL, Bash", "AWS (S3, EMR), Docker"]
+    r = _loose(client, "groups:\n  - name: Languages\n    items: Python, SQL, Bash\n"
+                       "  - name: Programming\n    items: AWS (S3, EMR), Docker\n",
+               scope="section", kind="skills", source=skills, src=[])
+    assert r["ok"], r
+    assert r["part"]["groups"] == [{"name": "Languages", "items": ["Python", "SQL", "Bash"]},
+                                   {"name": "", "items": ["AWS (S3, EMR)", "Docker"]}]  # a made-up name is left out
+    job = ["Data Engineer: Platform, Contoso | 2018 - 2021", "• Built ETL jobs: nightly loads."]
+    r = _loose(client, "entries:\n  - title: Data Engineer: Platform\n    company: Contoso\n    start: 2018\n"
+                       "    end: 2021\n    bullets:\n      - Built ETL jobs: nightly loads.\n",
+               scope="section", source=job, src=[])
+    assert r["ok"], r
+    e = r["part"]["entries"][0]
+    assert e["title"] == "Data Engineer: Platform" and e["bullets"] == ["Built ETL jobs: nightly loads."]
+
+
 # ---------------------------------------------------------------- jobs, tailoring, packaging
 def test_job_lifecycle(client, fake_pdf):
     db.upsert_job(make_job())

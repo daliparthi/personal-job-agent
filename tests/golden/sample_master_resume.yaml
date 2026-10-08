@@ -8,6 +8,7 @@
 #     url: https://example.com
 # experience entries: title, company, location, start, end, description, bullets
 # education entries:  degree, school, location, start, end, description, bullets
+# Any other line of an entry (Technologies: ..., GPA: ...) is kept and printed as "Label: value".
 # heading: when an entry has one, those lines are printed exactly as written instead of the fields above.
 
 name: Jordan Avery

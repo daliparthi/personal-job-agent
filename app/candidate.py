@@ -13,6 +13,7 @@ from datetime import date
 
 from .jobparse import degree_level, seniority_level
 from .lexicon import ENTRIES
+from .resume_io import entry_extras
 from .scoring import has_any
 
 _MONTHS = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov",
@@ -65,7 +66,8 @@ def _merged_months(spans) -> int:
 
 def _entry_text(e) -> str:
     return "\n".join([e.get("title") or "", e.get("company") or "", e.get("description") or "",
-                      *(e.get("heading") or []), *(e.get("bullets") or [])])
+                      *(e.get("heading") or []), *(e.get("bullets") or []),
+                      *(f"{k}: {v}" for k, v in entry_extras(e))])  # "Technologies: Snowflake, dbt" counts too
 
 
 def _entries(master, kind):
