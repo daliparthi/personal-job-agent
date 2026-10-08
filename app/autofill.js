@@ -313,7 +313,10 @@
   }
 
   /** Workday's "Type to Add Skills" box: type each skill of the tailored resume, press Enter and pick the suggestion
-   *  that is that skill (never a different one). A few per pass; a skill Workday doesn't list is skipped. */
+   *  that is that skill (never a different one). A few per pass; a skill Workday doesn't list is skipped.
+   *  Workday keeps the last search's list on screen until the new one arrives, and redraws it as results come in, so
+   *  a suggestion is picked only from this search's settled list, and the pick is checked (and made again on the
+   *  redrawn list) until the skill shows as selected. */
   const skillsTried = new Set();
   const MAX_SKILLS = 30, SKILLS_PER_TICK = 6;
   /** The suggestion that is this skill: exact, else one that starts with it ("Python (Programming Language)"), else one
@@ -330,6 +333,56 @@
       || shortest(opts.filter((o) => whole.test(text(o))));
   }
 
+  const skillOptions = () => [...document.querySelectorAll(C.skillOption)].filter(visible);
+  const optionsKey = (opts) => opts.map((o) => norm(o.innerText)).join("\n");
+  // Selected skills show as chips, in the field and in the open list (which Workday draws outside the field).
+  const skillChips = () => [...document.querySelectorAll('[data-automation-id="selectedItem"], [data-automation-id="selectedItemList"] li')];
+  const chipNamed = (name) => skillChips().some((c) => norm(c.innerText) === name || norm(c.innerText).startsWith(`${name} `));
+
+  /** Type into the skills box the way a person does: no change / blur events (those close Workday's list). */
+  function typeSkill(input, text) {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, text);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  function pressEnter(input) {
+    for (const type of ["keydown", "keypress", "keyup"]) {
+      input.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+    }
+  }
+
+  /** The suggestion for `skill` in this search's list: the list showing before the search (`before`, the last skill's)
+   *  has been replaced, or a few seconds have passed, and it looked the same twice in a row. null when none fits. */
+  async function settledSkillOption(skill, before) {
+    let last = null;
+    for (let i = 0; i < 30; i++) {  // Workday's search can take a few seconds
+      await sleep(200);
+      const opts = skillOptions();
+      const key = optionsKey(opts);
+      const fresh = key !== before.key || before.nodes.every((o) => !o.isConnected || !visible(o)) || i >= 12;
+      if (opts.length && fresh && key === last) return bestSkillOption(opts, skill);
+      last = key;
+    }
+    return null;
+  }
+
+  /** Is the suggestion named `name` selected? true / false when the page shows it (a chip, or the row's checkbox),
+   *  null when it can't be told (then it is not clicked again, which could unselect it). */
+  function skillSelected(name) {
+    if (chipNamed(name)) return true;
+    const row = skillOptions().map((o) => o.closest('[role="option"]') || o).find((r) => norm(r.innerText) === name);
+    const box = row && row.querySelector('input[type="checkbox"], [role="checkbox"], [aria-checked]');
+    if (!box) return null;
+    return box.checked === true || box.getAttribute("aria-checked") === "true";
+  }
+
+  /** What to click on a suggestion: the row it was found by first, then its checkbox, its label, the row itself. */
+  function optionTargets(o) {
+    const row = o.closest('[role="option"]') || o;
+    return [...new Set([o, row.querySelector('input[type="checkbox"], [role="checkbox"]'),
+      row.querySelector('[data-automation-id="promptOption"]'), row].filter(Boolean))];
+  }
+
   async function fillSkills() {
     const skills = ((setup.history || {}).skills || []).slice(0, MAX_SKILLS);
     const todo = skills.filter((s) => !skillsTried.has(norm(s)));
@@ -337,24 +390,36 @@
     const input = [...document.querySelectorAll(TEXT_SEL)]
       .find((el) => el.tagName === "INPUT" && visible(el) && !el.disabled && !el.readOnly && !touched.has(el) && C.skills.test(describe(el)));
     if (!input) return;
-    const section = input.closest('[data-automation-id*="kills"], [role="group"], fieldset') || input.parentElement;
     for (const skill of todo.slice(0, SKILLS_PER_TICK)) {
       skillsTried.add(norm(skill));
-      const chips = [...section.querySelectorAll('[data-automation-id="selectedItem"], [data-automation-id="selectedItemList"] li')];
-      if (chips.some((c) => norm(c.innerText) === norm(skill))) continue;  // already added
-      setNativeValue(input, skill);
-      for (const type of ["keydown", "keypress", "keyup"]) {
-        input.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+      if (chipNamed(norm(skill))) continue;  // already added
+      const showing = skillOptions();
+      const before = { key: optionsKey(showing), nodes: showing };
+      typeSkill(input, skill);
+      pressEnter(input);
+      let hit = await settledSkillOption(skill, before);
+      if (!hit) { typeSkill(input, ""); continue; }
+      const name = norm(hit.innerText);
+      let picked = false;
+      for (let attempt = 0; attempt < 3 && !picked; attempt++) {
+        if (attempt) {  // the list was redrawn under the click: pick it again from the list as it is now
+          hit = bestSkillOption(skillOptions(), skill);
+          if (!hit || norm(hit.innerText) !== name) break;
+        }
+        const targets = optionTargets(hit);
+        if (!safeClick(targets[Math.min(attempt, targets.length - 1)], "option")) break;
+        let state = null;
+        for (let i = 0; i < 10; i++) {
+          await sleep(150);
+          state = skillSelected(name);
+          if (state) break;
+        }
+        picked = state !== false;  // can't tell: trust the click rather than risk unselecting it
       }
-      let hit = null;
-      for (let i = 0; i < 24 && !hit; i++) {  // Workday's search can take a few seconds
-        await sleep(200);
-        hit = bestSkillOption([...document.querySelectorAll(C.skillOption)].filter(visible), skill);
-      }
-      if (hit && safeClick(hit, "option")) filled++;
-      else setNativeValue(input, "");
+      if (picked) filled++;
       await sleep(200);
     }
+    if (input.value) typeSkill(input, "");  // leave nothing typed in the box
   }
 
   const inHistory = (el) => groupsMatching(C.exp.entry).concat(groupsMatching(C.edu.entry)).some((g) => g.contains(el));

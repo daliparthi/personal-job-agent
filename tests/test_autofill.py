@@ -407,6 +407,18 @@ def test_skills_are_typed_in_and_picked_from_workdays_suggestions():
     assert not db.answers_all()
 
 
+def test_skills_are_picked_from_this_searchs_list_and_checked():
+    """On a real form the last skill's suggestions ("ETL Development" lists "Data Transformation" too) stay on screen
+    while the next search loads, and a click on them is lost: each skill must be picked from its own search's list,
+    and it must end up selected."""
+    setup = formfill.page_setup(PROFILE, settings(), MASTER, JOB, resume={"sections": [{"kind": "skills", "groups": [
+        {"name": "Data", "items": ["ETL Development", "Data Transformation"]}]}]})
+    st = run_page("skills", setup, "() => document.querySelectorAll('#chips [data-automation-id=selectedItem]').length === 2"
+                  " && document.getElementById('skills').value === ''", timeout=30)
+    assert st["chips"] == ["ETL Development", "Data Transformation"]
+    assert st["values"]["skills"] == ""
+
+
 def test_self_identify_declines_disability_and_leaves_the_signature():
     st = run_page("self_identify", _setup(), "() => document.getElementById('dis-skip').checked")
     assert st["checked"] == ["dis-skip"]

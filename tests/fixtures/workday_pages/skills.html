@@ -1,0 +1,80 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>My Experience</title></head>
+<body>
+<!-- An anonymized, hand-built page in the shape of Workday's "Type to Add Skills" box, as it behaves on a real form:
+     Enter searches; the last search's list stays on screen until the results arrive (about half a second) and is then
+     drawn again once more as the rest come in; each suggestion has a checkbox and the list stays open; picking one
+     ticks it and shows it as a chip in the field and in the list. A click on the last search's list, while the new
+     search is loading, is lost. -->
+<h2>My Experience</h2>
+
+<div data-automation-id="formField-skills">
+  <label for="skills">Type to Add Skills</label>
+  <div id="chips"></div>
+  <input type="text" id="skills" data-automation-id="searchBox">
+</div>
+<div id="popup" data-automation-id="activeListContainer"></div>
+
+<script>
+const RESULTS = {
+  "etl development": ["ETL Development", "ETL Tools", "Data Transformation"],
+  "data transformation": ["Data Transformation", "Data Center Transformation", "Data Transformation Services (DTS)",
+                          "Data Conversions"],
+};
+const selected = [];
+let search = 0;  // the latest search; a click on an older search's list does nothing
+
+function draw(names, g) {
+  const popup = document.getElementById("popup");
+  popup.innerHTML = "";
+  for (const name of names) {
+    const row = document.createElement("div");
+    row.setAttribute("role", "option");
+    row.dataset.automationId = "menuItem";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = selected.includes(name);
+    const label = document.createElement("div");
+    label.dataset.automationId = "promptOption";
+    label.textContent = name;
+    row.append(box, label);
+    row.addEventListener("click", (e) => {
+      if (!row.isConnected || g !== search) return;
+      e.preventDefault();
+      const i = selected.indexOf(name);
+      if (i >= 0) selected.splice(i, 1); else selected.push(name);
+      box.checked = i < 0;
+      drawChips();
+    });
+    popup.appendChild(row);
+  }
+  const list = document.createElement("ul");
+  list.dataset.automationId = "selectedItemList";
+  selected.forEach((name) => { const li = document.createElement("li"); li.textContent = `× ${name}`; list.appendChild(li); });
+  popup.appendChild(list);
+}
+
+function drawChips() {
+  const chips = document.getElementById("chips");
+  chips.innerHTML = "";
+  for (const name of selected) {
+    const chip = document.createElement("div");
+    chip.dataset.automationId = "selectedItem";
+    chip.textContent = name;
+    chips.appendChild(chip);
+  }
+  const list = document.querySelector('[data-automation-id="selectedItemList"]');
+  if (list) list.innerHTML = selected.map((n) => `<li>× ${n}</li>`).join("");
+}
+
+document.getElementById("skills").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const names = RESULTS[e.target.value.trim().toLowerCase()] || [];
+  const g = ++search;
+  setTimeout(() => draw(names, g), 500);   // the results arrive...
+  setTimeout(() => draw(names, g), 800);   // ...and the list is drawn again as the rest come in
+});
+</script>
+<script src="common.js"></script>
+</body>
+</html>
