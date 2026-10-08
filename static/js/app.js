@@ -530,7 +530,7 @@ function askKeywords(missing) {
       const now = it.decision ? `<span class="kw ${it.decision === "approve" ? "hit" : "miss"}">${it.decision === "approve" ? "approved" : "rejected"}</span>` : "";
       $("#kw-step").innerHTML = `
         <div class="hint">Keyword ${i + 1} of ${items.length} · appears ${it.count}× in the job description ${now}</div>
-        <div class="kw-name">${esc(it.keyword)}</div>
+        <div class="kw-name">${esc(it.keyword)}${it.soft ? ' <span class="kw-kind" title="Soft skills get their own sentence in the summary, never next to a tool">soft skill · own sentence in the summary</span>' : ""}</div>
         <div class="kw-ctx">${esc(it.context || "")}</div>
         <div class="kw-buttons">
           <button type="button" class="btn reject" data-d="reject">✕ Reject <span class="hint">(R)</span></button>
@@ -633,7 +633,8 @@ async function onTailor() {
   if (job.status === "new" || !job.status) job.status = "tailored";
   const st = result.stats;
   const extra = [st.flagged ? `${st.flagged} marked amber to check` : "", st.held ? `${st.held} AI version(s) held back because they added facts you didn't approve` : ""].filter(Boolean).join(", ");
-  setTailorStatus(`Done in ${st.seconds.toFixed(0)}s — rewrote ${st.rewritten} line(s)${extra ? ` (${extra})` : ""}. Hover any changed line to undo it.`, false);
+  const added = st.added ? `, added ${st.added} new sentence(s) for your approved keywords` : "";
+  setTailorStatus(`Done in ${st.seconds.toFixed(0)}s — rewrote ${st.rewritten} line(s)${added}${extra ? ` (${extra})` : ""}. Hover any changed line to undo it.`, false);
   renderResumePane();
   await loadJobs();
   toast(`Match ${job.match_score} → ${sc.score}. Review the green edits before applying.`);

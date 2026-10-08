@@ -19,7 +19,7 @@ from functools import lru_cache
 
 from .jobparse import (DEGREE_NAMES, SENIORITY_NAMES, WEIGHTLESS, degree_required, jd_sections, knockouts_in,
                        section_text, seniority_level, years_required)
-from .lexicon import ACRONYM_STOP, CASE_SENSITIVE, ENTRIES
+from .lexicon import ACRONYM_STOP, CASE_SENSITIVE, ENTRIES, SOFT
 
 VERSION = 4  # bump when scores change meaning: stored scores are recomputed at the next start
 
@@ -122,7 +122,7 @@ def _placement(counts: dict):
 
 
 def extract_keywords(jd_text: str, title: str = "", extra=(), company: str = "", sections=None):
-    """{canonical: {"aliases", "count", "weight", "where"}} for every ATS keyword the posting asks for."""
+    """{canonical: {"aliases", "count", "weight", "where", "soft"}} for every ATS keyword the posting asks for."""
     sections = jd_sections(jd_text) if sections is None else sections
     parts = _by_kind(sections)
     relevant = section_text(sections)
@@ -134,7 +134,8 @@ def extract_keywords(jd_text: str, title: str = "", extra=(), company: str = "",
         n, where = _placement({k: _count(aliases, t) for k, t in parts.items()})
         if n:  # only in boilerplate ("we offer a 401(k) and AWS credits") means it isn't asked for
             w = base * min(3, n) * SECTION_WEIGHT.get(where, 1.0) + (1.5 if has_any(aliases, title) else 0)
-            found[canon] = {"aliases": aliases, "count": n, "weight": round(w, 2), "where": where}
+            found[canon] = {"aliases": aliases, "count": n, "weight": round(w, 2), "where": where,
+                            "soft": canon in SOFT}
 
     for canon, aliases, base in ENTRIES:
         known_aliases.update(a.lower() for a in aliases)
@@ -154,7 +155,7 @@ def extract_keywords(jd_text: str, title: str = "", extra=(), company: str = "",
             continue
         if has_any([kw], relevant):
             n, where = _placement({k: _count([kw], t) for k, t in parts.items()})
-            found[kw] = {"aliases": [kw], "count": n, "weight": 2.0, "where": where}
+            found[kw] = {"aliases": [kw], "count": n, "weight": 2.0, "where": where, "soft": False}
     return found
 
 
@@ -318,7 +319,8 @@ def score(resume_text: str, jd_text: str, title: str = "", extra=(), company: st
             matched.append(canon)
         else:
             missing.append({"keyword": canon, "count": k["count"], "weight": k["weight"], "where": k["where"],
-                            "where_label": WHERE_LABEL.get(k["where"], ""), "context": _context(k["aliases"], jd_text)})
+                            "where_label": WHERE_LABEL.get(k["where"], ""), "soft": k["soft"],
+                            "context": _context(k["aliases"], jd_text)})
     coverage = (sum(kws[m]["weight"] for m in matched) / total) if total else 0.0
     sim = min(1.0, cosine(resume_text, relevant) / 0.45)
     tit = title_alignment(resume_text, title)
@@ -342,6 +344,7 @@ def score(resume_text: str, jd_text: str, title: str = "", extra=(), company: st
         "missing": missing[:30],
         "aliases": {c: k["aliases"] for c, k in kws.items()},
         "where": {c: k["where"] for c, k in kws.items()},
+        "soft": [c for c, k in kws.items() if k["soft"]],  # soft skills ("Communication"), matched or missing
         "adjustments": adjustments,
         "experience": experience,
         "seniority": seniority,

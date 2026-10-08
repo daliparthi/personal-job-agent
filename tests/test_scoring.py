@@ -21,6 +21,18 @@ def test_score_shape_and_bounds():
     assert "Spark" in sc["aliases"]["Apache Spark"]
 
 
+def test_soft_skills_are_tagged_so_tailoring_keeps_them_apart_from_tools():
+    jd = ("Build dbt models and Airflow DAGs. Critical thinking and strong communication skills are required. "
+          "Close collaboration with analysts using Python.")
+    sc = score("Data engineer using Python.", jd, "Analytics Engineer")
+    missing = {m["keyword"]: m for m in sc["missing"]}
+    assert missing["Critical thinking"]["soft"] is True
+    assert missing["Communication skills"]["soft"] is True
+    assert missing["dbt"]["soft"] is False and missing["Airflow"]["soft"] is False
+    assert {"Critical thinking", "Communication skills", "Collaboration"} <= set(sc["soft"])
+    assert "Python" not in sc["soft"] and "dbt" not in sc["soft"]
+
+
 def test_adding_missing_skills_raises_the_score():
     before = score(RESUME, JD, "Data Engineer")["score"]
     after = score(RESUME + " Apache Spark and Kubernetes.", JD, "Data Engineer")["score"]

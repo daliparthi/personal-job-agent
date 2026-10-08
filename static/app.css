@@ -264,6 +264,7 @@ legend { font-weight: 600; padding: 0 4px; }
 .kw-step { border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--panel-2); }
 .kw-step .kw-name { font-size: 20px; font-weight: 700; }
 .kw-step .kw-ctx { color: var(--ink-2); font-size: 13px; margin: 6px 0 12px; font-style: italic; }
+.kw-step .kw-kind { font-size: 12px; font-weight: 500; color: var(--ink-2); margin-left: 6px; }
 .kw-step .kw-buttons { display: flex; gap: 8px; }
 .kw-step .kw-buttons .btn { flex: 1; justify-content: center; padding: 10px; font-weight: 600; }
 .btn.approve { background: var(--good-soft); color: var(--good); border-color: transparent; }

@@ -479,6 +479,8 @@ def _parse(block, weight):
 
 
 ENTRIES = _parse(HARD_SKILLS, 1.0) + _parse(SOFT_SKILLS, 0.5)
+# Canonical names of the soft skills: tailoring writes them into their own sentence, never next to a tool.
+SOFT = {canon for canon, _, weight in ENTRIES if weight < 1.0}
 
 # Aliases that are also everyday English words; matched with exact case only.
 CASE_SENSITIVE = {"Excel", "Spring", "Rust", "Swift", "Chef", "Puppet", "Epic", "Sketch", "Go", "Hive",

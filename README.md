@@ -115,7 +115,7 @@ options: `--port 8800`, `--no-browser`.
 | Sort | A *Sort* dropdown above the list: match then salary (default), match then newest, newest then salary, newest then match, salary then newest, salary then match, or oldest first. Your choice is remembered. |
 | Side-by-side view | Resume (Master / Tailored tabs) next to the job description, with keywords highlighted: green = already in your resume, red = missing. |
 | Tailor for one position | Only the selected posting. Runs Qwen2.5-0.5B locally and streams the edit **word by word** into the resume. |
-| Missing keywords | Before tailoring, a pop-up walks through each missing keyword with where the JD uses it — **Approve** (you really have it) or **Reject**. Only approved keywords can be added. |
+| Missing keywords | Before tailoring, a pop-up walks through each missing keyword with where the JD uses it — **Approve** (you really have it) or **Reject**. Only approved keywords can be added, and each gets a new sentence or bullet of its own (soft skills in a separate sentence). |
 | Undo each change | Hover any line the tailoring changed: **↶ Undo** appears at its end (then **↷ Redo**). Lines the AI wrote but held back offer **Use AI version**. |
 | Cover letter + short answers | **Write cover letter** (after tailoring) drafts a letter and answers to three common application questions from your tailored resume, with the same checks and undo as the resume. See [Cover letters and short answers](#cover-letters-and-short-answers). |
 | Help apply | Opens the posting in a separate Chrome, Edge or Chromium window, clicks the posting's *Apply* button, fills Workday's Create Account / Sign In form from `.env`, uploads the tailored resume (and the cover letter where a field asks for one) and fills standard fields. **You click Create Account, Sign In and Submit.** |
@@ -196,11 +196,21 @@ the Pipeline) to check whether another 60/25/15 split would rank your good match
 
 A 0.5B model is small, so every line it writes is checked:
 
-* **Changes:** professional summary, up to *N* experience/project bullets (Settings → *Max bullets*, default 12),
-  ordering of skills (job-relevant first). The most important approved keywords (by weight in the posting) go into the summary and the rest into the
-  project bullets (experience bullets only if the resume has no projects); there is no separate skills line for them.
+* **Changes:** a light rewording of the professional summary and of up to *N* experience/project bullets that
+  already show the job's keywords (Settings → *Max bullets*, default 12), and the order of skills (job-relevant
+  first). These rewordings never add a keyword.
+* **Approved keywords get new sentences**, never squeezed into a line you wrote:
+  * the most important technical ones (by weight in the posting) get **one new sentence at the end of the summary**;
+  * soft skills (communication, critical thinking, leadership…) get **their own sentence** in the summary. A soft
+    skill and a tool never share a sentence: a sentence that mixes them is replaced by two plain ones;
+  * the other technical keywords get **new bullets** on the projects whose wording fits them best (on your jobs
+    only if the resume has no projects), at most two new bullets per project, each built from what that project
+    already says. Without a summary, soft skills get a new bullet on your latest job.
+  * When the AI sentence fails a check, a plain one is used instead (*Hands-on experience with dbt and Airflow.*,
+    *Known for critical thinking.*, *Applied Kafka in Billing.*), marked amber so you reword it.
 * **Never changes:** name/contact, employers, titles, dates, education — and never `master_resume.yaml` itself.
-* **Applied (green):** the new wording, with new words highlighted and approved keywords underlined.
+* **Applied (green):** the new wording, with new words highlighted and approved keywords underlined. Undo on a new
+  sentence or bullet removes it.
 * **Applied, check this (amber bar):** reworded heavily, dropped a skill the line had, added words that aren't in your
   resume, or moved a tool ("migrated *to* Snowflake" no longer says *to Snowflake*). Hover to see why.
 * **Held back (dashed bar):** the AI line added a fact you didn't approve — a new number, a tool or company name your
@@ -261,9 +271,10 @@ says why).
    program, so what leaves your computer is the resume text and the job posting.
 2. **Ollama in WSL:** start `ollama serve` there; Windows forwards WSL's `localhost`, so `http://localhost:11434`
    works. If it does not, run Ollama with `OLLAMA_HOST=0.0.0.0` or use the address from `wsl hostname -I`.
-3. A larger model is asked for more: each approved keyword is worked into the professional summary and project
-   bullets with a short phrase based on how the job posting uses it. The same checks as before apply (no new
-   numbers or unapproved keywords; lines that need a look are marked amber and every change can be undone).
+3. A larger model is asked for more: the new summary sentences and project bullets for approved keywords are
+   written with the posting's own sentence for each keyword as a hint, and may be a little longer. The same checks
+   as before apply (no new numbers or unapproved keywords, soft skills and tools kept apart; lines that need a look
+   are marked amber and every change can be undone).
 
 Measured on an 8-thread laptop with Intel Iris Xe: CPU — model load 10–25 s, about 20 s per rewritten line, and the
 page pauses a few seconds as each line starts (the model reads its instructions); GPU — model load about 7 s, about
