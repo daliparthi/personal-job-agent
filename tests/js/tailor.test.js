@@ -105,6 +105,12 @@ test("a new sentence may not add numbers, names, rejected keywords or leave out 
   assert.match(validateNew("Deployed the billing web services for the whole team.", { keywords, context }).hard, /left out the keywords/);
 });
 
+test("a new sentence with a pronoun goes back to the model", () => {
+  const r = validateNew("I'm proficient in Kubernetes for the billing web services.", { keywords: [kw("Kubernetes")],
+    context: "Built web services for the billing team.", kind: "summary" });
+  assert.equal(r.hard, "uses the pronoun “I'm”");
+});
+
 test("a soft skill never shares a sentence with a tool", () => {
   const context = "Data engineer building pipelines.";
   const mixedTech = validateNew("Hands on experience with dbt, critical thinking and data pipelines.",
@@ -137,9 +143,12 @@ async function tailorWith(backend, replies = {}, { approved = ["Kubernetes", "Cr
   const llm = {
     backend, interrupt() {},
     async *stream(messages, opts) {
-      const kind = kindOf(messages.at(-1).content);
+      // a retry ends with the reason; the prompt it answers is the last one with a label
+      const asked = messages.filter((m) => m.role === "user").map((m) => m.content).filter((m) => kindOf(m) !== "rewrite");
+      const kind = /:\s*$/.test(messages.at(-1).content) || !asked.length ? kindOf(messages.at(-1).content) : kindOf(asked.at(-1));
       prompts.push({ kind, messages, opts });
-      const text = replies[kind] ?? "";
+      const reply = replies[kind] ?? "";
+      const text = Array.isArray(reply) ? reply[Math.min(prompts.filter((p) => p.kind === kind).length, reply.length) - 1] : reply;
       if (text) yield text;
     },
   };
@@ -165,12 +174,28 @@ test("hard and soft keywords get their own new sentences at the end of the summa
   assert.equal(out.changes["sections.0.text"].orig, master().sections[0].text);
 });
 
-test("a technical sentence that mixes in a soft skill is replaced by plain separate sentences", async () => {
-  const { out } = await tailorWith("onnx", { tech: "Hands on experience with Kubernetes, critical thinking and web services." });
+const MIXED = "Hands on experience with Kubernetes, critical thinking and web services.";
+
+test("a sentence that mixes a soft skill with a tool goes back to the model with the reason", async () => {
+  const { prompts, out } = await tailorWith("onnx", { tech: [MIXED, GOOD.tech], soft: GOOD.soft });
   const text = out.res.sections[0].text;
-  assert.ok(text.includes("Hands-on experience with Kubernetes."), text);
-  assert.ok(text.includes("Known for critical thinking."), text);
-  assert.match(out.changes["sections.0.text"].warn, /written from a template \(the AI version mixed the soft skill/);
+  assert.ok(text.includes(GOOD.tech) && text.includes(GOOD.soft) && !text.includes(MIXED), text);
+  const tries = prompts.filter((p) => p.kind === "tech");
+  assert.equal(tries.length, 2);
+  const retry = tries[1].messages;
+  assert.equal(retry.at(-2).content, MIXED);
+  assert.match(retry.at(-1).content, /^That sentence mixes the soft skill “Critical thinking” into a technical sentence\. Write a new sentence that uses Kubernetes and no soft skill/);
+  assert.equal(tries[1].opts.temperature, 0.5);
+});
+
+test("a sentence that fails every try is held back for you, never replaced by a template", async () => {
+  const { prompts, out } = await tailorWith("onnx", { tech: MIXED, soft: GOOD.soft });
+  assert.equal(prompts.filter((p) => p.kind === "tech").length, 3);
+  const text = out.res.sections[0].text;
+  assert.ok(!text.includes("Kubernetes") && !/Hands-on experience/.test(text), text);
+  assert.ok(text.includes(GOOD.soft));
+  assert.match(out.changes["sections.0.text"].warn, /the AI sentence “Hands on experience with Kubernetes, critical thinking/);
+  assert.deepEqual(out.stats.unplaced, ["Kubernetes"]);
 });
 
 test("keywords beyond the summary's get new project bullets; existing bullets get none", async () => {
@@ -189,14 +214,30 @@ test("keywords beyond the summary's get new project bullets; existing bullets ge
   assert.ok(!out.res.sections[0].text.includes("Kafka"));
 });
 
-test("a model that writes nothing still gives every keyword a sentence of its own", async () => {
+test("keywords that fail together are split up and each gets a sentence of its own from the model", async () => {
   const jd = { ...analysis, missing: [...analysis.missing, { keyword: "Kafka", weight: 0.5, count: 1, context: "" }] };
-  const data = master();
-  const { out } = await tailorWith("onnx", {}, { approved: ["Kubernetes", "Critical thinking", "Kafka"], jd, data });
+  const k8s = "Runs the web services and data pipelines on Kubernetes.";
+  const kafka = "Streams the data pipelines through Kafka for the web services.";
+  const { prompts, out } = await tailorWith("onnx", { tech: [MIXED, MIXED, MIXED, k8s, kafka], soft: GOOD.soft },
+    { approved: ["Kubernetes", "Critical thinking", "Kafka"], jd });
+  const tech = prompts.filter((p) => p.kind === "tech");
+  assert.equal(tech.length, 5);
+  assert.match(tech[3].messages.at(-1).content, /Skills to show: Kubernetes\nNew sentence:$/);
+  assert.match(tech[4].messages.at(-1).content, /Skills to show: Kafka\nNew sentence:$/);
   const text = out.res.sections[0].text;
-  assert.match(text, /Hands-on experience with Kubernetes and Kafka\./);
-  assert.match(text, /Known for critical thinking\./);
+  assert.ok(text.includes(k8s) && text.includes(kafka) && text.includes(GOOD.soft) && !text.includes(MIXED), text);
+  assert.deepEqual(out.stats.unplaced, []);
+});
+
+test("a model that writes nothing adds nothing: every keyword is reported as not worked in", async () => {
+  const jd = { ...analysis, missing: [...analysis.missing, { keyword: "Kafka", weight: 0.5, count: 1, context: "" }] };
+  const { prompts, out } = await tailorWith("onnx", {}, { approved: ["Kubernetes", "Critical thinking", "Kafka"], jd });
+  assert.equal(out.res.sections[0].text, master().sections[0].text);
   assert.equal(out.res.sections[1].entries[0].bullets.length, 1); // nothing pushed into, or added to, the project
+  assert.deepEqual(out.stats.unplaced.sort(), ["Critical thinking", "Kafka", "Kubernetes"]);
+  // three tries for both keywords, then three for each on its own; then given up (not asked again at the end)
+  assert.equal(prompts.filter((p) => p.kind === "tech").length, 9);
+  assert.equal(out.stats.held, 0);
 });
 
 test("an external model is shown where the posting uses each keyword, without examples", async () => {

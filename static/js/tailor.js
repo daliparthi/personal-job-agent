@@ -10,10 +10,11 @@
 //    never have a keyword pushed into them, and a soft skill never shares a sentence with a tool.
 //
 // Every AI line is checked. A rewording that adds facts you did not approve (a new number, a keyword you rejected or
-// did not approve) is held back: your original stays, and "Use AI version" at the end of the line puts it in. A new
-// sentence that fails a check is replaced by a plain one written from a template (marked amber). Lines that need a
-// second look (heavy rewording, words not in your resume, a dropped skill) are marked amber. Every change can be
-// undone and redone from the end of its line.
+// did not approve) is held back: your original stays, and "Use AI version" at the end of the line puts it in. Every
+// new sentence is written by the model: one that fails a check goes back to it with the reason, up to three tries,
+// and if the last one still fails it is held back the same way (nothing is ever filled in from a template). Lines
+// that need a second look (heavy rewording, words not in your resume, a dropped skill) are marked amber. Every change
+// can be undone and redone from the end of its line.
 
 import { getAt, setAt } from "./resume-view.js";
 
@@ -211,16 +212,16 @@ export function validate(original, out, { forbidden, kind, allowed = [], extraCo
   return { hard: null, soft };
 }
 
-const PRONOUN = /\bI\b|\b(?:me|my|we|our|he|she|his|her)\b/i;
+const PRONOUN = /\bI\b|\b(?:[Mm]e|[Mm]y|[Ww]e|[Oo]ur|[Hh]e|[Ss]he|[Hh]is|[Hh]er)\b/;
 
 /**
  * Check one NEW sentence (a new bullet, or a sentence added to the summary) written around approved keywords.
  * keywords: [{keyword, aliases}] it should show; forbidden: keywords it must not use (rejected ones);
  * mixed: keywords of the other kind (soft skills in a technical sentence, tools in a soft-skills sentence);
  * context: the resume text it may draw on. kind: "bullet" | "summary" | "soft".
- * hard: unusable or adds a fact -> a plain template sentence is used instead. soft: applied, marked amber.
+ * hard: unusable or adds a fact -> the model is asked again (then held back). soft: applied, marked amber.
  */
-export function validateNew(out, { keywords = [], forbidden = [], mixed = [], context = "", kind = "bullet", examples = "", rich = false }) {
+export function validateNew(out, { keywords = [], forbidden = [], mixed = [], context = "", kind = "bullet", examples = "", rich = false, existing = "" }) {
   const soft = [];
   if (!out) return { hard: "empty output", soft };
   if (PROMPT_LABEL.test(out)) return { hard: "garbled (repeated the instructions)", soft };
@@ -235,6 +236,9 @@ export function validateNew(out, { keywords = [], forbidden = [], mixed = [], co
   const exampleGrams = new Set(ngrams(`${EXAMPLE_TEXT} ${examples}`, 4));
   const ownGrams = new Set(ngrams(context, 4));
   if (ngrams(out, 4).some((g) => exampleGrams.has(g) && !ownGrams.has(g))) return { hard: "garbled (copied the example)", soft };
+  const there = new Set(ngrams(existing, 4));
+  const outGrams = ngrams(out, 4);
+  if (outGrams.length && outGrams.filter((g) => there.has(g)).length >= outGrams.length / 2) return { hard: "repeats what is already there", soft };
   const knownNums = new Set(numbersIn(context));
   const invented = numbersIn(out).filter((n) => !knownNums.has(n));
   if (invented.length) return { hard: `adds the number ${invented[0]}, which is not in your resume`, soft };
@@ -250,8 +254,9 @@ export function validateNew(out, { keywords = [], forbidden = [], mixed = [], co
   if (newName) return { hard: `adds “${newName}”, which is not in your resume`, soft };
   const present = keywords.filter((k) => hasAny(k.aliases, out));
   if (keywords.length && !present.length) return { hard: "left out the keywords", soft };
+  const pronoun = out.match(PRONOUN); // resumes never say "I'm proficient in..."
+  if (pronoun) return { hard: `uses the pronoun “${out.slice(pronoun.index).match(/^[\w']+/)[0]}”`, soft };
   for (const k of keywords) if (!present.includes(k)) soft.push(`dropped “${k.keyword}”`);
-  if (PRONOUN.test(out)) soft.push("uses a pronoun");
   const known = new Set(contentWords(knownText).map(stem));
   const added = [...new Set(contentWords(out).map(stem))].filter((w) => !known.has(w) && !FREE.has(w));
   if (added.length > (rich ? 12 : 8)) soft.push(`adds words not in your resume (${added.slice(0, 3).join(", ")}…)`);
@@ -306,20 +311,24 @@ function entryPool(res) {
 }
 
 const joinList = (kws) => kws.join(", ").replace(/, ([^,]*)$/, " and $1");
-// "Critical thinking" reads as "critical thinking" mid-sentence; acronyms and names keep their case.
-const midSentence = (k) => (/^[A-Z][a-z]/.test(k) ? k[0].toLowerCase() + k.slice(1) : k);
-const placeOf = (x) => (x.project ? (x.e.name || "this project") : x.e.title ? `the ${x.e.title} role` : "this role");
-const TEMPLATE = {
-  summary: (kws) => `Hands-on experience with ${joinList(kws)}.`,
-  soft: (kws) => `Known for ${joinList(kws.map(midSentence))}.`,
-  bullet: (kws, x) => `Applied ${joinList(kws)} in ${placeOf(x)}.`,
-  softBullet: (kws, x) => `Brought ${joinList(kws.map(midSentence))} to ${placeOf(x)}.`,
-};
 const chunk = (xs, n) => xs.reduce((out, x, i) => (i % n ? out[out.length - 1].push(x) : out.push([x]), out), []);
 
-/** Why a new sentence was replaced by its template, for the amber note. */
-const whyTemplate = (hard) => (/^(empty|too short|garbled)/.test(hard) ? "the AI version was unusable"
-  : `the AI version ${hard.replace(/^adds/, "added").replace(/^uses/, "used").replace(/^mixes/, "mixed").replace(/^names/, "named")}`);
+const MAX_TRIES = 3; // a new sentence that fails a check goes back to the model with the reason, this many times in all
+
+/** What the model is told when its new sentence failed a check, so the next one is right. */
+export function retryNote(hard, kws, what = "sentence") {
+  const list = joinList(kws);
+  let m, fix;
+  if ((m = hard.match(/^mixes the soft skill “(.+?)”/))) fix = `uses ${list} and no soft skill such as “${m[1]}”`;
+  else if ((m = hard.match(/^names “(.+?)”/))) fix = `shows ${list} without naming any tool or technology such as “${m[1]}”`;
+  else if (/^adds the number/.test(hard)) fix = `uses ${list} and no numbers`;
+  else if (/^uses the pronoun/.test(hard)) fix = `uses ${list} and no pronouns such as I, my or we`;
+  else if (/^repeats what/.test(hard)) fix = `says something new with ${list}`;
+  else if ((m = hard.match(/^uses “(.+?)”/))) fix = `uses ${list} and not “${m[1]}”`;
+  else if ((m = hard.match(/^adds “(.+?)”/))) fix = `uses ${list} and no other name such as “${m[1]}”`;
+  else fix = `is one complete ${what} that uses ${list}`;
+  return `That ${what} ${hard.replace(/, which .*$/, "")}. Write a new ${what} that ${fix}. Reply with the ${what} only.`;
+}
 
 // Work-with-people words that read naturally next to a soft skill ("communication with stakeholders").
 const PEOPLE_WORDS = new Set(["Stakeholder management", "Cross-functional"]);
@@ -359,16 +368,16 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
   const infoOf = new Map(approvedInfo.map((m) => [m.keyword, m]));
   const describe = (kws) => kws.map((k) => (rich ? withUse(infoOf.get(k) || { keyword: k }) : k)).join(rich ? "; " : ", ");
   const usesOf = (kws) => (rich ? kws.map((k) => infoOf.get(k)?.context || "").join(" ") : "");
-  const stats = { rewritten: 0, added: 0, flagged: 0, held: 0, tokens: 0, started: performance.now(), reasons: [] };
+  const stats = { rewritten: 0, added: 0, flagged: 0, held: 0, tokens: 0, started: performance.now(), reasons: [], unplaced: [] };
 
   ui.onStatus("Ordering skills for this job…");
   orderSkills(res, changes, analysis.matched, aliases);
   ui.onRender(res, changes);
 
-  async function stream(messages, maxTokens, show) {
+  async function stream(messages, maxTokens, show, temperature = 0.2) {
     let raw = "";
     try {
-      for await (const delta of llm.stream(messages, { temperature: 0.2, max_tokens: maxTokens })) {
+      for await (const delta of llm.stream(messages, { temperature, max_tokens: maxTokens })) {
         raw += delta;
         stats.tokens++;
         show(cleanOutput(raw));
@@ -412,12 +421,19 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
     ui.onBlock(path);
   }
 
+  const gaveUp = new Set(); // keywords whose sentence failed every try (held back or unusable): not asked again
+
   /**
-   * Write one new sentence around `kws`. target.append: the path of a text it is added to (the summary);
-   * target.list: the path of a list it becomes a new item of (a project's bullets). When the AI sentence fails a
-   * check, `template` is used instead. Returns the text placed, or "" when stopped.
+   * Have the model write one new sentence around `kws`; build(kws) makes its prompt. target.append: the path of a
+   * text it is added to (the summary); target.list: the path of a list it becomes a new item of (a project's
+   * bullets). A sentence that fails a check goes back to the model with the reason (MAX_TRIES in all). When every try
+   * fails, two or more keywords are split in two and each half gets its own sentence (the small model manages fewer
+   * at a time); a single keyword's last try is held back: "Use AI version" puts it in (on a line the AI already
+   * changed, it is shown in the line's note instead). Returns the sentence placed, or "".
    */
-  async function addSentence(target, { system, examples, user, kws, mixed, kind, context, template, maxTokens }) {
+  async function addSentence(target, build, kws, split = false) {
+    const { status, system, examples, user, mixed, kind, context, maxTokens, existing = "" } = build(kws);
+    ui.onStatus(status);
     let path, base = "";
     const before = target.append ? changes[target.append] : null;
     if (target.append) {
@@ -432,8 +448,19 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
     }
     const join = (s) => (target.append ? (s ? `${base} ${s}` : base) : s);
     ui.onBlock(path);
-    const out = await stream([{ role: "system", content: system }, ...(rich ? [] : examples), { role: "user", content: user }],
-      maxTokens, (s) => { setAt(res, path, join(s)); ui.onBlock(path); });
+    const keywords = kws.map(kwObj);
+    const what = target.list && kind !== "summary" ? "bullet" : "sentence";
+    const convo = [{ role: "system", content: system }, ...(rich ? [] : examples), { role: "user", content: user }];
+    let out = "", hard = null, soft = [];
+    for (let attempt = 1; attempt <= MAX_TRIES && !signal.aborted; attempt++) {
+      if (attempt > 1) ui.onStatus(`${status} (try ${attempt} of ${MAX_TRIES}: the last one ${hard.replace(/, which .*$/, "")})`);
+      out = await stream(convo, maxTokens, (s) => { setAt(res, path, join(s)); ui.onBlock(path); }, attempt > 1 ? 0.5 : 0.2);
+      if (signal.aborted) break;
+      ({ hard, soft } = validateNew(out, { keywords, forbidden, mixed, context, kind, rich, existing }));
+      if (!hard) break;
+      stats.reasons.push(hard);
+      convo.push({ role: "assistant", content: out || "(nothing)" }, { role: "user", content: retryNote(hard, kws, what) });
+    }
     if (signal.aborted) { // put the line back as it was
       if (target.append) {
         setAt(res, path, base);
@@ -445,24 +472,51 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
       ui.onRender(res, changes);
       return "";
     }
-    const keywords = kws.map(kwObj);
-    const { hard, soft } = validateNew(out, { keywords, forbidden, mixed, context, kind, rich });
-    let sentence = out;
+    if (hard) { // every try failed: nothing is written in its place
+      const usable = out && !/^(empty|too short|garbled)/.test(hard);
+      const note = `the AI sentence for ${joinList(kws)} was held back (${hard}): “${out}”`;
+      if (target.append) {
+        setAt(res, path, base);
+        if (!before) { // the line is as you wrote it: the AI sentence waits behind "Use AI version"
+          if (usable && kws.length === 1) changes[path] = { orig: base, alt: join(out), state: "orig", held: hard, heldText: out };
+          else delete changes[path];
+        } else { // the line already has AI changes: keep them, and say what was held back
+          changes[path] = usable && kws.length === 1
+            ? { ...before, ...(before.state === "alt" ? { warn: [before.warn, note].filter(Boolean).join("; ") }
+              : { held: `${before.held}; ${note}` }) } : before;
+        }
+      } else if (usable && kws.length === 1) {
+        setAt(res, path, null);
+        changes[path] = { orig: null, alt: out, state: "orig", held: hard };
+      } else {
+        getAt(res, target.list).pop();
+        delete changes[path];
+      }
+      ui.onRender(res, changes);
+      if (kws.length > 1 && !split && !signal.aborted) { // fewer keywords at a time
+        const half = Math.ceil(kws.length / 2);
+        const a = await addSentence(target, build, kws.slice(0, half), true);
+        const b = await addSentence(target, build, kws.slice(half), true);
+        return [a, b].filter(Boolean).join(" ");
+      }
+      kws.forEach((k) => gaveUp.add(k));
+      if (usable && (kws.length === 1 || split)) stats.held++;
+      return "";
+    }
     const warn = [];
-    if (before?.held) warn.push(`the AI rewording of this line was held back (${before.held})`);
+    if (before?.held) {
+      warn.push(before.heldText ? `the AI sentence “${before.heldText}” was held back (${before.held}): click the line to add it yourself`
+        : `the AI rewording of this line was held back (${before.held})`);
+    }
     else if (before?.warn) warn.push(before.warn);
-    if (hard) {
-      sentence = template;
-      stats.reasons.push(hard);
-      warn.push(`written from a template (${whyTemplate(hard)}), check the wording`);
-    } else warn.push(...soft);
-    const text = join(sentence);
+    warn.push(...soft);
+    const text = join(out);
     setAt(res, path, text);
     changes[path] = { orig: changes[path].orig, alt: text, state: "alt", ...(warn.length ? { warn: warn.join("; ") } : {}) };
     stats.added++;
     if (warn.length) stats.flagged++;
     ui.onBlock(path);
-    return sentence;
+    return out;
   }
 
   const skills = res.sections.filter((s) => s.kind === "skills")
@@ -517,25 +571,43 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
   const summaryNow = () => (summaryTarget?.append ? getAt(res, summaryTarget.append) || ""
     : (res.sections[sumIdx]?.bullets || []).filter(Boolean).join(" "));
 
+  // The prompt for each kind of new sentence (built when it is written, so it sees the summary as it is by then).
+  const techSentence = (kws) => ({
+    status: "Writing a summary sentence for the technical keywords…", existing: summaryNow(),
+    system: NEW_TECH_SENTENCE_SYSTEM(rich), examples: NEW_TECH_SENTENCE_EXAMPLES, kws, mixed: softJd, kind: "summary",
+    context: `${summaryNow()} ${roles} ${skills} ${job.title} ${usesOf(kws)}`,
+    user: `Target job: ${job.title} at ${job.company}\nCandidate's roles: ${roles || "(not listed)"}\nSummary so far: ${summaryNow() || "(none)"}\nSkills to show: ${describe(kws)}\nNew sentence:`,
+    maxTokens: rich ? 120 : 70,
+  });
+  const softSentence = (kws) => ({
+    status: "Writing a summary sentence for the soft skills…", existing: summaryNow(),
+    system: NEW_SOFT_SENTENCE_SYSTEM, examples: NEW_SOFT_SENTENCE_EXAMPLES, kws, mixed: hardJd, kind: "soft",
+    context: `${summaryNow()} ${roles}`,
+    user: `Target job: ${job.title} at ${job.company}\nCandidate's roles: ${roles || "(not listed)"}\nSummary so far: ${summaryNow() || "(none)"}\nSoft skills to show: ${kws.join(", ")}\nNew sentence:`,
+    maxTokens: rich ? 100 : 60,
+  });
+  const bulletFor = (x, kws, soft, n = "") => {
+    const label = x.project ? `Project: ${[x.e.name, x.e.organization].filter(Boolean).join(" — ") || "(not named)"}`
+      : `Role: ${roleOf("experience", x.e) || "(not listed)"}`;
+    const says = [x.e.description, ...x.e.bullets.filter(Boolean).slice(0, 4)].filter(Boolean).map((b) => `- ${b}`).join("\n") || "(nothing yet)";
+    const existing = x.e.bullets.filter(Boolean).join(" ");
+    return soft ? {
+      existing, status: `Writing new bullet${n}…`, system: NEW_SOFT_BULLET_SYSTEM, examples: NEW_SOFT_BULLET_EXAMPLES, kws, mixed: hardJd,
+      kind: "soft", context: x.text,
+      user: `Target job: ${job.title}\n${label}\nWhat it already says:\n${says}\nSoft skills to show: ${kws.join(", ")}\nNew bullet:`,
+      maxTokens: rich ? 100 : 70,
+    } : {
+      existing, status: `Writing new bullet${n}…`, system: NEW_BULLET_SYSTEM(rich), examples: NEW_BULLET_EXAMPLES, kws, mixed: softJd,
+      kind: "bullet", context: `${x.text} ${job.title} ${usesOf(kws)}`,
+      user: `Target job: ${job.title}\n${label}\nWhat it already says:\n${says}\nSkills to show: ${describe(kws)}\nNew bullet:`,
+      maxTokens: rich ? 120 : 80,
+    };
+  };
   // 2. New summary sentences: one technical, one (or more) for soft skills.
-  if (summaryTarget && summaryHard.length && !signal.aborted) {
-    ui.onStatus("Writing a summary sentence for the technical keywords…");
-    const kws = summaryHard;
-    const context = `${summaryNow()} ${roles} ${skills} ${job.title} ${usesOf(kws)}`;
-    await addSentence(summaryTarget, {
-      system: NEW_TECH_SENTENCE_SYSTEM(rich), examples: NEW_TECH_SENTENCE_EXAMPLES, kws, mixed: softJd, kind: "summary", context,
-      user: `Target job: ${job.title} at ${job.company}\nCandidate's roles: ${roles || "(not listed)"}\nSummary so far: ${summaryNow() || "(none)"}\nSkills to show: ${describe(kws)}\nNew sentence:`,
-      template: TEMPLATE.summary(kws), maxTokens: rich ? 120 : 70,
-    });
-  }
+  if (summaryTarget && summaryHard.length && !signal.aborted) await addSentence(summaryTarget, techSentence, summaryHard);
   for (const kws of chunk(summarySoft, SOFT_PER_SENTENCE)) {
     if (signal.aborted) break;
-    ui.onStatus("Writing a summary sentence for the soft skills…");
-    await addSentence(summaryTarget, {
-      system: NEW_SOFT_SENTENCE_SYSTEM, examples: NEW_SOFT_SENTENCE_EXAMPLES, kws, mixed: hardJd, kind: "soft", context: `${summaryNow()} ${roles}`,
-      user: `Target job: ${job.title} at ${job.company}\nCandidate's roles: ${roles || "(not listed)"}\nSummary so far: ${summaryNow() || "(none)"}\nSoft skills to show: ${kws.join(", ")}\nNew sentence:`,
-      template: TEMPLATE.soft(kws), maxTokens: rich ? 100 : 60,
-    });
+    await addSentence(summaryTarget, softSentence, kws);
   }
 
   // 3. A light rewording of the existing bullets that already show the job's keywords (no new keywords).
@@ -557,56 +629,32 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
   }
   for (let i = 0; i < newBullets.length && !signal.aborted; i++) {
     const { x, kws, soft } = newBullets[i];
-    ui.onStatus(`Writing new bullet ${i + 1} of ${newBullets.length}…`);
-    const label = x.project ? `Project: ${[x.e.name, x.e.organization].filter(Boolean).join(" — ") || "(not named)"}`
-      : `Role: ${roleOf("experience", x.e) || "(not listed)"}`;
-    const says = [x.e.description, ...x.e.bullets.slice(0, 4)].filter(Boolean).map((b) => `- ${b}`).join("\n") || "(nothing yet)";
-    await addSentence({ list: `sections.${x.si}.entries.${x.ei}.bullets` }, soft ? {
-      system: NEW_SOFT_BULLET_SYSTEM, examples: NEW_SOFT_BULLET_EXAMPLES, kws, mixed: hardJd, kind: "soft", context: x.text,
-      user: `Target job: ${job.title}\n${label}\nWhat it already says:\n${says}\nSoft skills to show: ${kws.join(", ")}\nNew bullet:`,
-      template: TEMPLATE.softBullet(kws, x), maxTokens: rich ? 100 : 70,
-    } : {
-      system: NEW_BULLET_SYSTEM(rich), examples: NEW_BULLET_EXAMPLES, kws, mixed: softJd, kind: "bullet",
-      context: `${x.text} ${job.title} ${usesOf(kws)}`,
-      user: `Target job: ${job.title}\n${label}\nWhat it already says:\n${says}\nSkills to show: ${describe(kws)}\nNew bullet:`,
-      template: TEMPLATE.bullet(kws, x), maxTokens: rich ? 120 : 80,
-    });
+    await addSentence({ list: `sections.${x.si}.entries.${x.ei}.bullets` }, (k) => bulletFor(x, k, soft, ` ${i + 1} of ${newBullets.length}`), kws);
   }
 
-  // 5. A keyword an AI sentence left out gets a plain sentence of its own (never pushed into an existing line).
+  // 5. A keyword an applied sentence left out gets one more sentence of its own from the model (never pushed into
+  //    an existing line). Keywords whose sentences failed every try are not asked again: their last AI version is
+  //    held back for you.
+  const placed = () => JSON.stringify(res.sections.filter((s) => s.kind !== "skills"));
+  const unplaced = (kws) => kws.filter((k) => !hasAny(aliasOf(k), placed()));
   if (!signal.aborted) {
-    const placed = () => JSON.stringify(res.sections.filter((s) => s.kind !== "skills"));
-    const unplaced = (kws) => kws.filter((k) => !hasAny(aliasOf(k), placed()));
-    const add = (target, text) => {
-      if (target.append) {
-        const path = target.append;
-        const cur = (getAt(res, path) || "").replace(/\s+$/, "");
-        const rec = changes[path];
-        changes[path] = { orig: rec?.orig ?? cur, alt: `${cur} ${text}`, state: "alt", warn: [rec?.warn, "written from a template, check the wording"].filter(Boolean).join("; ") };
-        setAt(res, path, `${cur} ${text}`);
-      } else {
-        const list = getAt(res, target.list);
-        list.push(text);
-        changes[`${target.list}.${list.length - 1}`] = { orig: null, alt: text, state: "alt", warn: "written from a template, check the wording" };
-      }
-      stats.added++;
-      stats.flagged++;
-    };
-    const lateSoft = unplaced(softKw);
-    const lateHard = unplaced(hardKw);
-    if (summaryTarget) {
-      const sumLate = lateHard.filter((k) => summaryHard.includes(k));
-      if (sumLate.length) add(summaryTarget, TEMPLATE.summary(sumLate));
-      for (const kws of chunk(lateSoft, SOFT_PER_SENTENCE)) add(summaryTarget, TEMPLATE.soft(kws));
-    } else if (latestJob) {
-      for (const kws of chunk(lateSoft, SOFT_PER_SENTENCE)) add({ list: `sections.${latestJob.si}.entries.${latestJob.ei}.bullets` }, TEMPLATE.softBullet(kws, latestJob));
+    const lateSoft = unplaced(softKw).filter((k) => !gaveUp.has(k));
+    const lateHard = unplaced(hardKw).filter((k) => !gaveUp.has(k));
+    const sumLate = lateHard.filter((k) => summaryHard.includes(k));
+    if (summaryTarget && sumLate.length && !signal.aborted) await addSentence(summaryTarget, techSentence, sumLate);
+    for (const kws of chunk(lateSoft, SOFT_PER_SENTENCE)) {
+      if (signal.aborted) break;
+      if (summaryTarget) await addSentence(summaryTarget, softSentence, kws);
+      else if (latestJob) await addSentence({ list: `sections.${latestJob.si}.entries.${latestJob.ei}.bullets` }, (k) => bulletFor(latestJob, k, true), kws);
     }
     for (const x of pool) {
-      const late = lateHard.filter((k) => x.kws.includes(k));
-      for (const kws of chunk(late, perBullet)) add({ list: `sections.${x.si}.entries.${x.ei}.bullets` }, TEMPLATE.bullet(kws, x));
+      for (const kws of chunk(lateHard.filter((k) => x.kws.includes(k)), perBullet)) {
+        if (!signal.aborted) await addSentence({ list: `sections.${x.si}.entries.${x.ei}.bullets` }, (k) => bulletFor(x, k, false), kws);
+      }
     }
     ui.onRender(res, changes);
   }
+  stats.unplaced = unplaced(byWeight.map((m) => m.keyword));
 
   stats.seconds = (performance.now() - stats.started) / 1000;
   return { res, changes, stats };

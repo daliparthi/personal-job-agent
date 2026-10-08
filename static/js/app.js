@@ -660,7 +660,8 @@ async function onTailor() {
   const st = result.stats;
   const extra = [st.flagged ? `${st.flagged} marked amber to check` : "", st.held ? `${st.held} AI version(s) held back because they added facts you didn't approve` : ""].filter(Boolean).join(", ");
   const added = st.added ? `, added ${st.added} new sentence(s) for your approved keywords` : "";
-  setTailorStatus(`Done in ${st.seconds.toFixed(0)}s — rewrote ${st.rewritten} line(s)${added}${extra ? ` (${extra})` : ""}. Hover any changed line to undo it.`, false);
+  const missed = st.unplaced?.length ? ` Not worked in yet: ${st.unplaced.join(", ")} (the model's sentences for them failed the checks; a held-back one can still be used, or add them yourself).` : "";
+  setTailorStatus(`Done in ${st.seconds.toFixed(0)}s — rewrote ${st.rewritten} line(s)${added}${extra ? ` (${extra})` : ""}. Hover any changed line to undo it.${missed}`, false);
   renderResumePane();
   await loadJobs();
   toast(`Match ${job.match_score} → ${sc.score}. Review the green edits before applying.`);

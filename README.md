@@ -212,12 +212,14 @@ A 0.5B model is small, so every line it writes is checked:
 * **Approved keywords get new sentences**, never squeezed into a line you wrote:
   * the most important technical ones (by weight in the posting) get **one new sentence at the end of the summary**;
   * soft skills (communication, critical thinking, leadership…) get **their own sentence** in the summary. A soft
-    skill and a tool never share a sentence: a sentence that mixes them is replaced by two plain ones;
+    skill and a tool never share a sentence: the model is asked again when it mixes them;
   * the other technical keywords get **new bullets** on the projects whose wording fits them best (on your jobs
     only if the resume has no projects), at most two new bullets per project, each built from what that project
     already says. Without a summary, soft skills get a new bullet on your latest job.
-  * When the AI sentence fails a check, a plain one is used instead (*Hands-on experience with dbt and Airflow.*,
-    *Known for critical thinking.*, *Applied Kafka in Billing.*), marked amber so you reword it.
+  * Every new sentence is written by the model (bundled or external), never from a template. One that fails a check
+    (a new number or name, a keyword you rejected, a soft skill next to a tool) goes back to the model with the
+    reason, up to three tries; if the last one still fails it is **held back** (dashed bar, *Use AI version* puts
+    it in) and the status line lists the keywords not worked in yet.
 * **Never changes:** name/contact, employers, titles, dates, education — and never `master_resume.yaml` itself.
 * **Applied (green):** the new wording, with new words highlighted and approved keywords underlined. Undo on a new
   sentence or bullet removes it.
