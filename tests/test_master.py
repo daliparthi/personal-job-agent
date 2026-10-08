@@ -1,4 +1,5 @@
 import copy
+import io
 import os
 import re
 import time
@@ -104,6 +105,45 @@ def test_quick_parse_keeps_a_labelled_line_with_its_own_job():
     assert second["company"] == "Globex" and second["GPA"] == "3.9"
     assert [k for k in second if not k.startswith("_")][-2:] == ["GPA", "bullets"]  # it came before the bullets
     assert "Technologies: Spark, dbt" in resume_io.to_text(master.normalize(draft))
+
+
+def test_every_project_keeps_its_own_technologies_line():
+    """A long Technologies line with lowercase items (or a bulleted one) is that project's field, not a bullet, and is
+    never glued onto the bullet above it."""
+    text = ("Jane Doe\n\nPROJECTS\nClientVirt AI Platform | 2024\n- Built a private document assistant for teams\n"
+            "Technologies: Python, LLM, RAG\n"
+            "Sales Forecast Dashboard | 2023\n- Forecast weekly store sales for regional managers with seasonal models\n"
+            "Technologies: python, pandas, scikit-learn, matplotlib, streamlit, postgresql\n"
+            "Inventory Data Pipeline | 2022\n- Loaded daily inventory feeds into the warehouse\n"
+            "- Technologies: airflow, dbt, snowflake, aws s3, great expectations\n")
+    for name in ("cv.txt", "cv.pdf"):  # a PDF is read like a text file with wrapped lines
+        structured = resume_io.structure_from_lines(resume_io._lines_from_text(text.encode()), True) if name.endswith("pdf") \
+            else resume_io.parse_resume(name, text.encode())
+        entries = master.draft(structured)["sections"][0]["entries"]
+        assert [e.get("Technologies") for e in entries] == [
+            "Python, LLM, RAG", "python, pandas, scikit-learn, matplotlib, streamlit, postgresql",
+            "airflow, dbt, snowflake, aws s3, great expectations"], name
+        assert all(len(e["bullets"]) == 1 and "Technologies" not in e["bullets"][0] for e in entries), name
+
+
+def test_every_project_keeps_its_technologies_line_in_a_word_file():
+    from docx import Document
+
+    doc = Document()
+    doc.add_paragraph("Jane Doe")
+    doc.add_paragraph("PROJECTS")
+    for name, tech, bulleted in (("ClientVirt AI Platform | 2024", "Python, LLM, RAG", False),
+                                 ("Sales Forecast Dashboard | 2023", "python, pandas, scikit-learn", True),
+                                 ("Inventory Data Pipeline | 2022", "airflow, dbt, snowflake", False)):
+        doc.add_paragraph(name)
+        doc.add_paragraph(f"Built the {name.split(' |')[0]} for regional managers", style="List Bullet")
+        doc.add_paragraph(f"Technologies: {tech}", style="List Bullet" if bulleted else None)
+    buf = io.BytesIO()
+    doc.save(buf)
+    entries = master.draft(resume_io.parse_resume("cv.docx", buf.getvalue()))["sections"][0]["entries"]
+    assert [e.get("Technologies") for e in entries] == ["Python, LLM, RAG", "python, pandas, scikit-learn",
+                                                        "airflow, dbt, snowflake"]
+    assert [len(e["bullets"]) for e in entries] == [1, 1, 1]
 
 
 def test_extra_lines_count_toward_the_years_of_a_skill():

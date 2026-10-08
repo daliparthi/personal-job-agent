@@ -19,7 +19,8 @@ import yaml
 
 from . import db
 from .config import MASTER_YAML
-from .resume_io import ENTRY_CORE, ENTRY_KINDS, entry_fields, is_extra, section_kind, split_items, to_text
+from .resume_io import (ENTRY_CORE, ENTRY_KINDS, TECH_LABEL_WORDS, entry_fields, is_extra, label_of, section_kind,
+                        split_items, to_text)
 
 KINDS = ("summary", "skills", "experience", "projects", "education", "certifications", "other")
 
@@ -162,14 +163,6 @@ def _skill_group(text: str):
     return {"name": name, "items": items}
 
 
-_LABEL_LINE = re.compile(r"^([A-Z][A-Za-z][\w &/.()+#-]{0,30}?)\s*:\s+(\S.*)$")
-# Labelled lines that belong to the job / school / project above them ("Technologies: Spark, dbt", "GPA: 3.8")
-_LABEL_WORDS = {"technologies", "technology", "tech", "stack", "tools", "tool", "environment", "environments", "skills",
-                "languages", "frameworks", "platforms", "databases", "software", "gpa", "coursework", "courses",
-                "honors", "honours", "awards", "client", "clients", "team", "achievements", "highlights",
-                "methodologies", "minor", "major", "thesis", "advisor", "activities", "domain", "technical"}
-
-
 def _entries(kind: str, blocks):
     entries, cur = [], None
 
@@ -180,16 +173,16 @@ def _entries(kind: str, blocks):
 
     for b in blocks:
         t = b["text"]
+        dated = bool(RANGE_RE.search(t) or SINGLE_RE.search(t))
+        # This entry's own labelled line ("Technologies: ..."), kept as a field of it: not the next entry's heading,
+        # and not a bullet even when the resume put a bullet in front of it
+        label = None if dated or cur is None else label_of(t, TECH_LABEL_WORDS) if b["type"] == "bullet" else label_of(t)
+        if label:
+            cur["_after" if cur["bullets"] else "_before"].append(label)
+            continue
         if b["type"] == "bullet":
             cur = cur or new([])
             cur["bullets"].append(t)
-            continue
-        dated = bool(RANGE_RE.search(t) or SINGLE_RE.search(t))
-        label = _LABEL_LINE.match(t)
-        if (label and cur is not None and not dated
-                and set(re.findall(r"[a-z]+", label.group(1).lower())) & _LABEL_WORDS):
-            # This entry's own line, kept as an extra field (not the next entry's heading)
-            cur["_after" if cur["bullets"] else "_before"].append((label.group(1).strip(), label.group(2).strip()))
             continue
         sentence = len(t) > 110 or (t.endswith(".") and len(t.split()) > 8)
         if sentence and cur is not None:

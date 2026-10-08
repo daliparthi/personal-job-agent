@@ -36,6 +36,24 @@ SECTION_WORDS = {
               "additional information", "leadership"],
 }
 _HEADINGS = {w: kind for kind, words in SECTION_WORDS.items() for w in words}
+
+# A labelled line under a job, school or project ("Technologies: Spark, dbt", "GPA: 3.8"): that entry's own field.
+_LABEL_LINE = re.compile(r"^([A-Z][A-Za-z][\w &/.()+#-]{0,30}?)\s*:\s+(\S.*)$")
+# Labels of tools and methods: such a line is a field even when the resume put a bullet in front of it.
+TECH_LABEL_WORDS = {"technologies", "technology", "tech", "stack", "tools", "tool", "environment", "environments",
+                    "skills", "languages", "frameworks", "platforms", "databases", "software", "methodologies",
+                    "technical"}
+LABEL_WORDS = TECH_LABEL_WORDS | {"gpa", "coursework", "courses", "honors", "honours", "awards", "client", "clients",
+                                  "team", "achievements", "highlights", "minor", "major", "thesis", "advisor",
+                                  "activities", "domain"}
+
+
+def label_of(text: str, words=LABEL_WORDS):
+    """(label, value) of a labelled line such as "Technologies: Spark, dbt", or None."""
+    m = _LABEL_LINE.match((text or "").strip())
+    if m and set(re.findall(r"[a-z]+", m.group(1).lower())) & words:
+        return m.group(1).strip(), m.group(2).strip()
+    return None
 _BULLET = re.compile(r"^\s*(?:[•●▪◦‣∙·■□➢➤►\-–\*]|o\s||)\s*")
 
 
@@ -161,8 +179,9 @@ def structure_from_lines(lines, wrapped_lines: bool):
             continue
         body = _BULLET.sub("", text) if is_bullet else text
         prev = cur["blocks"][-1] if cur["blocks"] else None
+        labelled = label_of(body) is not None  # "Technologies: ..." starts a line of its own, and is not a bullet
         # PDFs and text files wrap long lines; glue continuation lines back on.
-        continuation = (wrapped_lines and prev is not None and not is_bullet and not blank_before
+        continuation = (wrapped_lines and prev is not None and not is_bullet and not blank_before and not labelled
                         and (prev["type"] == "bullet" or cur["kind"] == "summary")
                         and (body[:1].islower() or (last_line_len >= 70 and not title_like(body)
                                                     and not re.search(r"[.!?]$", prev["text"])))
@@ -173,7 +192,7 @@ def structure_from_lines(lines, wrapped_lines: bool):
             prev["text"] = f"{prev['text']} {body}"
         else:
             # PDFs often drop bullet glyphs: in experience sections a sentence-like line is a bullet.
-            inferred = (wrapped_lines and not is_bullet and cur["kind"] in ("experience", "projects")
+            inferred = (wrapped_lines and not is_bullet and not labelled and cur["kind"] in ("experience", "projects")
                         and len(body) > 40 and not title_like(body) and not re.search(r"\b(19|20)\d{2}\b", body))
             cur["blocks"].append({"type": "bullet" if is_bullet or inferred else "text", "text": body})
         blank_before = False
