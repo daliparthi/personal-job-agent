@@ -10,6 +10,7 @@ Tailoring always works on a copy. Only a new upload or your own edit (in the app
 """
 import json
 import re
+from collections import Counter
 from datetime import datetime
 from difflib import SequenceMatcher
 from functools import lru_cache
@@ -161,11 +162,19 @@ def _skill_group(text: str):
     return {"name": name, "items": items}
 
 
+_LABEL_LINE = re.compile(r"^([A-Z][A-Za-z][\w &/.()+#-]{0,30}?)\s*:\s+(\S.*)$")
+# Labelled lines that belong to the job / school / project above them ("Technologies: Spark, dbt", "GPA: 3.8")
+_LABEL_WORDS = {"technologies", "technology", "tech", "stack", "tools", "tool", "environment", "environments", "skills",
+                "languages", "frameworks", "platforms", "databases", "software", "gpa", "coursework", "courses",
+                "honors", "honours", "awards", "client", "clients", "team", "achievements", "highlights",
+                "methodologies", "minor", "major", "thesis", "advisor", "activities", "domain", "technical"}
+
+
 def _entries(kind: str, blocks):
     entries, cur = [], None
 
     def new(src):
-        e = {"_src": src, "_dated": False, "description": "", "bullets": []}
+        e = {"_src": src, "_dated": False, "description": "", "bullets": [], "_before": [], "_after": []}
         entries.append(e)
         return e
 
@@ -176,6 +185,12 @@ def _entries(kind: str, blocks):
             cur["bullets"].append(t)
             continue
         dated = bool(RANGE_RE.search(t) or SINGLE_RE.search(t))
+        label = _LABEL_LINE.match(t)
+        if (label and cur is not None and not dated
+                and set(re.findall(r"[a-z]+", label.group(1).lower())) & _LABEL_WORDS):
+            # This entry's own line, kept as an extra field (not the next entry's heading)
+            cur["_after" if cur["bullets"] else "_before"].append((label.group(1).strip(), label.group(2).strip()))
+            continue
         sentence = len(t) > 110 or (t.endswith(".") and len(t.split()) > 8)
         if sentence and cur is not None:
             if cur["bullets"]:
@@ -192,11 +207,12 @@ def _entries(kind: str, blocks):
     for e in entries:
         src = e.pop("_src")
         e.pop("_dated")
+        before, after, bullets = e.pop("_before"), e.pop("_after"), e.pop("bullets")
         start, end, rest = split_dates(" | ".join(src))
         fields = {f: "" for f in entry_fields(kind)}
         fields.update(guess_fields(kind, rest) if rest else {})
         fields.update(start=start, end=end)
-        out.append({**fields, **e, "_src": src, "_rest": rest})
+        out.append({**fields, **e, **dict(before), "bullets": bullets, **dict(after), "_src": src, "_rest": rest})
     return out
 
 
@@ -510,13 +526,26 @@ def parse_yaml(text: str) -> dict:
 
 # ---------------------------------------------------------------- the model's YAML for one part of an upload
 # The model rewrites each section (or, for a long one, each job) of an uploaded resume as loose YAML. Its YAML is
-# only used when every value in it can be found in that part of the resume (a typo is put back to your own wording)
-# and it leaves out almost nothing; otherwise the rule-based parse of that part is kept.
+# used only when it is that part of the resume, rearranged into fields and nothing else: every value is found in it
+# (a typo is put back to your own wording), no line is used twice or given to the wrong job, entries keep their
+# order, every line is used, and every label is one the resume uses. Otherwise the rule-based parse is kept.
 _FENCE = re.compile(r"^\s*```[A-Za-z]*[ \t]*\n?|\n?[ \t]*```\s*$")
 _TOKEN = re.compile(r"[A-Za-z0-9+#%$&]+")
 _PLAIN = re.compile(r"^(\s*(?:-\s+)?)([A-Za-z][\w .&/()'-]{0,40}):[ \t]+(.+?)\s*$")
 _ITEM = re.compile(r"^(\s*-\s+)(.+?)\s*$")
-_FILLER = {"and", "the", "of", "in", "for", "to", "a", "an", "with", "at", "on", "by", "or", "as", "from"}
+# Words of a line that may be left out of the fields ("Engineer at Acme", "Expected May 2027").
+_FILLER = {"and", "the", "of", "in", "for", "to", "a", "an", "with", "at", "on", "by", "or", "as", "from", "expected",
+           "graduated", "graduation", "grad", "since", "until"}
+_PLACEHOLDER = re.compile(r"^\s*(none|n/?a|null|unknown|tbd|-+|not (specified|listed|given|available|applicable|"
+                          r"mentioned|provided)|no (description|details|information|data|bullets?|location|dates?)"
+                          r"( (provided|available|given|listed))?)\s*\.?\s*$", re.I)
+_KEY_THEN_TEXT = re.compile(r"^([A-Za-z][\w ]{0,30}):[ \t]*\n(.+)$", re.S)
+_DATE_ONLY = re.compile(rf"\(?\s*(?:(?:Expected|Graduated|Graduation|Grad\.?)\s+)?(?:{_DATE}|{_NOW})\s*\)?", re.I)
+# Keys that hold a part's content; any other single key around it ("entry:", "education:") is only a wrapper.
+_CONTENT_KEYS = {"text", "summary", "bullets", "highlights", "points", "groups", "categories", "items", "list", "lines",
+                 "skills", "entries", "jobs", "positions", "roles", "schools", "degrees", "projects", "certifications",
+                 "awards"}
+_HEADING_KEYS = ("title", "company", "degree", "school", "name", "organization", "location", "start", "end")
 
 
 def _quote_values(text: str) -> str:
@@ -541,7 +570,29 @@ def _model_yaml(text: str):
             return yaml.safe_load(attempt)
         except yaml.YAMLError:
             continue
+    m = _KEY_THEN_TEXT.match(t)  # "Summary:" on its own line, then the paragraph
+    if m and not re.search(r"^\s*-?\s*[\w ]{1,30}:(\s|$)", m.group(2), re.M):
+        return {m.group(1): m.group(2).strip()}
     raise ValueError("the model's YAML could not be read")
+
+
+def _no_placeholders(v):
+    """The model's "none" / "Not Specified" for a missing field means the field is empty."""
+    if isinstance(v, dict):
+        return {k: _no_placeholders(x) for k, x in v.items() if not (isinstance(x, str) and _PLACEHOLDER.match(x))}
+    if isinstance(v, list):
+        return [_no_placeholders(x) for x in v if not (isinstance(x, str) and _PLACEHOLDER.match(x))]
+    return v
+
+
+def _unwrap(data, keep=()):
+    """{"entry": {...}} or {"education": [...]} -> what it wraps; a content key ("items: [...]") is kept."""
+    while isinstance(data, dict) and len(data) == 1:
+        (k, v), = data.items()
+        if _key(k) in _CONTENT_KEYS or _key(k) in keep or not isinstance(v, (dict, list)):
+            break
+        data = v
+    return data
 
 
 class _Source:
@@ -552,9 +603,11 @@ class _Source:
         self.text = "\n".join(self.lines)
         self.norm = " " + " ".join(t.lower() for t in _TOKEN.findall(self.text)) + " "
 
-    def has(self, words: str) -> bool:
-        toks = [t.lower() for t in _TOKEN.findall(words)]
-        return bool(toks) and f" {' '.join(toks)} " in self.norm
+    def is_label(self, words: str) -> bool:
+        """Does the resume use `words` as a label ("Technologies:", "Languages -")?"""
+        toks = _TOKEN.findall(words)
+        return bool(toks) and re.search(r"(?<![A-Za-z0-9+#%$&])" + r"[^A-Za-z0-9+#%$&]{1,6}".join(map(re.escape, toks))
+                                        + r"\s*[:–—-]", self.text, re.I) is not None
 
     def find(self, value: str):
         """Your own wording of `value`: the same words in the resume (any case or punctuation between them), or the
@@ -616,7 +669,7 @@ def _snap(part, src: _Source, section_level: bool):
             if isinstance(v, list):
                 e[k] = [fix(x) for x in v]
             elif is_extra(k, v):
-                if not src.has(k):
+                if not src.is_label(k):
                     bad.append(f"{k}:")
                 e[k] = fix(v)
             elif isinstance(v, str):
@@ -631,36 +684,115 @@ def _snap(part, src: _Source, section_level: bool):
         elif isinstance(part.get(k), str):
             part[k] = fix(part[k])
     for g in part.get("groups") or []:
-        if g["name"] and not src.has(g["name"]):
-            g["name"] = ""  # a group name the resume doesn't use is left out, never made up
+        if g["name"] and not src.is_label(g["name"]):
+            g["name"] = ""  # a group name the resume doesn't use as a label is left out, never made up
         g["items"] = [fix(x) for x in g["items"]]
     for e in part.get("entries") or []:
         entry(e)
     return bad
 
 
-def _strings(v, skip=()):
-    if isinstance(v, dict):
-        for k, x in v.items():
-            if k not in skip:
-                yield str(k)
-                yield from _strings(x)
-    elif isinstance(v, list):
-        for x in v:
-            yield from _strings(x)
-    elif isinstance(v, str):
-        yield v
+def _tokens_of(text: str):
+    return [t.lower() for t in _TOKEN.findall(text or "")]
 
 
-def _content_words(text: str) -> set:
-    return {w for w in (t.lower() for t in _TOKEN.findall(text)) if len(w) > 1 and w not in _FILLER}
+def _pieces(part, scope):
+    """What a part prints, in blocks: (True, [an entry's pieces]) or (False, [one piece]), in order."""
+    def entry(e):
+        out = list(e["heading"]) if e.get("heading") else [e[f] for f in _HEADING_KEYS if e.get(f)]
+        out += (e.get("description") or "").split("\n")
+        for k, v in e.items():
+            if k == "bullets":
+                out += v
+            elif is_extra(k, v):
+                out.append(f"{k}: {v}")
+        return [x for x in out if x]
+
+    if scope == "entry":
+        return [(True, entry(part))]
+    flat = (part.get("text") or "").split("\n") + list(part.get("bullets") or [])
+    flat += [(f"{g['name']}: " if g["name"] else "") + ", ".join(g["items"]) for g in part.get("groups") or []]
+    flat += list(part.get("lines") or []) + list(part.get("items") or [])
+    return [(False, [x]) for x in flat if x] + [(True, entry(e)) for e in part.get("entries") or []]
+
+
+class _Budget:
+    """The words of each source line, used up as the model's pieces are matched to lines."""
+
+    def __init__(self, src: _Source):
+        self.lines = src.lines
+        self.left = [Counter(_tokens_of(line)) for line in src.lines]
+
+    def _fits(self, need, span):
+        have = sum((self.left[j] for j in span), Counter())
+        return all(have[t] >= c for t, c in need.items())
+
+    def take(self, words, start):
+        """The first line at or after `start` that still holds all of `words` (or else two lines in a row, for a
+        piece the resume wrapped); they are used up. (first line, last line) or None when no line does."""
+        need = Counter(words)
+        for width in (1, 2):
+            for i in range(start, len(self.left) - width + 1):
+                span = range(i, i + width)
+                if self._fits(need, span):
+                    for t, c in need.items():
+                        for j in span:
+                            used = min(c, self.left[j][t])
+                            self.left[j][t] -= used
+                            c -= used
+                    return i, i + width - 1
+        return None
+
+    def anywhere(self, words) -> bool:
+        need = Counter(words)
+        return any(self._fits(need, (i,)) for i in range(len(self.left)))
+
+
+def _fields_make_sense(part, scope):
+    """A location that names a school, company or job title, or a date that isn't one, means the model put a value in
+    the wrong field."""
+    entries = [part] if scope == "entry" else part.get("entries") or []
+    for e in entries:
+        loc = e.get("location") or ""
+        if loc and (SCHOOL_RE.search(loc) or ORG_RE.search(loc) or TITLE_RE.search(loc) or len(loc.split()) > 6):
+            raise ValueError(f"put “{loc[:40]}” in the location")
+        for f in ("start", "end"):
+            if e.get(f) and not _DATE_ONLY.fullmatch(e[f].strip()):
+                raise ValueError(f"put “{e[f][:40]}” in a date")
+
+
+def _accounted(part, scope, src: _Source):
+    """Raise ValueError unless the part is the source rearranged: each piece uses up words of one line (so nothing is
+    used twice), an entry never takes a line from an entry before it, the other pieces keep their order, and every
+    word of every line is used (but a few filler words)."""
+    budget = _Budget(src)
+    floor = cursor = 0
+    for is_entry, pieces in _pieces(part, scope):
+        lines = []
+        for piece in pieces:
+            words = _tokens_of(piece)
+            if not words:
+                continue
+            got = budget.take(words, floor if is_entry else cursor)
+            if got is None:
+                moved = budget.anywhere(words)
+                raise ValueError(f"{'puts a line in the wrong place' if moved else 'repeats part of it'} "
+                                 f"(“{piece[:40]}”)")
+            lines.append(got[1])
+            if not is_entry:
+                cursor = got[0]
+        if is_entry and lines:
+            floor = max(lines)
+    for line, left in zip(budget.lines, budget.left):
+        if any(c > 0 and t not in _FILLER for t, c in left.items()):
+            raise ValueError(f"left out part of it (“{line[:40]}…”)")
 
 
 def loose_part(kind: str, title: str, scope: str, source, text: str, src=()) -> dict:
     """The section (scope "section") or entry (scope "entry", `src` = its heading lines) the model wrote as YAML in
     `text`, normalized and in your own wording. ValueError (the reason) when it can't be used."""
     kind = kind if kind in KINDS else "other"
-    data = _model_yaml(text)
+    data = _no_placeholders(_unwrap(_model_yaml(text), _synonyms(kind) if scope == "entry" else ()))
     if scope == "entry":
         if isinstance(data, dict) and isinstance(data.get("entries"), list) and len(data["entries"]) == 1:
             data = data["entries"][0]
@@ -686,10 +818,8 @@ def loose_part(kind: str, title: str, scope: str, source, text: str, src=()) -> 
     bad = _snap(part, where, scope != "entry")
     if bad:
         raise ValueError(f"adds text that is not in your resume (“{bad[0][:50]}”)")
-    written = " ".join(_strings(part, () if scope == "entry" else ("title", "kind", "style")))
-    left = _content_words(where.text) - _content_words(written)
-    if where.text and len(left) > 0.1 * len(_content_words(where.text)):
-        raise ValueError(f"left out part of it ({', '.join(sorted(left)[:4])}…)")
+    _fields_make_sense(part, scope)
+    _accounted(part, scope, where)
     return part
 
 

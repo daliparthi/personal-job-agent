@@ -32,6 +32,12 @@ test("short sections are read whole; a long job section is read job by job", () 
   assert.match(long[1].label, /one job \(1 of 8\) in “EXPERIENCE”/);
 });
 
+test("the bundled model reads two or more jobs one at a time; an external one reads a short section whole", () => {
+  const d = draft([job(1), job(2)]);
+  assert.deepEqual(parseTasks(d).slice(1).map((t) => t.scope), ["entry", "entry"]);
+  assert.deepEqual(parseTasks(d, { remote: true }).slice(1).map((t) => t.scope), ["section"]);
+});
+
 function fakeLlm(reply) {
   const asked = [];
   return {

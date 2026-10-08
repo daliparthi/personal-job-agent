@@ -95,6 +95,17 @@ def test_loose_yaml_keeps_extra_lines_and_understands_other_key_names():
     assert plain.index("Technologies") < plain.index("Built ETL jobs") < plain.index("Environment")
 
 
+def test_quick_parse_keeps_a_labelled_line_with_its_own_job():
+    text = ("Jane Doe\n\nEXPERIENCE\nData Engineer, Acme | 2021 - Present\n- Built pipelines.\n"
+            "Technologies: Spark, dbt\nAnalyst, Globex | 2018 - 2021\nGPA: 3.9\n- Wrote reports.\n")
+    draft = master.draft(resume_io.parse_resume("cv.txt", text.encode()))
+    first, second = draft["sections"][0]["entries"]
+    assert first["Technologies"] == "Spark, dbt" and first["company"] == "Acme"
+    assert second["company"] == "Globex" and second["GPA"] == "3.9"
+    assert [k for k in second if not k.startswith("_")][-2:] == ["GPA", "bullets"]  # it came before the bullets
+    assert "Technologies: Spark, dbt" in resume_io.to_text(master.normalize(draft))
+
+
 def test_extra_lines_count_toward_the_years_of_a_skill():
     data = copy.deepcopy(SAMPLE_MASTER)
     data["sections"][2]["entries"][0]["Technologies"] = "Kafka, dbt"

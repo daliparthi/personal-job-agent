@@ -170,6 +170,53 @@ def test_loose_part_that_adds_or_drops_text_is_not_used(client):
     assert "could not be read" in _loose(client, "title: [unclosed")["reason"]
 
 
+# What the bundled 0.5B model actually wrote for parts of a test resume: scrambled parts must never be used.
+SKILLS_LINE = ["Python, SQL, Bash, Scala, Apache Spark, Airflow, dbt, Snowflake, Kafka, Docker, Tableau"]
+TWO_JOBS = ["Senior Data Engineer, Northwind Analytics | Austin, TX | 2021 - Present",
+            "• Designed Spark pipelines for 40 downstream teams.",
+            "Data Engineer, Contoso Retail | Dallas, TX | 2018 - 2021",
+            "• Developed Python ETL jobs loading point-of-sale data into Redshift."]
+
+
+@pytest.mark.parametrize("kind, source, yaml_text, why", [
+    ("skills", SKILLS_LINE, "groups:\n  - name: Python\n    items: SQL, Bash, Scala, Apache Spark, Airflow, dbt, Snowflake, "
+     "Kafka, Docker, Tableau\n  - name: SQL\n    items: Bash, Scala, Apache Spark, Airflow, dbt, Snowflake, Kafka, Docker, "
+     "Tableau", "repeats part of it"),
+    ("experience", TWO_JOBS, "entries:\n  - title: Senior Data Engineer\n    company: Northwind Analytics\n    location: "
+     "Austin, TX\n    start: 2021\n    end: Present\n    bullets:\n      - Designed Spark pipelines for 40 downstream teams.\n"
+     "      - Developed Python ETL jobs loading point-of-sale data into Redshift.\n  - title: Data Engineer\n    company: "
+     "Contoso Retail\n    location: Dallas, TX\n    start: 2018\n    end: 2021\n", "puts a line in the wrong place"),
+    ("experience", TWO_JOBS, "entries:\n  - title: Senior Data Engineer\n    company: Northwind Analytics\n    location: "
+     "Austin, TX\n    start: 2021\n    end: Present\n    bullets:\n      - Designed Spark pipelines for 40 downstream teams.\n"
+     "  - title: Data Engineer\n    company: Contoso Retail\n    location: Dallas, TX\n    start: 2018\n    end: Present\n"
+     "    bullets:\n      - Developed Python ETL jobs loading point-of-sale data into Redshift.\n", "repeats part of it"),
+    ("education", ["B.S. Computer Science, University of Texas at Austin, 2016"],
+     "entry:\n  degree: B.S. Computer Science\n  location: University of Texas at Austin\n  start: 2016", "in the location"),
+    ("certifications", ["AWS Certified Data Analytics - Specialty, SnowPro Core Certification"],
+     "items:\n  - AWS Certified Data Analytics\n  - SnowPro Core Certification", "left out part of it"),
+])
+def test_loose_part_scrambled_by_the_model_is_not_used(client, kind, source, yaml_text, why):
+    r = _loose(client, yaml_text, scope="section", kind=kind, source=source, src=[])
+    assert not r["ok"] and why in r["reason"], r
+
+
+def test_loose_part_repairs_what_a_small_model_gets_wrong_in_form_only(client):
+    summary = ["Data engineer with 8 years of experience building data platforms on AWS."]
+    r = _loose(client, "Summary:\nData Engineer with 8 years of experience building data platforms on AWS.",
+               scope="section", kind="summary", source=summary, src=[])
+    assert r["ok"] and r["part"]["text"] == summary[0]  # the YAML is repaired and the wording is your own
+    project = ["Inventory Forecast Dashboard | 2022",
+               "• Built a dashboard that forecasts store inventory from daily sales data."]
+    r = _loose(client, "entries:\n  - title: Inventory Forecast Dashboard\n    company: Not Specified\n    start: 2022\n"
+                       "    end: Not Specified\n    bullets:\n      - Built a dashboard that forecasts store inventory from "
+                       "daily sales data.\n      - No Description Provided", scope="section", kind="projects",
+               source=project, src=[])
+    assert r["ok"], r
+    e = r["part"]["entries"][0]
+    assert (e["name"], e["organization"], e["start"], e["end"], e["bullets"]) == (
+        "Inventory Forecast Dashboard", "", "2022", "", [project[1][2:]])
+
+
 def test_loose_section_splits_lines_and_quotes_broken_yaml(client):
     certs = ["AWS Certified Developer – Associate, SnowPro Core Certification"]
     r = _loose(client, "items:\n  - AWS Certified Developer – Associate\n  - SnowPro Core Certification\n",

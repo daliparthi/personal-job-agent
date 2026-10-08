@@ -44,6 +44,8 @@ const TASKS = {
 // ---------------------------------------------------------------- loose YAML of a whole section or entry
 const ENTRY_KINDS = new Set(["experience", "education", "projects"]);
 const SECTION_LIMIT = 1800; // characters: a longer job / school / project section is read one entry at a time
+// (the bundled model reads every section with two or more jobs, schools or projects one at a time: shown several, it
+// mixes their lines up)
 const OTHER_LIMIT = 3600;   // a longer section of any other kind keeps the rule-based parse
 const PART_NAMES = { summary: "a professional summary", skills: "a skills section", experience: "a work experience section",
   projects: "a projects section", education: "an education section", certifications: "a certifications section", other: "a resume section" };
@@ -59,6 +61,7 @@ Use these keys when they fit:
 - a summary: text
 Any other labelled line (for example "Technologies: ..." or "GPA: ...") becomes a key of its own, named by its label.
 Jobs, schools and projects go in a list under entries.
+Leave a key out when the resume doesn't have it. Never write "none", "Not Specified" or anything else that is not in the text.
 Reply with the YAML only.`;
 
 const LOOSE_EXAMPLES = [
@@ -66,11 +69,25 @@ const LOOSE_EXAMPLES = [
     "entries:\n  - title: Data Analyst\n    company: Fabrikam Health\n    location: Houston, TX\n    start: 2016\n    end: 2018\n    bullets:\n      - Wrote SQL reports used by 12 clinic managers.\n    Technologies: SQL, Tableau\n  - title: Intern\n    company: Contoso\n    end: 2015\n    bullets:\n      - Cleaned claims data."],
   ["Part: a skills section\nText:\nLanguages: Python, SQL\nCloud: AWS (S3, EMR), Docker",
     "groups:\n  - name: Languages\n    items: Python, SQL\n  - name: Cloud\n    items: AWS (S3, EMR), Docker"],
+  ["Part: an education section\nText:\nM.S. Data Science, Stanford University, Stanford, CA, 2019",
+    "entries:\n  - degree: M.S. Data Science\n    school: Stanford University\n    location: Stanford, CA\n    end: 2019"],
   ["Part: a certifications section\nText:\nAWS Certified Developer – Associate, SnowPro Core Certification",
     "items:\n  - AWS Certified Developer – Associate\n  - SnowPro Core Certification"],
+  ["Part: a professional summary\nText:\nAnalyst with 4 years of experience in retail reporting.",
+    "text: Analyst with 4 years of experience in retail reporting."],
 ];
 
-const entryLines = (e) => [...(e._src || []), e.description, ...(e.bullets || []).map((b) => `• ${b}`)].filter(Boolean);
+const ENTRY_CORE = new Set(["title", "company", "degree", "school", "name", "organization", "location", "start", "end",
+  "heading", "description", "bullets"]);
+/** An entry of the draft as it was written: its heading lines, description, bullets and labelled lines, in order. */
+function entryLines(e) {
+  const out = [...(e._src || []), e.description];
+  for (const [k, v] of Object.entries(e)) {
+    if (k === "bullets") out.push(...(v || []).map((b) => `• ${b}`));
+    else if (!ENTRY_CORE.has(k) && !k.startsWith("_") && typeof v === "string" && v) out.push(`${k}: ${v}`);
+  }
+  return out.filter(Boolean);
+}
 
 function looseMessages(task) {
   const part = task.scope === "entry" ? ENTRY_NAMES[task.kind] : PART_NAMES[task.kind] || PART_NAMES.other;
@@ -105,9 +122,10 @@ function headingTasks(s, only = null) {
     .map(({ e, i }) => ({ type: s.kind, source: e._rest, target: e, label: `${s.kind === "experience" ? "job" : "education"} heading ${i + 1} of ${s.entries.length}` }));
 }
 
-/** The model's jobs for this draft: the header, then each section (a long job / school / project section entry by
- *  entry) as loose YAML. A section with no source lines (or a very long non-entry one) keeps the rule-based parse. */
-export function parseTasks(draft) {
+/** The model's jobs for this draft: the header, then each section (a long job / school / project section, or for
+ *  the bundled model any with two or more entries, entry by entry) as loose YAML. A section with no source lines
+ *  (or a very long one of another kind) keeps the rule-based parse. remote: an external engine reads the model. */
+export function parseTasks(draft, { remote = false } = {}) {
   const tasks = [];
   if (draft._header_rest) tasks.push({ type: "header", source: draft._header_rest, target: draft, label: "the top of your resume" });
   draft.sections.forEach((s) => {
@@ -115,7 +133,8 @@ export function parseTasks(draft) {
     const size = lines.join("\n").length;
     if (!lines.length) return;
     const name = `“${s.title || s.kind}”`;
-    if (ENTRY_KINDS.has(s.kind) && size > SECTION_LIMIT && (s.entries || []).length) {
+    const entries = (s.entries || []).length;
+    if (ENTRY_KINDS.has(s.kind) && entries && (size > SECTION_LIMIT || (!remote && entries > 1))) {
       s.entries.forEach((e, i) => tasks.push({ type: "loose", scope: "entry", kind: s.kind, title: s.title, section: s, index: i,
         source: entryLines(e), src: e._src || [], target: e, label: `${ENTRY_NAMES[s.kind]} (${i + 1} of ${s.entries.length}) in ${name}` }));
     } else if (ENTRY_KINDS.has(s.kind) || size <= OTHER_LIMIT) {
@@ -185,8 +204,8 @@ function headingMessages(task) {
  * written as YAML), kept (why a part kept the rule-based parse) }.
  */
 export async function refineWithModel({ llm, draft, signal, ui, check }) {
-  const tasks = parseTasks(draft);
   const remote = llm.backend === "remote";
+  const tasks = parseTasks(draft, { remote });
   let used = 0, tokens = 0, done = 0, parts = 0;
   const kept = [];
   for (let i = 0; i < tasks.length; i++) {
