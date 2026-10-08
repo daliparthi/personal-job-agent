@@ -5,7 +5,8 @@
      Enter searches; the last search's list stays on screen until the results arrive (about half a second) and is then
      drawn again once more as the rest come in; each suggestion has a checkbox and the list stays open; picking one
      ticks it and shows it as a chip in the field and in the list. A click on the last search's list, while the new
-     search is loading, is lost. -->
+     search is loading, is lost; after a pick the cursor goes back into the box. A search with no match empties the
+     list. -->
 <h2>My Experience</h2>
 
 <div data-automation-id="formField-skills">
@@ -20,6 +21,14 @@ const RESULTS = {
   "etl development": ["ETL Development", "ETL Tools", "Data Transformation"],
   "data transformation": ["Data Transformation", "Data Center Transformation", "Data Transformation Services (DTS)",
                           "Data Conversions"],
+  "fine tuning": ["Fine-Tuning", "Model Fine-Tuning"],
+  "data cataloging": ["Data Cataloging", "Data Catalogs"],
+  "python": ["Python (Programming Language)", "Python Scripting"],
+  "sql": ["SQL", "SQL Server"],
+  "snowflake": ["Snowflake", "Snowflake Schema"],
+  "tableau": ["Tableau (Software)"],
+  "power bi": ["Power BI"],
+  "data governance": ["Data Governance", "Data Governance Frameworks"],
 };
 const selected = [];
 let search = 0;  // the latest search; a click on an older search's list does nothing
@@ -45,6 +54,7 @@ function draw(names, g) {
       if (i >= 0) selected.splice(i, 1); else selected.push(name);
       box.checked = i < 0;
       drawChips();
+      document.getElementById("skills").focus();  // Workday puts the cursor back in the box (a trusted focus event)
     });
     popup.appendChild(row);
   }

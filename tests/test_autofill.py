@@ -419,6 +419,22 @@ def test_skills_are_picked_from_this_searchs_list_and_checked():
     assert st["values"]["skills"] == ""
 
 
+def test_every_skill_is_tried_even_though_workday_puts_the_cursor_back_in_the_box():
+    """Workday focuses the skills box after each pick (a trusted event): that must not count as you typing there, or
+    only the first few skills get added. Spelling differences ("Fine Tuning" / "Fine-Tuning") and a bracketed note
+    ("Data Cataloging (Alation)") still find the skill; one Workday doesn't list is named in the banner."""
+    names = ["ETL Development", "Data Transformation", "Fine Tuning", "Data Cataloging (Alation)", "Python", "SQL",
+             "Information Stewardship", "Snowflake", "Tableau", "Power BI", "Data Governance"]
+    setup = formfill.page_setup(PROFILE, settings(), MASTER, JOB, resume={"sections": [{"kind": "skills", "groups": [
+        {"name": "Data", "items": names}]}]})
+    st = run_page("skills", setup, "() => document.querySelectorAll('#chips [data-automation-id=selectedItem]').length === 10"
+                  " && /added 10 of 11/.test(document.getElementById('__jobagent_banner')?.innerText || '')", timeout=90)
+    assert st["chips"] == ["ETL Development", "Data Transformation", "Fine-Tuning", "Data Cataloging",
+                           "Python (Programming Language)", "SQL", "Snowflake", "Tableau (Software)", "Power BI",
+                           "Data Governance"]
+    assert "Skills: added 10 of 11; Workday doesn't list Information Stewardship" in st["banner"]
+
+
 def test_self_identify_declines_disability_and_leaves_the_signature():
     st = run_page("self_identify", _setup(), "() => document.getElementById('dis-skip').checked")
     assert st["checked"] == ["dis-skip"]

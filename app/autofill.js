@@ -317,21 +317,30 @@
    *  Workday keeps the last search's list on screen until the new one arrives, and redraws it as results come in, so
    *  a suggestion is picked only from this search's settled list, and the pick is checked (and made again on the
    *  redrawn list) until the skill shows as selected. */
-  const skillsTried = new Set();
-  const MAX_SKILLS = 30, SKILLS_PER_TICK = 6;
+  const skillsDone = new Set();   // skills added, already there, or not listed by Workday: not searched again
+  const skillTries = new Map();   // skill -> searches that got no list at all (Workday was slow): tried again once
+  const skillsMissing = [];       // skills Workday doesn't list, for the banner
+  let skillsAdded = 0;
+  const MAX_SKILLS = 60, SKILLS_PER_TICK = 8;
+  // Compared without case and punctuation: "Fine Tuning" is Workday's "Fine-Tuning".
+  const simple = (s) => norm(s).replace(/[^a-z0-9+#]+/g, " ").trim();
   /** The suggestion that is this skill: exact, else one that starts with it ("Python (Programming Language)"), else one
    *  that has it as a whole word ("Apache Spark"); the shortest of those. null when nothing names the skill. */
   function bestSkillOption(opts, skill) {
-    const s = norm(skill);
-    const escaped = s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const whole = new RegExp(`(^|[^a-z0-9+#])${escaped}($|[^a-z0-9+#])`);
-    const text = (o) => norm(o.innerText);
-    const plain = (o) => text(o).replace(/\s*\([^)]*\)\s*/g, " ").trim();
+    const s = simple(skill);
+    if (!s) return null;
+    const whole = new RegExp(`(^| )${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`);
+    const text = (o) => simple(o.innerText);
+    const plain = (o) => simple(norm(o.innerText).replace(/\([^)]*\)/g, " "));
     const shortest = (list) => list.sort((a, b) => text(a).length - text(b).length)[0] || null;
     return opts.find((o) => text(o) === s) || opts.find((o) => plain(o) === s)
       || shortest(opts.filter((o) => text(o).startsWith(s) && whole.test(text(o))))
       || shortest(opts.filter((o) => whole.test(text(o))));
   }
+  /** What to search for a skill: as written, then without a bracketed note ("Data Cataloging (Alation)"). */
+  const skillTerms = (skill) => [...new Set([skill.trim(), skill.replace(/\s*\([^)]*\)\s*/g, " ").trim()])].filter(Boolean);
+  /** Is this the "Type to Add Skills" box? Workday puts the cursor back in it after each pick: that is not you. */
+  const isSkillsBox = (el) => !!(C && el && el.tagName === "INPUT" && C.skills.test(describe(el)));
 
   const skillOptions = () => [...document.querySelectorAll(C.skillOption)].filter(visible);
   const optionsKey = (opts) => opts.map((o) => norm(o.innerText)).join("\n");
@@ -351,19 +360,25 @@
     }
   }
 
-  /** The suggestion for `skill` in this search's list: the list showing before the search (`before`, the last skill's)
-   *  has been replaced, or a few seconds have passed, and it looked the same twice in a row. null when none fits. */
+  /** This search's list, once it has replaced the list showing before the search (`before`, the last skill's) or a
+   *  few seconds have passed, and looked the same twice in a row: { hit (the suggestion for `skill`, or null),
+   *  listed (a list came at all) }. */
   async function settledSkillOption(skill, before) {
-    let last = null;
+    let last = null, empty = 0;
     for (let i = 0; i < 30; i++) {  // Workday's search can take a few seconds
       await sleep(200);
+      scripted = Date.now() + 1500;
       const opts = skillOptions();
       const key = optionsKey(opts);
-      const fresh = key !== before.key || before.nodes.every((o) => !o.isConnected || !visible(o)) || i >= 12;
-      if (opts.length && fresh && key === last) return bestSkillOption(opts, skill);
+      const gone = before.nodes.every((o) => !o.isConnected || !visible(o));
+      const fresh = key !== before.key || gone || i >= 12;
+      if (opts.length && fresh && key === last) return { hit: bestSkillOption(opts, skill), listed: true };
+      // the last list went away and nothing came in its place: Workday has nothing for this search
+      empty = !opts.length && before.nodes.length && gone ? empty + 1 : 0;
+      if (empty >= 5) return { hit: null, listed: true };
       last = key;
     }
-    return null;
+    return { hit: null, listed: false };
   }
 
   /** Is the suggestion named `name` selected? true / false when the page shows it (a chip, or the row's checkbox),
@@ -385,28 +400,44 @@
 
   async function fillSkills() {
     const skills = ((setup.history || {}).skills || []).slice(0, MAX_SKILLS);
-    const todo = skills.filter((s) => !skillsTried.has(norm(s)));
+    const todo = skills.filter((s) => !skillsDone.has(norm(s)));
     if (!todo.length) return;
     const input = [...document.querySelectorAll(TEXT_SEL)]
-      .find((el) => el.tagName === "INPUT" && visible(el) && !el.disabled && !el.readOnly && !touched.has(el) && C.skills.test(describe(el)));
+      .find((el) => el.tagName === "INPUT" && visible(el) && !el.disabled && !el.readOnly && !touched.has(el) && isSkillsBox(el));
     if (!input) return;
     for (const skill of todo.slice(0, SKILLS_PER_TICK)) {
-      skillsTried.add(norm(skill));
-      if (chipNamed(norm(skill))) continue;  // already added
-      const showing = skillOptions();
-      const before = { key: optionsKey(showing), nodes: showing };
-      typeSkill(input, skill);
-      pressEnter(input);
-      let hit = await settledSkillOption(skill, before);
-      if (!hit) { typeSkill(input, ""); continue; }
+      if (touched.has(input)) break;  // you started typing in the box yourself
+      if (chipNamed(norm(skill))) { skillsDone.add(norm(skill)); continue; }  // already added
+      let hit = null, listed = false, term = skill;
+      for (term of skillTerms(skill)) {
+        const showing = skillOptions();
+        const before = { key: optionsKey(showing), nodes: showing };
+        scripted = Date.now() + 1500;
+        typeSkill(input, term);
+        pressEnter(input);
+        ({ hit, listed } = await settledSkillOption(term, before));
+        if (hit || !listed) break;
+      }
+      if (!hit) {
+        typeSkill(input, "");
+        const tries = (skillTries.get(norm(skill)) || 0) + 1;
+        skillTries.set(norm(skill), tries);
+        if (listed || tries >= 2) {  // Workday doesn't list it (or never answered): skipped
+          skillsDone.add(norm(skill));
+          if (listed) skillsMissing.push(skill);
+        }
+        continue;
+      }
+      skillsDone.add(norm(skill));
       const name = norm(hit.innerText);
       let picked = false;
       for (let attempt = 0; attempt < 3 && !picked; attempt++) {
         if (attempt) {  // the list was redrawn under the click: pick it again from the list as it is now
-          hit = bestSkillOption(skillOptions(), skill);
+          hit = bestSkillOption(skillOptions(), term);
           if (!hit || norm(hit.innerText) !== name) break;
         }
         const targets = optionTargets(hit);
+        scripted = Date.now() + 2500;  // Workday focuses the box again after a pick: not you
         if (!safeClick(targets[Math.min(attempt, targets.length - 1)], "option")) break;
         let state = null;
         for (let i = 0; i < 10; i++) {
@@ -416,9 +447,10 @@
         }
         picked = state !== false;  // can't tell: trust the click rather than risk unselecting it
       }
-      if (picked) filled++;
+      if (picked) { filled++; skillsAdded++; }
       await sleep(200);
     }
+    scripted = Date.now() + 1500;
     if (input.value) typeSkill(input, "");  // leave nothing typed in the box
   }
 
@@ -614,6 +646,7 @@
     if (!e.isTrusted || (e.type === "focusin" && Date.now() < scripted)) return;
     const el = e.target;
     if (!el || el.nodeType !== 1) return;
+    if (e.type === "focusin" && isSkillsBox(el)) return;  // Workday puts the cursor back there after each pick
     touched.add(el);
     const btn = el.closest?.('button[aria-haspopup="listbox"]');
     if (btn) touched.add(btn);
@@ -750,6 +783,12 @@
         if (short.length && !setup.options?.add_entries) {
           notes.push(`Your resume has ${short.map(([w, r]) => `${r.wanted} ${w}${r.wanted > 1 ? "s" : ""}`).join(" and ")}; ` +
             "click Add for each (or turn on Settings â†’ Autofill â†’ Add entries).");
+        }
+        const skillCount = ((setup.history || {}).skills || []).length;
+        if (skillsDone.size) {
+          const more = skillsMissing.length > 6 ? "…" : "";
+          notes.push(`Skills: added ${skillsAdded} of ${Math.min(skillCount, MAX_SKILLS)}${skillsMissing.length
+            ? `; Workday doesn't list ${skillsMissing.slice(0, 6).join(", ")}${more}` : ""}.`);
         }
         notes.push("Check every step, then click Submit yourself.");
         banner(notes.join(" "), missingRequired());
