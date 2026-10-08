@@ -7,7 +7,9 @@
      stays open. A suggestion is picked by pressing the mouse button on it and letting go (Workday's rows don't answer
      a bare scripted click); that ticks it and shows it as a chip in the field and in the list. The chips are marked as
      options too. A click on the last search's list, while the new search is loading, is lost; after a pick the cursor
-     goes back into the box. A search with no match shows "No Items." -->
+     goes back into the box. A search with no match shows "No Items." Some searches are slow (as on a real form,
+     2.5 to 3.5 seconds): the list empties while they load, and their results come in late. A search with only one
+     result adds it by itself. Results include near misses, as Workday's do ("Jet Skis" for SSIS). -->
 <h2>My Experience</h2>
 
 <div data-automation-id="formField-skills">
@@ -28,11 +30,25 @@ const RESULTS = {
   "sql": ["SQL", "SQL Server"],
   "snowflake": ["Snowflake", "Snowflake Schema"],
   "tableau": ["Tableau (Software)"],
-  "power bi": ["Power BI"],
+  "power bi": ["Microsoft Power Business Intelligence (PBI)", "Microsoft Copilot for Power BI", "Power PCB",
+               "Microsoft Power Business Intelligence (BI) Desktop"],
   "data governance": ["Data Governance", "Data Governance Frameworks"],
   "data quality management": ["Data Quality Management", "Data Quality Management Systems"],
   "data pipelines": ["Data Pipeline", "Data Pipeline Automation"],
+  "collaboration": ["Collaboration", "Team Collaboration", "Peer Collaboration", "Work Collaboratively"],
+  "mcp tools": ["mcp tools"],
+  "oracle": ["Oracle Database", "Oracle GL", "Oracle SQL", "Oracle VM"],
+  "sql server": ["Microsoft SQL Server", "SQL Server BI", "SQL Server SSAS", "Microsoft SQL Database"],
+  "ssis": ["KingswaySoft SSIS", "Jet Skis", "SQL Server Integration Services (SSIS)", "SSAS Tabular"],
+  "azure": ["Azure Local", "Microsoft Azure", "Azure DevOps"],
+  "unix/linux": ["Linux", "Unix Programming", "Unix Systems", "Unix Shell"],
+  "unix": ["Unix", "Unix Shell"],
+  "linux": ["Linux", "Linux Programming"],
+  "llm applications": ["LLM Evaluation", "CRM Applications", "Loan Applications", "LLM Architecture"],
 };
+// how long a search takes (ms); the rest take half a second
+const SLOW = { "collaboration": 2600, "data governance": 3200, "mcp tools": 2500, "oracle": 2800, "ssis": 3500,
+               "unix/linux": 2600, "llm applications": 2600 };
 const selected = [];
 let search = 0;  // the latest search; a click on an older search's list does nothing
 
@@ -107,10 +123,20 @@ function drawChips() {
 
 document.getElementById("skills").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
-  const names = RESULTS[e.target.value.trim().toLowerCase()] || [];
+  const q = e.target.value.trim().toLowerCase();
+  const names = RESULTS[q] || [];
   const g = ++search;
-  setTimeout(() => draw(names, g), 500);   // the results arrive...
-  setTimeout(() => draw(names, g), 800);   // ...and the list is drawn again as the rest come in
+  const wait = SLOW[q] || 500;
+  if (SLOW[q]) setTimeout(() => { if (g === search) document.getElementById("popup").innerHTML = ""; }, 300);
+  setTimeout(() => {                       // the results arrive (a slow search's even after the next one started)...
+    draw(names, g);
+    if (names.length === 1 && !selected.includes(names[0])) {  // ...the only one is added by itself...
+      selected.push(names[0]);
+      draw(names, g);
+      drawChips();
+    }
+  }, wait);
+  setTimeout(() => draw(names, g), wait + 300);   // ...and the list is drawn again as the rest come in
 });
 </script>
 <script src="common.js"></script>

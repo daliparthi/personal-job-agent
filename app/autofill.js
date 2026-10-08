@@ -315,9 +315,11 @@
 
   /** Workday's "Type to Add Skills" box: type each skill of the tailored resume, press Enter and pick the suggestion
    *  that is that skill (never a different one). A few per pass; a skill Workday doesn't list is skipped.
-   *  Workday keeps the last search's list on screen until the new one arrives, and redraws it as results come in, so
-   *  a suggestion is picked only from this search's settled list, and the pick is checked (and made again on the
-   *  redrawn list) until the skill shows as selected. */
+   *  Workday's search can take seconds, and meanwhile the last search's list stays on screen or arrives late, so a
+   *  suggestion is picked only from a list that answers this search (see answersTerm), and the pick is checked (and
+   *  made again on the redrawn list) until the skill shows as selected. */
+  let skillList = null;           // the skills to add, in order ("Unix/Linux" becomes "Unix", "Linux" if not listed)
+  let lastTerm = "";              // the last search typed: its list can still be on screen, or arrive late
   const skillsDone = new Set();   // skills added, already there, or not listed by Workday: not searched again
   const skillTries = new Map();   // skill -> searches that got no list at all (Workday was slow): tried again once
   const skillsMissing = [];       // skills Workday doesn't list, for the banner
@@ -327,21 +329,59 @@
   const MAX_SKILLS = 60, SKILLS_PER_TICK = 8;
   // Compared without case and punctuation: "Fine Tuning" is Workday's "Fine-Tuning".
   const simple = (s) => norm(s).replace(/[^a-z0-9+#]+/g, " ").trim();
+  const words = (s) => simple(s).split(" ").filter(Boolean);
   // ...and without plural endings: "Data Pipelines" is Workday's "Data Pipeline".
-  const singular = (s) => simple(s).split(" ").map((w) => (w.length > 3 && /[^s]s$/.test(w) ? w.slice(0, -1) : w)).join(" ");
-  /** The suggestion that is this skill: exact, else one that starts with it ("Python (Programming Language)"), else one
-   *  that has it as a whole word ("Apache Spark"); the shortest of those. null when nothing names the skill. */
+  const singleWord = (w) => (w.length > 3 && /[^s]s$/.test(w) ? w.slice(0, -1) : w);
+  const singular = (s) => words(s).map(singleWord).join(" ");
+  // "Microsoft Azure", "Apache Spark", "IBM DB2": the vendor's name for the skill.
+  const VENDORS = new Set(["adobe", "amazon", "apache", "aws", "google", "ibm", "microsoft", "oracle", "salesforce", "sap"]);
+  /** The letters a skill is shortened to: "SSIS" -> ssis, "Power BI" -> pbi, "SQL Server Integration Services" -> ssis. */
+  function acronym(skill) {
+    const ws = skill.replace(/[^A-Za-z0-9 ]+/g, " ").split(" ").filter(Boolean);
+    if (ws.length === 1) return ws[0].toLowerCase();
+    return ws.map((w) => (/^[A-Z0-9]{2,}$/.test(w) ? w : w[0])).join("").toLowerCase();
+  }
+  /** How well a suggestion names the skill: 6 exactly, 5 with Workday's note ("Python (Programming Language)"),
+   *  4 in the singular ("Data Pipeline"), 3 by its letters ("SQL Server Integration Services (SSIS)") or the vendor's
+   *  name ("Microsoft Azure"), 2 among other words ("IBM InfoSphere DataStage"), 0 not at all. */
+  function skillMatch(o, skill) {
+    const s = simple(skill), name = skillName(o), text = simple(name);
+    if (!s) return 0;
+    const plain = simple(name.replace(/\([^)]*\)/g, " "));
+    if (text === s) return 6;
+    if (plain === s) return 5;
+    if (singular(plain) === singular(s)) return 4;
+    const note = (name.match(/\(([^)]*)\)\s*$/) || [])[1];
+    const ws = words(plain);
+    if (note && simple(note).replace(/ /g, "") === acronym(skill)) return 3;
+    if (VENDORS.has(ws[0]) && ws.slice(1).join(" ") === s) return 3;
+    const have = new Set(words(text).map(singleWord));
+    return words(s).every((w) => have.has(singleWord(w))) ? 2 : 0;
+  }
+  /** The suggestion that is this skill (see skillMatch); among equals, the one with the fewest other words, then the
+   *  one Workday lists first. null when nothing names the skill. */
   function bestSkillOption(opts, skill) {
-    const s = simple(skill);
-    if (!s) return null;
-    const whole = new RegExp(`(^| )${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`);
-    const text = (o) => simple(skillName(o));
-    const plain = (o) => simple(skillName(o).replace(/\([^)]*\)/g, " "));
-    const shortest = (list) => list.sort((a, b) => text(a).length - text(b).length)[0] || null;
-    return opts.find((o) => text(o) === s) || opts.find((o) => plain(o) === s)
-      || opts.find((o) => singular(plain(o)) === singular(s))
-      || shortest(opts.filter((o) => text(o).startsWith(s) && whole.test(text(o))))
-      || shortest(opts.filter((o) => whole.test(text(o))));
+    let best = null, bestKey = null;
+    opts.forEach((o, i) => {
+      const m = skillMatch(o, skill);
+      if (!m) return;
+      const key = [-m, m === 2 ? words(skillName(o)).length : 0, i];
+      if (!bestKey || key[0] < bestKey[0] || (key[0] === bestKey[0] && (key[1] < bestKey[1] || (key[1] === bestKey[1] && key[2] < bestKey[2])))) {
+        best = o;
+        bestKey = key;
+      }
+    });
+    return best;
+  }
+  /** Is this list Workday's answer to the search for `term`, rather than to `prev` (the search before, whose list can
+   *  still be on screen or arrive late)? true when an option has each word that `term` has and `prev` hasn't (by its
+   *  start: Workday answers "postgres" with "PostgreSQL"), false when none has, null when the words can't tell
+   *  ("Data Quality" after "Data Quality Management"). */
+  function answersTerm(opts, term, prev) {
+    const had = new Set(words(prev));
+    const own = words(term).filter((w) => !had.has(w)).map((w) => w.slice(0, 4));
+    if (!own.length) return null;
+    return opts.some((o) => { const ws = words(skillName(o)); return own.every((p) => ws.some((w) => w.startsWith(p))); });
   }
   /** What to search for a skill: as written, then without a bracketed note ("Data Cataloging (Alation)"). */
   const skillTerms = (skill) => [...new Set([skill.trim(), skill.replace(/\s*\([^)]*\)\s*/g, " ").trim()])].filter(Boolean);
@@ -362,8 +402,8 @@
   const skillName = (o) => norm(skillLabel(o).innerText);
   const optionsKey = (opts) => opts.map(skillName).join("\n");
   /** Workday's "No Items." where the list would be: nothing found for this search. */
-  const noSkillItems = () => [...document.querySelectorAll('[data-automation-id="activeListContainer"]')]
-    .some((l) => visible(l) && /^no (items|results|matches)\b/i.test((l.innerText || "").trim()));
+  const noSkillItems = () => [...document.querySelectorAll('[data-automation-id="activeListContainer"], [role="listbox"]')]
+    .some((l) => visible(l) && !l.closest(CHIPS) && /^no (items|results|matches)\b/i.test((l.innerText || "").trim()));
 
   /** Type into the skills box the way a person does: no change / blur events (those close Workday's list). */
   function typeSkill(input, text) {
@@ -377,23 +417,29 @@
     }
   }
 
-  /** This search's list, once it has replaced the list showing before the search (`before`, the last skill's) or a
-   *  few seconds have passed, and looked the same twice in a row: { hit (the suggestion for `skill`, or null),
-   *  listed (a list came at all) }. */
-  async function settledSkillOption(skill, before) {
-    let last = null, empty = 0;
-    for (let i = 0; i < 30; i++) {  // Workday's search can take a few seconds
+  /** Workday's answer to the search for `term`: { hit (the suggestion that is the skill, or null), listed (Workday
+   *  answered: with a list or "No Items.") }. `before` is the list showing when it was typed, `prev` the search before.
+   *  A list counts once it answers this search (answersTerm) and looks the same twice in a row (longer when the best
+   *  it has is a loose match: more results may be on the way). A list that doesn't, or "No Items.", is the answer
+   *  only once nothing has changed for 4 seconds: Workday's search can take that long. */
+  async function settledSkillOption(term, before, prev) {
+    let last = null, since = 0;
+    for (let i = 0; i < 60; i++) {
       await sleep(200);
       scripted = Date.now() + 1500;
       const opts = skillOptions();
-      const key = optionsKey(opts);
-      const gone = before.nodes.every((o) => !o.isConnected || !visible(o));
-      const fresh = key !== before.key || gone || i >= 12;
-      if (opts.length && fresh && key === last) return { hit: bestSkillOption(opts, skill), listed: true };
-      // the last list went away and nothing came in its place, or Workday says "No Items.": nothing for this search
-      empty = !opts.length && ((before.nodes.length && gone) || noSkillItems()) ? empty + 1 : 0;
-      if (empty >= 5 && i >= 7) return { hit: null, listed: true };
-      last = key;
+      const none = !opts.length && noSkillItems();
+      const key = none ? "\u0000none" : optionsKey(opts);
+      if (key !== last) { last = key; since = i; continue; }
+      const steady = i - since;  // polls the list has looked the same
+      const ours = opts.length ? answersTerm(opts, term, prev) : false;
+      const changed = key !== before.key || before.nodes.some((o) => !o.isConnected);
+      if (ours === true || (ours === null && changed && steady >= 2)) {
+        const hit = bestSkillOption(opts, term);
+        if ((hit && skillMatch(hit, term) >= 4) || steady >= 4) return { hit, listed: true };
+      }
+      if (steady >= 20 && (opts.length || none)) return { hit: ours === false ? null : bestSkillOption(opts, term), listed: true };
+      if (!opts.length && !none && i >= 40) break;  // no list at all for 8 seconds
     }
     return { hit: null, listed: false };
   }
@@ -451,8 +497,8 @@
     && Math.abs(e.clientX - ownClick.x) <= 2 && Math.abs(e.clientY - ownClick.y) <= 2);
 
   async function fillSkills() {
-    const skills = ((setup.history || {}).skills || []).slice(0, MAX_SKILLS);
-    const todo = skills.filter((s) => !skillsDone.has(norm(s)));
+    skillList = skillList || ((setup.history || {}).skills || []).slice(0, MAX_SKILLS);
+    const todo = skillList.filter((s) => !skillsDone.has(norm(s)));
     if (!todo.length) return;
     const input = [...document.querySelectorAll(TEXT_SEL)]
       .find((el) => el.tagName === "INPUT" && visible(el) && !el.disabled && !el.readOnly && !touched.has(el) && isSkillsBox(el));
@@ -461,6 +507,7 @@
       if (touched.has(input)) break;  // you started typing in the box yourself
       if (chipNamed(norm(skill))) { skillsDone.add(norm(skill)); continue; }  // already added
       let hit = null, listed = false, term = skill;
+      const chipsBefore = new Set(skillChips().map((c) => norm(c.innerText)));
       for (term of skillTerms(skill)) {
         const showing = skillOptions();
         const before = { key: optionsKey(showing), nodes: showing };
@@ -468,19 +515,30 @@
         if (document.activeElement !== input) input.focus();
         typeSkill(input, term);
         pressEnter(input);
-        ({ hit, listed } = await settledSkillOption(term, before));
+        ({ hit, listed } = await settledSkillOption(term, before, lastTerm));
+        lastTerm = term;
         if (hit || !listed) break;
       }
+      // Workday adds the only suggestion of a search by itself: say so when it isn't this skill
+      const byWorkday = () => skillChips().map((c) => c.innerText.trim())
+        .filter((c) => !chipsBefore.has(norm(c)) && (!hit || norm(c) !== skillName(hit)));
       if (!hit) {
         const shown = optionsKey(skillOptions()).split("\n").filter(Boolean).slice(0, 8).join(" | ");
         typeSkill(input, "");
         const tries = (skillTries.get(norm(skill)) || 0) + 1;
         skillTries.set(norm(skill), tries);
-        if (listed || tries >= 2) {  // Workday doesn't list it (or never answered): skipped
+        const parts = skill.split("/").map((x) => x.trim());
+        if (listed && parts.length > 1 && parts.every((x) => x.replace(/[^A-Za-z0-9]/g, "").length >= 3)) {
+          // "Unix/Linux" isn't one of Workday's skills: try "Unix" and "Linux" in its place
+          skillsDone.add(norm(skill));
+          skillList.splice(skillList.indexOf(skill), 1, ...parts.filter((x) => !skillList.some((y) => norm(y) === norm(x))));
+          skillLog.push(`not listed: ${skill} (trying ${parts.join(" and ")})`);
+        } else if (listed || tries >= 2) {  // Workday doesn't list it (or never answered): skipped
           skillsDone.add(norm(skill));
           if (listed) skillsMissing.push(skill);
           skillLog.push(`${listed ? "not listed" : "no answer"}: ${skill}${shown ? ` (list showed: ${shown})` : ""}`);
         }
+        for (const c of byWorkday()) skillLog.push(`  Workday added "${c}" by itself (searching ${term})`);
         continue;
       }
       skillsDone.add(norm(skill));
@@ -508,6 +566,7 @@
       if (state) { filled++; skillsAdded++; } else skillsUnpicked.push(skill);
       skillLog.push(`${state ? "added" : "NOT SELECTED"}: ${skill} -> ${label}`
         + (state ? "" : `\n  row: ${(hit.outerHTML || "").slice(0, 1500)}`));
+      for (const c of byWorkday()) skillLog.push(`  Workday added "${c}" by itself (searching ${term})`);
       await sleep(200);
     }
     scripted = Date.now() + 1500;
@@ -845,7 +904,7 @@
           notes.push(`Your resume has ${short.map(([w, r]) => `${r.wanted} ${w}${r.wanted > 1 ? "s" : ""}`).join(" and ")}; ` +
             "click Add for each (or turn on Settings â†’ Autofill â†’ Add entries).");
         }
-        const skillCount = ((setup.history || {}).skills || []).length;
+        const skillCount = skillList ? skillList.length : 0;
         if (skillsDone.size) {
           const more = skillsMissing.length > 6 ? "…" : "";
           notes.push(`Skills: added ${skillsAdded} of ${Math.min(skillCount, MAX_SKILLS)}${skillsMissing.length

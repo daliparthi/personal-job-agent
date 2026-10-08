@@ -401,9 +401,9 @@ def test_skills_are_typed_in_and_picked_from_workdays_suggestions():
         {"name": "Tools", "items": ["Python", "Spark", "COBOL", "SQL"]}]}]})
     st = run_page("my_experience", setup,
                   "() => document.querySelectorAll('[data-automation-id=selectedItem]').length === 3", timeout=40)
-    # "Python" is listed as "Python (Programming Language)"; "Spark" has two suggestions (the one starting with it wins);
-    # COBOL has none, so nothing is picked
-    assert st["chips"] == ["Python (Programming Language)", "Spark Streaming", "SQL"]
+    # "Python" is listed as "Python (Programming Language)"; "Spark" has two suggestions ("Apache Spark", the vendor's
+    # name for it, wins over "Spark Streaming"); COBOL has none, so nothing is picked
+    assert st["chips"] == ["Python (Programming Language)", "Apache Spark", "SQL"]
     assert st["values"]["skills"] == ""  # nothing is left typed in the box
     assert not db.answers_all()
 
@@ -435,7 +435,8 @@ def test_every_skill_is_tried_even_though_workday_puts_the_cursor_back_in_the_bo
                   " && /added 12 of 14/.test(document.getElementById('__jobagent_banner')?.innerText || '')",
                   timeout=120, folder=tmp_path)
     assert st["chips"] == ["ETL Development", "Data Transformation", "Fine-Tuning", "Data Cataloging",
-                           "Python (Programming Language)", "SQL", "Snowflake", "Tableau (Software)", "Power BI",
+                           "Python (Programming Language)", "SQL", "Snowflake", "Tableau (Software)",
+                           "Microsoft Power Business Intelligence (PBI)",
                            "Data Governance", "Data Quality Management", "Data Pipeline"]
     assert "Skills: added 12 of 14; Workday doesn't list Information Stewardship, Data Quality." in st["banner"]
     assert st["values"]["skills"] == ""
@@ -443,6 +444,28 @@ def test_every_skill_is_tried_even_though_workday_puts_the_cursor_back_in_the_bo
     assert "added: Fine Tuning -> Fine-Tuning" in log and "added: Data Pipelines -> Data Pipeline" in log
     assert "not listed: Information Stewardship" in log and "NOT SELECTED" not in log
     assert not db.answers_all()  # Job Agent's own clicks on the list are not answers you gave
+
+
+def test_slow_searches_dont_shift_each_skill_onto_the_last_ones_list(tmp_path):
+    """On a real form (GE Vernova's) some searches took about 3 seconds and their results came in while the next skill
+    was being searched: each skill was then looked up in the previous skill's list ("Data Governance" in
+    Collaboration's) and most were skipped. A skill is looked up only in a list that answers its own search. Workday's
+    names for a skill are found ("Oracle Database", "Microsoft SQL Server", "SQL Server Integration Services (SSIS)",
+    "Microsoft Power Business Intelligence (PBI)", "Microsoft Azure" rather than "Azure Local"), a search whose one
+    result Workday adds by itself counts, and "Unix/Linux" becomes "Unix" and "Linux"."""
+    names = ["Collaboration", "Data Governance", "mcp tools", "Metadata Management", "Oracle", "SQL Server", "SSIS",
+             "Power BI", "Azure", "Unix/Linux", "LLM Applications", "Snowflake", "Python"]
+    setup = formfill.page_setup(PROFILE, settings(), MASTER, JOB, resume={"sections": [{"kind": "skills", "groups": [
+        {"name": "Data", "items": names}]}]})
+    st = run_page("skills", setup, "() => /added 12 of 14/.test(document.getElementById('__jobagent_banner')?.innerText || '')",
+                  timeout=180, folder=tmp_path)
+    assert st["chips"] == ["Collaboration", "Data Governance", "mcp tools", "Oracle Database", "Microsoft SQL Server",
+                           "SQL Server Integration Services (SSIS)", "Microsoft Power Business Intelligence (PBI)",
+                           "Microsoft Azure", "Snowflake", "Python (Programming Language)", "Unix", "Linux"]
+    assert "Skills: added 12 of 14; Workday doesn't list Metadata Management, LLM Applications." in st["banner"]
+    log = (tmp_path / apply.SKILLS_LOG).read_text(encoding="utf-8")
+    assert "added: Data Governance -> Data Governance" in log and "added: Oracle -> Oracle Database" in log
+    assert "not listed: Unix/Linux (trying Unix and Linux)" in log and "NOT SELECTED" not in log
 
 
 def test_the_real_mouse_clicks_only_a_list_suggestion():

@@ -323,12 +323,15 @@ a GPU folder you don't need; keep `models/onnx`.
   per job and school. That **Add** / **Add Another** button inside those two sections is the only button autofill
   ever clicks.
 * **Skills:** Workday's *Type to Add Skills* box gets up to 60 skills of your **tailored** resume, typed one by one.
-  The suggestion that is that skill ("Fine Tuning" finds "Fine-Tuning", "Data Pipelines" finds "Data Pipeline",
-  "Data Cataloging (Alation)" finds "Data Cataloging") is clicked with the real mouse, since Workday's list ignores a
-  scripted click, and checked until it shows as selected. Only a suggestion in the list is ever clicked this way. The
-  banner says how many were added, which ones Workday doesn't list, and any that didn't take. What happened to each
-  skill is written to `autofill_skills.log` in the application's folder. The work experience bullets also come
-  from the tailored resume, not the master.
+  Workday's search can take seconds, so each skill waits for the list that answers its own search (never the last
+  skill's, still on screen or arriving late). The suggestion that is that skill is picked: "Fine Tuning" finds
+  "Fine-Tuning", "Data Pipelines" "Data Pipeline", "Data Cataloging (Alation)" "Data Cataloging", "SSIS" "SQL Server
+  Integration Services (SSIS)", "Azure" "Microsoft Azure", and "Unix/Linux" is tried as "Unix" and "Linux". It is
+  clicked with the real mouse, since Workday's list ignores a scripted click, and checked until it shows as
+  selected. Only a suggestion in the list is ever clicked this way. The banner says how many were added, which ones
+  Workday doesn't list, and any that didn't take. What happened to each skill (and any skill Workday added by itself,
+  as it does when a search has one result) is written to `autofill_skills.log` in the application's folder. The work
+  experience bullets also come from the tailored resume, not the master.
 * **Voluntary disclosures** (gender, ethnicity, veteran status, disability) are set to *Decline to answer* by
   default: the window picks the "I don't wish to answer" option. In Settings → *Autofill* you can instead leave any
   of them to you or choose an answer (e.g. Male, Asian, "I am not a protected veteran", "Yes, I have a disability");
