@@ -400,7 +400,11 @@ DEFAULT_SETTINGS = {
         "how_heard": "Company Website",
         "us_citizen": "", "has_clearance": "",  # "", "Yes" or "No": blank never rules a posting out
     },
-    "engine": "auto",           # auto = CPU model by default, GPU when this browser has a usable one; "onnx" = CPU only
+    # auto = bundled Qwen on CPU, GPU when this browser has a usable one; "onnx" = CPU only;
+    # "ollama" / "openai" / "anthropic" = an external model (the bundled one is then only the fallback)
+    "engine": "auto",
+    "llm_url": "",              # external engine's address; empty = that engine's usual one (see llm.DEFAULT_URLS)
+    "llm_model": "",            # the model name to ask that engine for
     "upload_format": "docx",
     "max_bullets": 12,
     "keep_new_days": RETENTION_DAYS,  # untouched postings expire after this (and a search looks back this far)

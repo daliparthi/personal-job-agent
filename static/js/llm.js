@@ -3,8 +3,17 @@
 //   GPU  WebLLM via WebGPU    -> models/webllm/...  used only when this browser has a real, working GPU
 // If the GPU path fails (no WebGPU, software-only adapter, load error, or a lost device mid-run),
 // the CPU model takes over automatically.
+//
+// Optionally (Settings > AI engine) Ollama, an OpenAI-compatible server or Anthropic answers instead, through this
+// server (/api/llm/*, which holds the API key). The bundled model is then never loaded unless that engine fails:
+// before the first word of a reply, the bundled model takes over just like the CPU does for the GPU.
 
 const ORIGIN = location.origin;
+export const EXTERNAL_ENGINES = { ollama: "Ollama", openai: "OpenAI", anthropic: "Anthropic" };
+
+async function problem(r) {
+  try { return (await r.json()).detail || `${r.status} ${r.statusText}`; } catch { return `${r.status} ${r.statusText}`; }
+}
 
 /** Resolve on the next task (not microtask), giving the browser a chance to repaint. Not throttled in background tabs. */
 const nextTask = () => new Promise((resolve) => {
@@ -30,16 +39,18 @@ export class LocalLLM {
     this.state = "idle"; // idle | loading | ready | error
     this.label = "";
     this.backend = null;
+    this.engineName = "";
     this.listeners = new Set();
   }
 
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(text, progress) { this.listeners.forEach((fn) => fn({ state: this.state, label: this.label, text, progress })); }
 
-  async load(bundled, preference = "auto") {
+  /** preference: "auto", "onnx" or an external engine (EXTERNAL_ENGINES); model: that engine's model name. */
+  async load(bundled, preference = "auto", model = "") {
     if (this.state === "ready") return;
     if (this.loading) return this.loading;
-    this.loading = this._load(bundled, preference).finally(() => { this.loading = null; });
+    this.loading = this._load(bundled, preference, model).finally(() => { this.loading = null; });
     return this.loading;
   }
 
@@ -58,11 +69,24 @@ export class LocalLLM {
     return { key, build: builds[key] };
   }
 
-  async _load(bundled, preference) {
+  async _load(bundled, preference, model) {
     this.state = "loading";
     this.bundled = bundled;
     this.gpuNote = "";
     try {
+      if (preference in EXTERNAL_ENGINES) {
+        this.emit(`Connecting to ${EXTERNAL_ENGINES[preference]}…`, 0);
+        try {
+          await this._loadRemote(preference, model);
+          this.state = "ready";
+          this.emit("Ready", 1);
+          return;
+        } catch (e) {
+          console.warn("External model unavailable, using the bundled one:", e);
+          this.gpuNote = `${EXTERNAL_ENGINES[preference]} not used: ${String(e.message || e).slice(0, 160)}`;
+          preference = "auto";
+        }
+      }
       if (preference !== "onnx") {
         this.emit("Checking for a GPU…", 0);
         const gpu = await this._probeGpu(bundled);
@@ -89,6 +113,17 @@ export class LocalLLM {
       this.emit(this.label, 0);
       throw e;
     }
+  }
+
+  async _loadRemote(engine, model) {
+    if (!model) throw new Error("no model chosen in Settings");
+    const r = await fetch("/api/llm/models");
+    if (!r.ok) throw new Error(await problem(r));
+    const { models } = await r.json();
+    if (!models.includes(model)) throw new Error(`the server has no model called "${model}"`);
+    this.backend = "remote";
+    this.engineName = EXTERNAL_ENGINES[engine];
+    this.label = `${this.engineName} · ${model}`;
   }
 
   async _loadCpu() {
@@ -155,6 +190,21 @@ export class LocalLLM {
   /** Stream text deltas for a chat. A GPU failure before the first word switches to the CPU model and retries. */
   async *stream(messages, opts = {}) {
     if (this.state !== "ready") throw new Error("Model not loaded");
+    if (this.backend === "remote") {
+      let yielded = false;
+      try {
+        for await (const d of this._streamRemote(messages, opts)) { yielded = true; yield d; }
+        return;
+      } catch (e) {
+        if (yielded) throw e;
+        console.warn("External model failed, switching to the bundled one:", e);
+        const note = `${this.engineName} stopped working (${String(e.message || e).slice(0, 160)}); using the bundled model`;
+        this.state = "loading";
+        this.backend = null;
+        await this._load(this.bundled, "auto", "");
+        this.gpuNote = note;
+      }
+    }
     if (this.backend === "webllm") {
       let yielded = false;
       try {
@@ -172,6 +222,28 @@ export class LocalLLM {
       }
     }
     yield* this._streamOnnx(messages, opts);
+  }
+
+  async *_streamRemote(messages, { temperature = 0.2, max_tokens = 160 }) {
+    this.abort = new AbortController();
+    try {
+      const r = await fetch("/api/llm/chat", {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: this.abort.signal,
+        body: JSON.stringify({ messages, temperature, max_tokens }),
+      });
+      if (!r.ok) throw new Error(await problem(r));
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        if (text) yield text;
+      }
+    } catch (e) {
+      if (e.name === "AbortError") return; // Stop was pressed: keep what arrived
+      throw e;
+    }
   }
 
   async *_streamWebLLM(messages, { temperature = 0.2, max_tokens = 160 }) {
@@ -202,7 +274,8 @@ export class LocalLLM {
   }
 
   interrupt() {
-    if (this.backend === "webllm") this.engine?.interruptGenerate();
+    if (this.backend === "remote") this.abort?.abort();
+    else if (this.backend === "webllm") this.engine?.interruptGenerate();
     else this.stopper?.interrupt();
   }
 }

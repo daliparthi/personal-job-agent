@@ -230,8 +230,11 @@
         <label>Current employer <span class="hint">never shown or searched</span><input name="current_employer"></label>
         <label>AI engine
           <select name="engine">
-            <option value="auto">Auto: CPU model, GPU when available</option>
-            <option value="onnx">CPU only</option>
+            <option value="auto">Bundled Qwen2.5-0.5B: CPU, GPU when available</option>
+            <option value="onnx">Bundled Qwen2.5-0.5B: CPU only</option>
+            <option value="ollama">Ollama (your own model)</option>
+            <option value="openai">OpenAI or compatible server</option>
+            <option value="anthropic">Anthropic</option>
           </select>
         </label>
         <label>Resume file to upload on Workday
@@ -243,6 +246,21 @@
         <label>Database size limit (MB) <span class="hint">when full, the oldest untouched postings go first: a longer window needs more room</span>
           <input name="max_db_mb" type="number" min="10" max="5000"></label>
         <label>Suggest "Ghosted" after (days without news)<input name="ghost_after_days" type="number" min="3" max="365"></label>
+      </div>
+      <div id="llm-external" hidden>
+        <div class="grid2">
+          <label>Server address <span class="hint">leave empty for the usual one</span>
+            <input name="llm_url" id="llm-url" autocomplete="off" placeholder="http://localhost:11434"></label>
+          <label>Model <span class="hint">pick one after Check connection</span>
+            <select name="llm_model" id="llm-model"><option value=""></option></select></label>
+        </div>
+        <div class="add-company" id="llm-key-row">
+          <input type="password" id="llm-key" placeholder="API key" autocomplete="new-password" aria-label="API key">
+          <button type="button" class="btn small" id="btn-llm-key">Save key in OS keychain</button>
+        </div>
+        <div class="path-row"><button type="button" class="btn small" id="btn-llm-check">Check connection</button>
+          <span class="hint" id="llm-status"></span></div>
+        <p class="hint">Resume tailoring and cover letters then use that model instead of the bundled one, which is loaded only if it cannot be reached. Requests go through this program, which holds the key: the page never sees it, and what is sent is your resume text and the job posting. Ollama in WSL: start it there, and keep the address <code>http://localhost:11434</code>.</p>
       </div>
     </fieldset>
     <fieldset>

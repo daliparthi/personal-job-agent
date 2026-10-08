@@ -176,6 +176,39 @@ def _blank_env_values(keys):
     _private(ENV_FILE)
 
 
+# ---------------------------------------------------------------- API keys for external AI engines
+API_KEY_NAMES = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+
+
+def api_key(engine: str) -> str:
+    """The key for an external AI engine: the OS keychain first, then .env. Read only by the server."""
+    name = API_KEY_NAMES.get(engine)
+    if not name:
+        return ""
+    return (_keychain_get(name) or read().get(name) or "").strip()
+
+
+def store_api_key(engine: str, key: str):
+    """Save an engine's API key in the OS keychain (an empty key deletes it)."""
+    name = API_KEY_NAMES.get(engine)
+    if not name:
+        raise ValueError("This engine needs no API key")
+    kr = _keyring()
+    if not kr:
+        raise RuntimeError(f"This computer has no OS keychain Job Agent can use; put {name}=... in the .env file.")
+    if key:
+        kr.set_password(SERVICE, name, key)
+    else:
+        try:
+            kr.delete_password(SERVICE, name)
+        except Exception:
+            pass  # nothing stored
+
+
+def api_keys_set() -> dict:
+    return {engine: bool(api_key(engine)) for engine in API_KEY_NAMES}
+
+
 # ---------------------------------------------------------------- lookups
 def account_for(tenant: str) -> dict:
     env = read()
@@ -202,4 +235,4 @@ def status() -> dict:
             "password_in_keychain": "WORKDAY_PASSWORD" in in_keychain,
             "password_in_env": "WORKDAY_PASSWORD" in in_env,
             "env_passwords": sorted(in_env), "keychain": keychain_available(),
-            "company_overrides": sorted(companies)}
+            "company_overrides": sorted(companies), "api_keys": api_keys_set()}

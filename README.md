@@ -248,6 +248,23 @@ load error or a GPU that stops mid-run all fall back to the CPU model automatica
 why). *CPU only* never touches the GPU. On Linux, Chrome usually ships with WebGPU switched off, so the CPU model is
 used there; Macs with Apple silicon should get the GPU build in Chrome, Edge or Safari (not tested on a Mac).
 
+### Using your own model instead (optional)
+
+Settings → AI engine can also point tailoring, the resume split and cover letters at **Ollama**, an
+**OpenAI-compatible server** (OpenAI, LM Studio, vLLM…) or **Anthropic**. Nothing changes unless you pick one: the
+bundled Qwen stays the default, and it is loaded only if the model you chose cannot be reached (the chip's tooltip
+says why).
+
+1. Pick the engine, enter the server address (empty = the usual one) and click **Check connection**; choose a model
+   from the list and **Save**. For OpenAI or Anthropic, save the API key first: it goes to your OS keychain, or put
+   `OPENAI_API_KEY=` / `ANTHROPIC_API_KEY=` in your `.env`. The page never sees the key; requests go through this
+   program, so what leaves your computer is the resume text and the job posting.
+2. **Ollama in WSL:** start `ollama serve` there; Windows forwards WSL's `localhost`, so `http://localhost:11434`
+   works. If it does not, run Ollama with `OLLAMA_HOST=0.0.0.0` or use the address from `wsl hostname -I`.
+3. A larger model is asked for more: each approved keyword is worked into the professional summary and project
+   bullets with a short phrase based on how the job posting uses it. The same checks as before apply (no new
+   numbers or unapproved keywords; lines that need a look are marked amber and every change can be undone).
+
 Measured on an 8-thread laptop with Intel Iris Xe: CPU — model load 10–25 s, about 20 s per rewritten line, and the
 page pauses a few seconds as each line starts (the model reads its instructions); GPU — model load about 7 s, about
 12 s per line.

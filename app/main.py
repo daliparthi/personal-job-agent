@@ -11,11 +11,12 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import alerts, answers, apply, candidate, db, envfile, formfill, master, pipeline, scheduler, scoring, search
+from . import (alerts, answers, apply, candidate, db, envfile, formfill, llm, master, pipeline, scheduler, scoring,
+               search)
 from .config import HOME, HOME_ID, MODELS, PORT, STATIC, ensure_home, session_key
 from .jobparse import jd_digest
 from .resume_io import clean_resume, parse_resume, to_text
-from .schemas import (AlertsSeenIn, AnswerIn, AnswerPatch, CompanyIn, FeedbackIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn,
+from .schemas import (AlertsSeenIn, AnswerIn, AnswerPatch, ApiKeyIn, ChatIn, CompanyIn, FeedbackIn, FollowUpIn, HideIn, NoteIn, OpenIn, PackageIn, PasswordIn,
                       PathIn, PreviewIn, ResumeSaveIn, RunIn, SavedSearchIn, SavedSearchPatch, ScoreIn,
                       SettingsPatch, StageIn, TailoredIn)
 
@@ -209,6 +210,59 @@ def put_settings(body: SettingsPatch):
     if scored(before) != scored(after):
         search.rescorer.request()
     return after
+
+
+# ---------------------------------------------------------------- external AI engine
+def _external_engine():
+    s = db.get_settings()
+    engine = s.get("engine")
+    if engine not in llm.ENGINES:
+        raise HTTPException(400, "Settings > AI engine is not set to an external model")
+    return engine, s.get("llm_url"), s.get("llm_model") or "", envfile.api_key(engine)
+
+
+@app.get("/api/llm/models")
+async def llm_models():
+    """The models the chosen external engine offers (also the connection check for Settings)."""
+    engine, url, _model, key = _external_engine()
+    try:
+        return {"engine": engine, "models": await llm.list_models(engine, url, key)}
+    except llm.LlmError as e:
+        raise HTTPException(502, str(e))
+
+
+@app.post("/api/llm/chat")
+async def llm_chat(body: ChatIn):
+    """Stream one reply from the chosen external engine as plain text. Closing the request stops it."""
+    engine, url, model, key = _external_engine()
+    pieces = llm.stream_chat(engine, url, model, key, [m.model_dump() for m in body.messages],
+                             body.temperature, body.max_tokens)
+    try:
+        first = await anext(pieces, "")  # a refusal (bad key, unknown model) becomes an error before streaming starts
+    except llm.LlmError as e:
+        raise HTTPException(502, str(e))
+
+    async def text():
+        try:
+            if first:
+                yield first
+            async for piece in pieces:
+                yield piece
+        except llm.LlmError:
+            return  # the reply ends early; the page keeps what arrived
+        finally:
+            await pieces.aclose()
+    return StreamingResponse(text(), media_type="text/plain; charset=utf-8", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/llm/key")
+def store_llm_key(body: ApiKeyIn):
+    """Save an API key in the OS keychain (empty: delete it). The page never reads one back."""
+    try:
+        envfile.store_api_key(body.engine, body.key.strip())
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(400, str(e))
+    return envfile.status()
 
 
 # ---------------------------------------------------------------- answer bank

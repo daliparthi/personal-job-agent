@@ -1,4 +1,5 @@
-// Live, word-by-word tailoring of a COPY of master_resume.yaml for ONE job, using the local Qwen2.5-0.5B model.
+// Live, word-by-word tailoring of a COPY of master_resume.yaml for ONE job, using the bundled Qwen2.5-0.5B model
+// (or, when Settings > AI engine names one, a larger external model, which is asked for fuller keyword phrasing).
 //
 // What changes:                        what never changes:
 //  - professional summary                - name, contact, employers, titles, dates, education
@@ -48,6 +49,30 @@ const SUMMARY_EXAMPLES = [
   { role: "assistant", content: "Software engineer with 5 years of experience building Java web services and REST APIs with Spring Boot, deployed with Docker and Kubernetes. Enjoys mentoring and writing clean code." },
 ];
 
+// A larger external model is trusted with more: each approved keyword comes with the sentence of the posting that
+// uses it, and the model writes one short related phrase around it. Only used when llm.backend === "remote".
+const RICH_BULLET_SYSTEM = (maxWords) => `You edit resume bullet points so they match a target job.
+Rules:
+- Keep every fact, number, tool and employer from the original bullet.
+- Do not invent new facts, numbers, tools or achievements.
+- Work in every keyword under "Must include" and no other new keyword. For each, add a short phrase in your own words (not copied from the posting) that says what it was used for, using the posting sentence shown with it only as a hint, and only in a way the original bullet and the role support. The result must read as natural, grammatical English.
+- Start with a strong past-tense action verb. One sentence, at most ${maxWords} words.
+- Reply with the rewritten bullet only. No quotes, no labels, no explanations.`;
+
+const RICH_SUMMARY_SYSTEM = `You rewrite the professional summary at the top of a resume for one target job.
+Rules:
+- Use only facts from the original summary, the candidate's roles and skills. Never invent years, employers, degrees or numbers.
+- Keep the original summary's years of experience and its main claims. Work in every keyword under "Must include" and no other new keyword. For each, add a short related phrase in your own words (never copy the posting's sentence) that connects the candidate's existing work to it, without claiming more than the roles and skills support. Do not start with "Expert in".
+- The result must read as natural, grammatical English.
+- 2 to 3 sentences, under 90 words, no pronouns.
+- Reply with the new summary only. No quotes, no labels.`;
+
+/** "Kubernetes (the posting says: "deploy services on Kubernetes clusters")" for the external model's prompt. */
+const withUse = (m) => {
+  const use = (m.context || "").replace(/\s+/g, " ").replace(/["“”]/g, "").trim().slice(0, 180);
+  return use ? `${m.keyword} (the posting says: "${use}")` : m.keyword;
+};
+
 export function cleanOutput(raw) {
   let s = (raw || "").replace(/\r/g, "");
   s = s.replace(/^\s*(here('| i)s|sure|certainly)[^\n:]*:\s*/i, "");
@@ -93,7 +118,7 @@ function nameTokens(s) {
 /** kind: "bullet", "summary", "letter" (a cover-letter paragraph: retells your bullets, so new words are flagged
  *  sooner) or "answer" (a short answer to an application question). Letters and answers reword freely.
  *  examples: the worked examples given to the model, so copying one is caught (tailoring's own are built in). */
-export function validate(original, out, { forbidden, kind, allowed = [], extraContext = "", required = [], examples = "" }) {
+export function validate(original, out, { forbidden, kind, allowed = [], extraContext = "", required = [], examples = "", rich = false }) {
   const soft = [];
   const loose = kind === "summary" || kind === "letter" || kind === "answer";
   const prose = kind === "letter" || kind === "answer";
@@ -120,7 +145,7 @@ export function validate(original, out, { forbidden, kind, allowed = [], extraCo
   const knownTight = knownText.replace(/\s+/g, "");
   const newName = nameTokens(out).find((t) => !knownText.includes(t.toLowerCase()) && !knownTight.includes(t.toLowerCase()));
   if (newName) return { hard: `adds “${newName}”, which is not in your resume`, soft };
-  if (!loose && out.length > original.length * 1.8 + 80) soft.push("much longer than the original");
+  if (!loose && out.length > original.length * (rich ? 2.6 : 1.8) + (rich ? 140 : 80)) soft.push("much longer than the original");
   // "migrated a warehouse to Snowflake" must not become "migrated Snowflake to a warehouse": a named tool that
   // followed to/into/from/on... in the original should still follow the same word.
   const PREP = /\b(to|into|from|on|onto|in|with|using|via|for)\s+(?:the\s+|a\s+|an\s+)?([A-Z][\w+#.-]*|[\w]+[+#/][\w+#/]*)/g;
@@ -140,7 +165,7 @@ export function validate(original, out, { forbidden, kind, allowed = [], extraCo
   // candidate's roles and skills. A few rewording words are fine; more means a look is needed.
   const known = new Set([...contentWords(`${original} ${allowed.join(" ")} ${extraContext}`)].map(stem));
   const added = [...new Set(contentWords(out).map(stem))].filter((w) => !known.has(w) && !FREE.has(w));
-  if (added.length > (kind === "letter" ? 4 : loose ? 10 : 2)) soft.push(`adds words not in your resume (${added.slice(0, 3).join(", ")}…)`);
+  if (added.length > (kind === "letter" ? 4 : loose ? (rich ? 16 : 10) : (rich ? 7 : 2))) soft.push(`adds words not in your resume (${added.slice(0, 3).join(", ")}…)`);
   return { hard: null, soft };
 }
 
@@ -233,6 +258,9 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
   const summaryKw = byWeight.slice(0, SUMMARY_KEYWORDS).map((m) => m.keyword);
   const bulletInfo = byWeight.slice(SUMMARY_KEYWORDS);
   const jdTop = [...analysis.matched.slice(0, 8), ...approved].slice(0, 12);
+  const rich = llm.backend === "remote"; // an external model: fuller keyword phrasing, longer lines allowed
+  const infoOf = new Map(approvedInfo.map((m) => [m.keyword, m]));
+  const describe = (kws) => kws.map((k) => (rich ? withUse(infoOf.get(k) || { keyword: k }) : k)).join(rich ? "; " : ", ");
   const stats = { rewritten: 0, flagged: 0, held: 0, tokens: 0, started: performance.now(), reasons: [] };
 
   ui.onStatus("Ordering skills for this job…");
@@ -240,6 +268,8 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
   ui.onRender(res, changes);
 
   async function rewrite(path, messages, maxTokens, kind, allowed = [], extraContext = "") {
+    // The posting sentences handed to an external model are facts it may reuse words from.
+    if (rich) extraContext = `${extraContext} ${allowed.map((k) => infoOf.get(k)?.context || "").join(" ")}`;
     const original = getAt(res, path);
     changes[path] = { orig: original, alt: null, state: "editing" };
     setAt(res, path, "");
@@ -263,7 +293,7 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
     const required = analysis.matched.filter((k) => hasAny(aliases[k] || [k], original))
       .map((k) => ({ keyword: k, aliases: aliases[k] || [k] }));
     const { hard, soft } = signal.aborted ? { hard: "stopped", soft: [] }
-      : validate(original, out, { forbidden, kind, allowed, extraContext, required });
+      : validate(original, out, { forbidden, kind, allowed, extraContext, required, rich });
     // Unusable output (empty, garbled) is dropped; a usable line that adds unapproved facts is held back.
     if (signal.aborted || !out || out === original || /^(empty|too short|garbled)/.test(hard || "")) {
       setAt(res, path, original);
@@ -291,10 +321,10 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
     const roles = res.sections.filter((s) => s.kind === "experience")
       .flatMap((s) => s.entries.map((e) => roleOf("experience", e))).filter(Boolean).slice(0, 4).join("; ");
     await rewrite(`sections.${si}.text`, [
-      { role: "system", content: SUMMARY_SYSTEM },
-      ...SUMMARY_EXAMPLES,
-      { role: "user", content: `Target job: ${job.title} at ${job.company}\nJob keywords to emphasize: ${jdTop.join(", ") || "(none)"}\nMust include: ${summaryKw.join(", ") || "(none)"}\nCandidate's roles: ${roles || "(not listed)"}\nCandidate's skills: ${skills}\nOriginal summary: ${res.sections[si].text}\nTailored summary:` },
-    ], 170, "summary", summaryKw, `${skills} ${roles} ${job.title}`);
+      { role: "system", content: rich ? RICH_SUMMARY_SYSTEM : SUMMARY_SYSTEM },
+      ...(rich ? [] : SUMMARY_EXAMPLES),
+      { role: "user", content: `Target job: ${job.title} at ${job.company}\nJob keywords to emphasize: ${jdTop.join(", ") || "(none)"}\nMust include: ${describe(summaryKw) || "(none)"}\nCandidate's roles: ${roles || "(not listed)"}\nCandidate's skills: ${skills}\nOriginal summary: ${res.sections[si].text}\nTailored summary:` },
+    ], rich ? 280 : 170, "summary", summaryKw, `${skills} ${roles} ${job.title}`);
   }
 
   const targets = pickBullets(res, analysis, bulletInfo, maxBullets);
@@ -302,10 +332,10 @@ export async function tailorResume({ llm, master, job, analysis, approved, maxBu
     const t = targets[i];
     ui.onStatus(`Rewriting bullet ${i + 1} of ${targets.length}…`);
     await rewrite(t.path, [
-      { role: "system", content: BULLET_SYSTEM(32) },
-      ...BULLET_EXAMPLES,
-      { role: "user", content: `Target job: ${job.title}\nJob keywords: ${jdTop.join(", ") || "(none)"}\nRole: ${t.role || "(not listed)"}\nMust include: ${t.assigned.join(", ") || "(none)"}\nOriginal bullet: ${t.text}\nRewritten bullet:` },
-    ], 90, "bullet", t.assigned);
+      { role: "system", content: rich && t.assigned.length ? RICH_BULLET_SYSTEM(42) : BULLET_SYSTEM(32) },
+      ...(rich ? [] : BULLET_EXAMPLES),
+      { role: "user", content: `Target job: ${job.title}\nJob keywords: ${jdTop.join(", ") || "(none)"}\nRole: ${t.role || "(not listed)"}\nMust include: ${describe(t.assigned) || "(none)"}\nOriginal bullet: ${t.text}\nRewritten bullet:` },
+    ], rich ? 150 : 90, "bullet", t.assigned);
   }
 
   // An approved keyword the AI did not manage to place is added to the text directly, so none is left out:

@@ -68,7 +68,9 @@ class SettingsPatch(_Body):
     disabled_companies: list[str] | None = None
     filters: FiltersPatch | None = None
     profile: dict[str, str] | None = None
-    engine: Literal["auto", "onnx"] | None = None
+    engine: Literal["auto", "onnx", "ollama", "openai", "anthropic"] | None = None
+    llm_url: str | None = Field(None, max_length=300)    # address of the Ollama / OpenAI-compatible / Anthropic server
+    llm_model: str | None = Field(None, max_length=200)
     upload_format: Literal["docx", "pdf"] | None = None
     max_bullets: int | None = Field(None, ge=0, le=40)
     keep_new_days: int | None = Field(None, ge=1, le=365)
@@ -150,6 +152,22 @@ class FeedbackIn(_Body):
 class PasswordIn(_Body):
     password: str = Field("", max_length=512)
     company: str = Field("", max_length=60)  # e.g. NVIDIA for NVIDIA_WORKDAY_PASSWORD; empty: the general one
+
+
+class ApiKeyIn(_Body):
+    engine: Literal["openai", "anthropic"]
+    key: str = Field("", max_length=512)  # empty deletes the saved key
+
+
+class ChatMessage(_Body):
+    role: Literal["system", "user", "assistant"]
+    content: str = Field(max_length=60000)
+
+
+class ChatIn(_Body):
+    messages: list[ChatMessage] = Field(min_length=1, max_length=40)
+    temperature: float = Field(0.2, ge=0, le=2)
+    max_tokens: int = Field(160, ge=1, le=4000)
 
 
 class PathIn(_Body):

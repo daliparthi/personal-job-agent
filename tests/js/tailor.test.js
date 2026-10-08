@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { cleanOutput, validate } from "../../static/js/tailor.js";
+import { cleanOutput, tailorResume, validate } from "../../static/js/tailor.js";
 
 const opts = (over = {}) => ({ forbidden: [], kind: "bullet", allowed: [], extraContext: "", required: [], ...over });
 
@@ -82,4 +82,47 @@ test("cleanOutput strips chatter, labels, list markers and quotes", () => {
   assert.equal(cleanOutput("“Built X”"), "Built X");
   assert.equal(cleanOutput("1) Built X"), "Built X");
   assert.equal(cleanOutput(null), "");
+});
+
+// ---- an external model gets the posting's own sentence for each approved keyword
+const master = () => ({
+  sections: [
+    { kind: "summary", text: "Software engineer with 5 years of experience building web services and data pipelines." },
+    { kind: "projects", entries: [{ name: "Billing", bullets: ["Built web services for the billing team that handle invoices every night."] }] },
+  ],
+});
+const analysis = {
+  matched: [], aliases: {},
+  missing: [{ keyword: "Kubernetes", weight: 3, count: 1, context: 'deploy and scale services on "Kubernetes" clusters' }],
+};
+
+async function tailorWith(backend) {
+  const prompts = [];
+  const llm = {
+    backend, interrupt() {},
+    async *stream(messages, opts) {
+      prompts.push({ messages, opts });
+      yield "Software engineer with 5 years of experience building web services, deployed on Kubernetes clusters.";
+    },
+  };
+  const ui = { onRender() {}, onBlock() {}, onStatus() {}, onTokens() {} };
+  const out = await tailorResume({ llm, master: master(), job: { title: "Backend Engineer", company: "Initech" },
+    analysis, approved: ["Kubernetes"], signal: { aborted: false }, ui });
+  return { prompts, out };
+}
+
+test("an external model is shown where the posting uses each keyword, and may write more", async () => {
+  const { prompts, out } = await tailorWith("remote");
+  const summary = prompts[0];
+  assert.match(summary.messages.at(-1).content, /Must include: Kubernetes \(the posting says: "deploy and scale services on Kubernetes clusters"\)/);
+  assert.equal(summary.messages.length, 2); // system + user: no few-shot examples
+  assert.equal(summary.opts.max_tokens, 280);
+  assert.match(out.res.sections[0].text, /Kubernetes clusters/);
+});
+
+test("the bundled model keeps the short prompt and its examples", async () => {
+  const { prompts } = await tailorWith("onnx");
+  assert.equal(prompts[0].messages.at(-1).content.includes("the posting says"), false);
+  assert.ok(prompts[0].messages.length > 2);
+  assert.equal(prompts[0].opts.max_tokens, 170);
 });

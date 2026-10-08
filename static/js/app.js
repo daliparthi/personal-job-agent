@@ -1,4 +1,4 @@
-import { LocalLLM } from "./llm.js";
+import { EXTERNAL_ENGINES, LocalLLM } from "./llm.js";
 import { refineWithModel, yamlHtml } from "./resume-parse.js";
 import { changeSummary, esc, getAt, renderLetter, renderResume, setAt, textOf, updateBlock, valueFromText } from "./resume-view.js";
 import { tailorResume } from "./tailor.js";
@@ -118,8 +118,9 @@ llm.on(({ state, label, text, progress }) => {
     b.disabled = true;
   } else if (state === "ready") {
     c.className = "chip ok";
-    c.textContent = `Qwen2.5‑0.5B ready · ${label}`;
-    c.title = `Runs locally in this tab from the bundled model files.${llm.gpuNote ? ` ${llm.gpuNote}.` : ""}`;
+    const external = llm.backend === "remote";
+    c.textContent = external ? `${label} ready` : `Qwen2.5‑0.5B ready · ${label}`;
+    c.title = `${external ? `Answers come from ${llm.engineName} through this program.` : "Runs locally in this tab from the bundled model files."}${llm.gpuNote ? ` ${llm.gpuNote}.` : ""}`;
     b.hidden = true;
   } else if (state === "error") {
     c.className = "chip err";
@@ -129,9 +130,15 @@ llm.on(({ state, label, text, progress }) => {
   }
 });
 
+/** What the page is waiting for while the model loads. */
+const loadingText = () => (S.settings.engine in EXTERNAL_ENGINES
+  ? `Connecting to ${EXTERNAL_ENGINES[S.settings.engine]}…` : "Loading Qwen2.5‑0.5B from the bundled model files…");
+
 async function loadModel() {
   try {
-    await llm.load(S.status.models, S.settings.engine === "onnx" ? "onnx" : "auto");
+    const engine = S.settings.engine;
+    await llm.load(S.status.models, engine in EXTERNAL_ENGINES || engine === "onnx" ? engine : "auto", S.settings.llm_model || "");
+    if (engine in EXTERNAL_ENGINES && llm.backend !== "remote" && llm.gpuNote) toast(llm.gpuNote, 9000);
   } catch (e) {
     toast(`Model: ${e.message || e}`, 9000);
   }
@@ -582,7 +589,7 @@ function setTailorStatus(text, busy = true) {
 async function onTailor() {
   if (!S.detail || !S.master || S.tailoring) return;
   if (llm.state !== "ready") {
-    setTailorStatus("Loading Qwen2.5‑0.5B from the bundled model files…");
+    setTailorStatus(loadingText());
     await loadModel();
     if (llm.state !== "ready") return setTailorStatus("");
   }
@@ -638,7 +645,7 @@ async function onWriteLetter() {
   if (S.tailored.letter && Object.values(S.tailored.letter.changes || {}).some((r) => r.edited)
       && !confirm("Rewrite the cover letter? Your edits to the current one will be replaced.")) return;
   if (llm.state !== "ready") {
-    setTailorStatus("Loading Qwen2.5‑0.5B from the bundled model files…");
+    setTailorStatus(loadingText());
     await loadModel();
     if (llm.state !== "ready") return setTailorStatus("");
   }
@@ -759,7 +766,7 @@ async function onResumeFile(file) {
   let how = "quick rule-based parse, no model";
   const started = performance.now();
   if (llm.state !== "ready") {
-    status.innerHTML = '<span class="dot"></span>Loading Qwen2.5‑0.5B from the bundled model files…';
+    status.innerHTML = `<span class="dot"></span>${esc(loadingText())}`;
     await loadModel();
   }
   if (!dlg.open) return;
@@ -772,7 +779,7 @@ async function onResumeFile(file) {
       },
     });
     if (!dlg.open) return;
-    if (r.done) how = `fields split by Qwen2.5-0.5B, ${llm.label}`;
+    if (r.done) how = `fields split by ${llm.backend === "remote" ? llm.label : `Qwen2.5-0.5B, ${llm.label}`}`;
     status.textContent = abort.signal.aborted
       ? "Stopped. The rest uses the quick rule-based parse."
       : `Done in ${Math.round((performance.now() - started) / 1000)}s. The model filled ${r.used} field(s) from ${r.done} part(s) of your resume.`;
@@ -857,6 +864,53 @@ function renderAccount() {
       : "Passwords saved here go to your OS keychain (Windows Credential Manager, macOS Keychain or Linux Secret Service), not to a file. An empty password deletes the saved one.";
 }
 
+const ENGINE_URLS = { ollama: "http://localhost:11434", openai: "https://api.openai.com/v1", anthropic: "https://api.anthropic.com" };
+
+/** Show the server address, model and key rows only for an external engine; the key only where one is needed. */
+function syncEngineRows() {
+  const form = $("#settings-form");
+  const engine = form.engine.value;
+  const external = engine in EXTERNAL_ENGINES;
+  $("#llm-external").hidden = !external;
+  if (!external) return;
+  if (engine !== S.settings.engine) { // another engine: its usual address, and a model still to be chosen
+    form.llm_url.value = "";
+    form.llm_model.innerHTML = '<option value=""></option>';
+  }
+  form.llm_url.placeholder = ENGINE_URLS[engine];
+  const needsKey = engine !== "ollama";
+  $("#llm-key-row").hidden = !needsKey;
+  const has = !!S.status?.account?.api_keys?.[engine];
+  $("#llm-key").placeholder = has ? "API key saved (type a new one to replace it)" : "API key";
+  $("#btn-llm-key").textContent = has ? "Replace key (empty deletes it)" : "Save key in OS keychain";
+}
+
+async function saveLlmKey() {
+  const engine = $("#settings-form").engine.value;
+  try {
+    const key = $("#llm-key").value.trim();
+    S.status.account = await api("/api/llm/key", { method: "POST", body: { engine, key } });
+    $("#llm-key").value = "";
+    syncEngineRows();
+    toast(key ? `Saved the ${EXTERNAL_ENGINES[engine]} key in the OS keychain.` : `Deleted the ${EXTERNAL_ENGINES[engine]} key.`);
+  } catch (e) { toast(e.message, 8000); }
+}
+
+/** Save the engine choice, ask the server which models it has, and list them. */
+async function checkLlm() {
+  const form = $("#settings-form");
+  const status = $("#llm-status");
+  status.textContent = "Checking…";
+  try {
+    await saveSettings({ engine: form.engine.value, llm_url: form.llm_url.value.trim(), llm_model: form.llm_model.value });
+    const { models } = await api("/api/llm/models");
+    const keep = form.llm_model.value;
+    form.llm_model.innerHTML = models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
+    form.llm_model.value = models.includes(keep) ? keep : models[0] || "";
+    status.textContent = models.length ? `Connected: ${models.length} model(s). Choose one, then Save.` : "Connected, but it has no models yet.";
+  } catch (e) { status.textContent = `Not connected: ${e.message}`; }
+}
+
 async function saveKeychainPassword() {
   const company = $("#kc-company").value.trim();
   try {
@@ -884,7 +938,11 @@ async function openSettings() {
   S.status = await api("/api/status");
   renderAccount();
   form.current_employer.value = s.current_employer || "";
-  form.engine.value = s.engine === "onnx" ? "onnx" : "auto";
+  form.engine.value = s.engine === "onnx" || s.engine in EXTERNAL_ENGINES ? s.engine : "auto";
+  form.llm_url.value = s.llm_url || "";
+  form.llm_model.innerHTML = `<option value="${esc(s.llm_model || "")}">${esc(s.llm_model || "")}</option>`;
+  $("#llm-status").textContent = "";
+  syncEngineRows();
   form.upload_format.value = s.upload_format || "docx";
   form.max_bullets.value = s.max_bullets ?? 12;
   form.keep_new_days.value = s.keep_new_days ?? 5;
@@ -988,6 +1046,7 @@ async function saveSettingsDialog() {
   const engineChanged = form.engine.value !== S.settings.engine;
   await saveSettings({
     current_employer: form.current_employer.value.trim(), engine: form.engine.value,
+    llm_url: form.llm_url.value.trim(), llm_model: form.llm_model.value,
     upload_format: form.upload_format.value, max_bullets: Number(form.max_bullets.value || 12),
     keep_new_days: Number(form.keep_new_days.value || 5), max_db_mb: Number(form.max_db_mb.value || 50),
     ghost_after_days: Number(form.ghost_after_days.value || 21),
@@ -1136,6 +1195,10 @@ function bindEvents() {
   $("#btn-open-env").onclick = () => api("/api/open", { method: "POST", body: { what: "env" } }).catch((err) => toast(err.message));
   $("#btn-env-refresh").onclick = async () => { S.status = await api("/api/status"); renderAccount(); };
   $("#btn-kc-save").onclick = saveKeychainPassword;
+  $("#settings-form").engine.addEventListener("change", syncEngineRows);
+  $("#btn-llm-check").onclick = checkLlm;
+  $("#btn-llm-key").onclick = saveLlmKey;
+  $("#llm-key").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveLlmKey(); } });
   $("#btn-kc-move").onclick = moveEnvPasswords;
   // Enter in the password box saves it (instead of submitting, and closing, the Settings dialog).
   ["#kc-password", "#kc-company"].forEach((s) => $(s).addEventListener("keydown", (e) => {
@@ -1197,7 +1260,7 @@ async function init() {
   if (S.status.search?.running) pollSearch();
   else if (S.status.search?.finished_at) renderProgress(S.status.search);
   const m = S.status.models;
-  if (!Object.keys(m.webllm || {}).length && !m.onnx) {
+  if (!Object.keys(m.webllm || {}).length && !m.onnx && !(S.settings.engine in EXTERNAL_ENGINES)) {
     $("#chip-model").className = "chip err";
     $("#chip-model").textContent = "Model files missing — run fetch_models.py";
   }
