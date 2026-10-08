@@ -1,0 +1,94 @@
+# Healthcare & Life Sciences career sites searched by Job Agent. Every file in this folder is one industry; pick industries in the
+# search bar (none picked = every file). Entries: name, url, and optionally ats:/board:, enabled: false, aliases:
+# and industry: (see "Company lists" in README.md). Workday URLs verified against the live Workday API, other job
+# boards against their public feeds, between 2026-09-30 and 2026-10-06.
+industry: "Healthcare & Life Sciences"
+companies:
+  - name: "Pfizer"
+    url: https://pfizer.wd1.myworkdayjobs.com/PfizerCareers
+  - name: "CVS Health"
+    url: https://cvshealth.wd1.myworkdayjobs.com/CVS_Health_Careers
+  - name: "Humana"
+    url: https://humana.wd5.myworkdayjobs.com/Humana_External_Career_Site
+  - name: "Johnson & Johnson"
+    url: https://jj.wd5.myworkdayjobs.com/JJ
+  - name: "Moderna"
+    url: https://modernatx.wd1.myworkdayjobs.com/M_tx
+  - name: "GE HealthCare"
+    url: https://gehc.wd5.myworkdayjobs.com/GEHC_ExternalSite
+  - name: "Elevance Health"
+    url: https://elevancehealth.wd1.myworkdayjobs.com/ANT
+  - name: "Cigna"
+    url: https://cigna.wd5.myworkdayjobs.com/cignacareers
+  - name: "Medtronic"
+    url: https://medtronic.wd1.myworkdayjobs.com/MedtronicCareers
+  - name: "Abbott"
+    url: https://abbott.wd5.myworkdayjobs.com/abbottcareers
+  - name: "Bristol Myers Squibb"
+    url: https://bristolmyerssquibb.wd5.myworkdayjobs.com/BMS
+  - name: "Gilead"
+    url: https://gilead.wd1.myworkdayjobs.com/gileadcareers
+  - name: "Amgen"
+    url: https://amgen.wd1.myworkdayjobs.com/Careers
+  - name: "Philips"
+    url: https://philips.wd3.myworkdayjobs.com/jobs-and-careers
+  - name: "Vertex Pharmaceuticals"
+    url: https://vrtx.wd501.myworkdayjobs.com/vertex_careers
+  - name: "Novartis"
+    url: https://novartis.wd3.myworkdayjobs.com/Novartis_Careers
+  - name: "Merck"
+    url: https://msd.wd5.myworkdayjobs.com/SearchJobs
+  - name: "Baxter"
+    url: https://baxter.wd1.myworkdayjobs.com/baxter
+  - name: "Stryker"
+    url: https://stryker.wd1.myworkdayjobs.com/StrykerCareers
+  - name: "Centene"
+    url: https://centene.wd5.myworkdayjobs.com/Centene_External
+  - name: "Cardinal Health"
+    url: https://cardinalhealth.wd1.myworkdayjobs.com/EXT
+  - name: "McKesson"
+    url: https://mckesson.wd3.myworkdayjobs.com/External_Careers
+  - name: "Eli Lilly"
+    url: https://lilly.wd115.myworkdayjobs.com/LLY
+    aliases: ["Lilly"]
+  - name: "Thermo Fisher Scientific"
+    url: https://thermofisher.wd5.myworkdayjobs.com/ThermoFisherCareers
+    aliases: ["Thermo Fisher"]
+  - name: "Danaher"
+    url: https://danaher.wd1.myworkdayjobs.com/DanaherJobs
+  - name: "AstraZeneca"
+    url: https://astrazeneca.wd3.myworkdayjobs.com/Careers
+  - name: "Sanofi"
+    url: https://sanofi.wd3.myworkdayjobs.com/SanofiCareers
+  - name: "GSK"
+    url: https://gsk.wd5.myworkdayjobs.com/GSKCareers
+    aliases: ["GlaxoSmithKline"]
+  - name: "Takeda"
+    url: https://takeda.wd502.myworkdayjobs.com/External
+  - name: "Regeneron"
+    url: https://regeneron.wd1.myworkdayjobs.com/Careers
+  - name: "Biogen"
+    url: https://biibhr.wd3.myworkdayjobs.com/external
+  - name: "BD"
+    url: https://bdx.wd1.myworkdayjobs.com/EXTERNAL_CAREER_SITE_USA
+    aliases: ["Becton Dickinson", "Becton, Dickinson"]
+  - name: "Edwards Lifesciences"
+    url: https://edwards.wd5.myworkdayjobs.com/edwardscareers
+  - name: "Illumina"
+    url: https://illumina.wd1.myworkdayjobs.com/illumina-careers
+  - name: "Zoetis"
+    url: https://zoetis.wd5.myworkdayjobs.com/zoetis
+  - name: "LucyRx"
+    url: https://lucyrx.wd503.myworkdayjobs.com/LucyRX
+  - name: "Prescryptive Health"
+    url: https://prescryptive.wd503.myworkdayjobs.com/prescryptive_health_external
+  - name: "WellSky"
+    url: https://wellsky.wd1.myworkdayjobs.com/WellSkyCareers
+  - name: "IQVIA"
+    url: https://iqvia.wd1.myworkdayjobs.com/IQVIA
+  - name: "Evolent Health"
+    url: https://evolent.wd1.myworkdayjobs.com/External
+  - name: "CareSource"
+    url: https://caresource.wd1.myworkdayjobs.com/CareSource
+  - name: "Owens & Minor"
+    url: https://owensminor.wd1.myworkdayjobs.com/OMCareers

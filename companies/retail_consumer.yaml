@@ -1,0 +1,30 @@
+# Retail & Consumer career sites searched by Job Agent. Every file in this folder is one industry; pick industries in the
+# search bar (none picked = every file). Entries: name, url, and optionally ats:/board:, enabled: false, aliases:
+# and industry: (see "Company lists" in README.md). Workday URLs verified against the live Workday API, other job
+# boards against their public feeds, between 2026-09-30 and 2026-10-06.
+industry: "Retail & Consumer"
+companies:
+  - name: "Walmart"
+    url: https://walmart.wd504.myworkdayjobs.com/WalmartExternal
+  - name: "Target"
+    url: https://target.wd5.myworkdayjobs.com/targetcareers
+  - name: "Nike"
+    url: https://nike.wd1.myworkdayjobs.com/nke
+  - name: "Home Depot"
+    url: https://homedepot.wd5.myworkdayjobs.com/CareerDepot
+  - name: "Lowe's"
+    url: https://lowes.wd5.myworkdayjobs.com/LWS_External_CS
+  - name: "Chewy"
+    url: https://chewy.wd5.myworkdayjobs.com/External
+  - name: "Gap Inc"
+    url: https://gapinc.wd1.myworkdayjobs.com/GAPINC
+  - name: "Coca-Cola"
+    url: https://coke.wd1.myworkdayjobs.com/coca-cola-careers
+  - name: "Kraft Heinz"
+    url: https://heinz.wd1.myworkdayjobs.com/KraftHeinz_Careers
+  - name: "Procter & Gamble"
+    url: https://pg.wd5.myworkdayjobs.com/1000
+  - name: "Mondelez"
+    url: https://wd3.myworkdaysite.com/recruiting/mdlz/External
+  - name: "Peloton"
+    url: https://job-boards.greenhouse.io/peloton

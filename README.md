@@ -6,7 +6,7 @@
 > finished document. Read every line before you send it anywhere.
 
 Job Agent runs on your own computer. It searches the Workday career sites (and Greenhouse, Lever, Ashby and
-SmartRecruiters job boards) you list in `companies.yaml`, scores every posting against your master resume, and — when you ask — rewrites a copy of your resume for one posting
+SmartRecruiters job boards) listed by industry in the `companies` folder, scores every posting against your master resume, and — when you ask — rewrites a copy of your resume for one posting
 at a time with **Qwen2.5‑0.5B running inside your browser** (no cloud AI service, no API keys). It can then open the
 posting, fill the standard Workday fields (and the Create Account / Sign In form from your `.env`), and save everything
 to an `Applications/<Company>/` folder.
@@ -64,7 +64,7 @@ home folder:
   .env                 Workday account email (+ password unless it is in your OS keychain; only typed into
                        Workday's sign-up / sign-in form)
   master_resume.yaml   your master resume as data (built by the model, edit freely)
-  my_companies.yaml    your own career sites on top of the shared list (Settings > Add company writes here)
+  my_companies.yaml    your own career sites on top of the shared lists (Settings > Add company writes here)
   jobs.db              settings, profile, postings (new ones from the last 5 days; jobs you worked on are kept), tailored copies
   browser-profile/     the apply window's browser profile (your Workday logins)
   Applications/        one folder per company with what you sent
@@ -95,9 +95,10 @@ options: `--port 8800`, `--no-browser`.
 
 | Requirement | How it works |
 |---|---|
-| Search Workday sites of top companies | Uses each site's public Workday JSON API (the same calls the careers page makes). Sites come from the shared `companies.yaml` plus your own `my_companies.yaml`, re-read for every search. |
+| Search Workday sites of top companies | Uses each site's public Workday JSON API (the same calls the careers page makes). Sites come from the shared lists in the `companies` folder (one file per industry) plus your own `my_companies.yaml`, re-read for every search. |
 | Other job boards | Greenhouse, Lever, Ashby and SmartRecruiters boards go in the same lists. Each publishes its postings as public JSON: Greenhouse, Lever and Ashby send the whole board in one request, which Job Agent filters with the same keyword, US-location and date rules as a Workday search; SmartRecruiters is searched with your keywords and limited to US postings. Every posting gets the same fields (job type, remote, state, salary, match score) whatever its source, and a grey badge names the board. |
 | Mandatory keywords | Every mandatory keyword/phrase must appear in the title or description, or the posting is dropped. Comma-separated. |
+| Industries | The **Industries** picker next to *Omit words* limits a search to the companies of some industries (AI, Banking, Payments & Fintech, Healthcare & Life Sciences…); the job list then shows only those industries too. None picked: every company. Saved searches keep their own industries. |
 | Omit words | Can be blank. A posting whose title or description contains any omit word (whole word or phrase, comma-separated) is left out of the search and out of the list; remove a word and those postings come back from the next search. Saved searches keep their own omit words. |
 | Optional keywords | Can be blank. They never exclude anything by default; they are highlighted (blue), shown as badges, and you can tick *Must match an optional keyword* to refine. If you leave mandatory blank, each optional keyword is searched separately. |
 | First run = last 5 days | The first run for a keyword set looks back 5 days. |
@@ -350,8 +351,9 @@ a GPU folder you don't need; keep `models/onnx`.
 
 ## Saved searches, schedules and alerts
 
-* **Save…** (next to the keyword boxes) names the current keywords. Pick a saved search from the list to load its
-  keywords; each one keeps its own incremental cursor, so switching between them never re-pulls everything.
+* **Save…** (next to the keyword boxes) names the current keywords and the industries picked. Pick a saved search
+  from the list to load them; each one keeps its own incremental cursor, so switching between them never re-pulls
+  everything. A saved search covers only its own industries (none: every company), whatever the search bar shows.
 * A saved search can **run on its own** (every hour … once a week) while Job Agent is open, and can **alert** you
   about new postings that score at or above a threshold. Alerts show as a 🔔 chip at the top (click to see them),
   as desktop notifications once you allow them (Manage → *Allow desktop notifications*), and in a daily page in your
@@ -359,8 +361,8 @@ a GPU folder you don't need; keep `models/onnx`.
 * **While Job Agent is closed:** `run.py --run-searches` runs whatever is due and exits. Manage (or
   `run.py --schedule-help`) shows the one-line command that registers it with Windows Task Scheduler or cron.
   If Job Agent is open at the time, the command does nothing (Job Agent already runs them).
-* **Manage** lists your saved searches (edit, run now) and the last runs with their logs, which are kept across
-  restarts.
+* **Manage** lists your saved searches (edit, run now, **delete**) and the last runs with their logs, which are kept
+  across restarts; delete one run, or **Clear history** to remove them all (the jobs they found stay).
 * Postings found since you last opened Job Agent are marked **new**; *N new since your last visit* above the list
   shows only those.
 
@@ -384,18 +386,25 @@ opened), *Applied*, *Recruiter screen*, *Interviewing*, *Offer*, and the outcome
   also written into each job's `application.json`, so the Applications folder is a complete record by itself; jobs
   that an earlier version of Job Agent deleted are restored from those folders when it starts.
 
-## companies.yaml and my_companies.yaml
+## Company lists: the companies folder and my_companies.yaml
 
-* **`companies.yaml` in the program folder** is the shared list for everyone who uses this copy of Job Agent. Edit it
-  any time: it is read fresh for every search and whenever Settings opens, so changes apply without a restart.
-* **`my_companies.yaml` in your personal folder** holds your own additions (Settings → *Add company* writes here). An
-  entry with the same URL as a shared one replaces it for you, e.g. to add `enabled: false` or aliases.
-* **Settings → Companies** lists both (yours are marked *(yours)*). Untick a company to skip it; companies added to
-  either file later are searched automatically.
+* **The `companies` folder in the program folder** holds the shared lists for everyone who uses this copy of Job
+  Agent, **one YAML file per industry** (`ai.yaml`, `finance.yaml`, `healthcare.yaml`, `software.yaml`…), each
+  starting with `industry: <name>`. Edit them, or add a file for a new industry, any time: they are read fresh for
+  every search and whenever Settings opens, so changes apply without a restart. Every Workday URL was checked
+  against the live Workday API and the other boards against their public feeds (2026-09-30 to 2026-10-06).
+* **Industries** (search bar): pick some to search, and list, only their companies. With none picked every file is
+  searched. Saved searches keep their own industries.
+* **`my_companies.yaml` in your personal folder** holds your own additions (Settings → *Add company* writes here,
+  with the industry you pick). An entry with the same URL as a shared one replaces it for you, e.g. to add
+  `enabled: false` or aliases, and keeps the shared entry's industry; one without `industry:` is listed as *Other*.
+* **Settings → Companies** lists them all by industry (yours are marked *(yours)*). Untick a company to skip it;
+  companies added to any file later are searched automatically. Your current employer is always skipped.
 
 ```yaml
+# companies/hardware.yaml
+industry: "Semiconductors & Hardware"
 companies:
-  # --- Technology & software
   - name: "NVIDIA"
     url: https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite
   - name: "Meta"
@@ -404,6 +413,7 @@ companies:
   - name: "Some Company"
     url: https://tenant.wd1.myworkdayjobs.com/External
     enabled: false                        # optional: keep the entry but skip it
+    industry: "AI"                        # optional: list it under another industry than its file's
 ```
 
 Find a URL by opening the company's careers page, following it into Workday, and copying the address up to the site
@@ -460,7 +470,7 @@ start.command        macOS: double-click in Finder (runs start.sh)
 start.sh             macOS / Linux: setup + launch, same options
 run.py               picks your personal folder and a free port, starts the local server
 fetch_models.py      re-downloads the Qwen model files + browser libraries if they are missing
-companies.yaml       the shared list of career sites (read fresh for every search)
+companies/           the shared lists of career sites, one file per industry (read fresh for every search)
 app/                 Python backend (FastAPI)
   config.py          project vs personal paths     master.py   master_resume.yaml: draft, checks, save, sync
   workday.py         Workday API client            search.py   incremental/full search + filtering
@@ -521,5 +531,5 @@ GitHub Actions (`.github/workflows/ci.yml`) runs all of the above on Windows, ma
 * **Apply window doesn't open / no PDF** — install Chrome, Edge or Chromium (Linux: `chromium` from your package
   manager works too), or let Playwright fetch its own: `<environment>/bin/python -m playwright install chromium`
   (Windows: `.venv\Scripts\python -m playwright install chromium`). The error is shown in the app.
-* **A company returns errors** — check its URL in `companies.yaml` (or your `my_companies.yaml`); the search **Log**
+* **A company returns errors** — check its URL in its file in the `companies` folder (or your `my_companies.yaml`); the search **Log**
   shows details.

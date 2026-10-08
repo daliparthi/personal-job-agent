@@ -4,6 +4,7 @@ from datetime import date, timedelta
 
 import httpx
 import pytest
+import yaml
 
 from app import config, db, search
 from app.workday import WorkdayClient
@@ -79,6 +80,58 @@ def test_old_personal_copy_is_migrated(shared):
     assert names.count("Acme") == 1 and "Mine" in names
     assert not config.OLD_COMPANIES_COPY.exists()
     assert (config.HOME / "companies.yaml.old").exists()
+
+
+@pytest.fixture
+def by_industry(tmp_path, monkeypatch):
+    """A companies folder with one file per industry, like the program's own."""
+    folder = tmp_path / "companies"
+    folder.mkdir()
+    (folder / "healthcare.yaml").write_text(
+        f'industry: "Healthcare & Life Sciences"\ncompanies:\n  - name: "Acme"\n    url: {ACME_URL}\n', encoding="utf-8")
+    (folder / "aerospace_defense.yaml").write_text(  # no industry line: named after the file
+        'companies:\n  - name: "Globex"\n    url: https://globex.wd5.myworkdayjobs.com/Careers\n'
+        '  - name: "Initech"\n    url: https://initech.wd1.myworkdayjobs.com/Jobs\n    industry: AI\n', encoding="utf-8")
+    monkeypatch.setattr(search, "COMPANIES_SHARED", folder)
+    return folder
+
+
+def test_companies_come_from_one_file_per_industry(by_industry):
+    search.append_company("Acme again", ACME_URL, enabled=False)           # overrides the shared Acme
+    search.append_company("Hooli", "https://hooli.wd1.myworkdayjobs.com/X")  # no industry: Other
+    search.append_company("Umbrella", "https://umbrella.wd1.myworkdayjobs.com/X", industry="Healthcare & Life Sciences")
+    got = {c["name"]: c["industry"] for c in search.load_companies()}
+    assert got == {"Globex": "Aerospace Defense", "Initech": "AI", "Acme again": "Healthcare & Life Sciences",
+                   "Hooli": "Other", "Umbrella": "Healthcare & Life Sciences"}
+    assert search.industries() == [{"name": "Aerospace Defense", "companies": 1}, {"name": "AI", "companies": 1},
+                                   {"name": "Healthcare & Life Sciences", "companies": 2}, {"name": "Other", "companies": 1}]
+    assert 'industry: "Healthcare & Life Sciences"' in config.MY_COMPANIES.read_text(encoding="utf-8")
+
+
+def test_the_program_lists_every_company_once_under_an_industry():
+    files = search.shared_files(config.COMPANIES_SHARED)
+    assert len(files) >= 10 and config.COMPANIES_SHARED.is_dir()
+    urls = []
+    for p in files:
+        doc = yaml.safe_load(p.read_text(encoding="utf-8"))
+        assert str(doc.get("industry") or "").strip(), p.name
+        urls += [c["url"] for c in doc["companies"]]
+    assert len(urls) == len(set(urls)) and len(urls) > 200
+
+
+def test_picked_industries_limit_the_search_and_the_list(fake_site, by_industry):
+    db.save_settings({"industries": ["AI"]})
+    st = _run()
+    assert st["total"] == 1 and any("Industries: AI" in line for line in st["log"])  # only Initech
+    assert not any(b for b in fake_site.list_bodies)  # Acme (healthcare) was not searched
+    db.save_settings({"industries": ["Healthcare & Life Sciences"]})
+    st = _run()
+    assert st["total"] == 1 and db.get_job("acme/external:R1")
+    db.upsert_job(make_job("gone/x:1", company_key="gone/x"))  # a company no longer in any list stays listed
+    listed = lambda **s: {j["id"] for j in search.list_jobs(_settings(**s))}  # noqa: E731
+    assert listed(industries=["Healthcare & Life Sciences"]) == {"acme/external:R1", "gone/x:1"}
+    assert listed(industries=["AI"]) == {"gone/x:1"}
+    assert listed(industries=[]) == {"acme/external:R1", "gone/x:1"}
 
 
 # ---------------------------------------------------------------- the job list view

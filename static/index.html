@@ -51,6 +51,14 @@
     <label for="omit">Omit words <span class="hint">leave out postings containing any · can be blank</span></label>
     <input id="omit" placeholder="e.g. clearance, security clearance, senior" autocomplete="off">
   </div>
+  <div class="field industries-field">
+    <label for="btn-industries">Industries <span class="hint">none picked = all</span></label>
+    <div class="industries">
+      <button type="button" class="btn small" id="btn-industries" aria-haspopup="true" aria-expanded="false"
+        title="Search only the companies of these industries (the company lists in the program's companies folder)">All industries</button>
+      <div class="popover" id="industries-pop" hidden></div>
+    </div>
+  </div>
   <div class="run">
     <label class="check" title="Ignore the incremental cursor and re-pull the full last 5 days">
       <input type="checkbox" id="full-refresh"> Full refresh
@@ -284,9 +292,10 @@
       <div class="companies-head"><span class="hint" id="companies-count"></span><span class="spacer"></span>
         <button type="button" class="linkish" id="co-all">Tick all</button> · <button type="button" class="linkish" id="co-none">Untick all</button></div>
       <div class="companies" id="companies"></div>
-      <p class="hint">Shared list: <code>companies.yaml</code> in the program folder. Yours: <code>my_companies.yaml</code> in your personal folder (the Add box writes there; an entry with the same URL overrides the shared one).</p>
+      <p class="hint">Shared lists: one file per industry in the program's <code>companies</code> folder. Yours: <code>my_companies.yaml</code> in your personal folder (the Add box writes there; an entry with the same URL overrides the shared one). The Industries picker in the search bar narrows a search to some industries.</p>
       <div class="add-company">
         <input id="new-co-name" placeholder="Company name">
+        <select id="new-co-industry" aria-label="Industry" title="The industry this company is listed under"></select>
         <input id="new-co-url" placeholder="Workday, Greenhouse, Lever, Ashby or SmartRecruiters URL" title="e.g. https://tenant.wd5.myworkdayjobs.com/Site, https://job-boards.greenhouse.io/board, https://jobs.lever.co/board, https://jobs.ashbyhq.com/board, https://jobs.smartrecruiters.com/Company">
         <button type="button" class="btn" id="btn-add-co">Add</button>
       </div>
@@ -335,6 +344,10 @@
     <label>Mandatory keywords<input name="mandatory" maxlength="500" placeholder="every one must appear"></label>
     <label>Optional keywords<input name="optional" maxlength="500" placeholder="refine and highlight"></label>
     <label>Omit words<input name="omit" maxlength="500" placeholder="leave out postings containing any (can be blank)"></label>
+    <fieldset class="ss-industries">
+      <legend>Industries <span class="hint">none ticked = all</span></legend>
+      <div class="industries-grid" id="ss-industries"></div>
+    </fieldset>
     <div class="grid2">
       <label>Run on its own
         <select name="every_hours">
@@ -352,7 +365,8 @@
     <label class="check"><input type="checkbox" name="enabled" checked> Enabled</label>
     <p class="hint">Scheduled searches run while Job Agent is open (Manage shows how to run them while it is closed).
       Alerts appear at the top of the page, as desktop notifications if you allow them, and in a daily page in your
-      personal folder's <code>Alerts</code> folder. Companies, your current employer and filters come from Settings.</p>
+      personal folder's <code>Alerts</code> folder. The industries above limit which companies it searches; the
+      ticked companies, your current employer and filters come from Settings.</p>
     <div class="dialog-actions">
       <button type="button" class="btn" id="ss-delete" hidden>Delete</button>
       <span class="spacer"></span>
@@ -376,7 +390,7 @@
         <button type="button" class="btn small" id="sm-open-alerts">Open Alerts folder</button></div>
       <p class="hint" id="sm-note"></p>
     </fieldset>
-    <h3 class="sm-h3">Recent runs</h3>
+    <h3 class="sm-h3">Recent runs <button type="button" class="linkish sm-clear" id="sm-clear-runs">Clear history</button></h3>
     <div id="sm-runs"></div>
     <div class="dialog-actions"><span class="spacer"></span><button type="button" class="btn" id="sm-close">Close</button></div>
   </div>

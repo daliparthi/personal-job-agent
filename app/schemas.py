@@ -64,6 +64,7 @@ class SettingsPatch(_Body):
     mandatory: str | None = None
     optional: str | None = None
     omit: str | None = None
+    industries: list[str] | None = Field(None, max_length=100)  # empty: every industry
     current_employer: str | None = None
     disabled_companies: list[str] | None = None
     filters: FiltersPatch | None = None
@@ -86,6 +87,7 @@ class SettingsPatch(_Body):
 class CompanyIn(_Body):
     name: str = ""
     url: str = ""
+    industry: str = Field("", max_length=80)
 
 
 class HideIn(_Body):
@@ -193,6 +195,7 @@ class SavedSearchIn(_Body):
     mandatory: str = Field("", max_length=500)
     optional: str = Field("", max_length=500)
     omit: str = Field("", max_length=500)
+    industries: list[str] = Field(default_factory=list, max_length=100)  # empty: every industry
     every_hours: int | None = Field(None, ge=1, le=168)        # None: only when you click Run
     notify_min_score: int | None = Field(None, ge=0, le=100)   # None: no alerts
     enabled: bool = True
@@ -209,6 +212,7 @@ class SavedSearchPatch(_Body):
     mandatory: str | None = Field(None, max_length=500)
     optional: str | None = Field(None, max_length=500)
     omit: str | None = Field(None, max_length=500)
+    industries: list[str] | None = Field(None, max_length=100)
     every_hours: int | None = Field(None, ge=1, le=168)
     notify_min_score: int | None = Field(None, ge=0, le=100)
     enabled: bool | None = None

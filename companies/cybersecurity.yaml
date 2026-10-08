@@ -1,0 +1,24 @@
+# Cybersecurity career sites searched by Job Agent. Every file in this folder is one industry; pick industries in the
+# search bar (none picked = every file). Entries: name, url, and optionally ats:/board:, enabled: false, aliases:
+# and industry: (see "Company lists" in README.md). Workday URLs verified against the live Workday API, other job
+# boards against their public feeds, between 2026-09-30 and 2026-10-06.
+industry: "Cybersecurity"
+companies:
+  - name: "CrowdStrike"
+    url: https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers
+  - name: "Palo Alto Networks"
+    url: https://paloaltonetworks.wd5.myworkdayjobs.com/panwexternalcareers
+  - name: "Cloudflare"
+    url: https://job-boards.greenhouse.io/cloudflare
+  - name: "Okta"
+    url: https://job-boards.greenhouse.io/okta
+  - name: "Wiz"
+    url: https://job-boards.greenhouse.io/wizinc
+  - name: "Netskope"
+    url: https://job-boards.greenhouse.io/netskope
+  - name: "Rubrik"
+    url: https://job-boards.greenhouse.io/rubrik
+  - name: "1Password"
+    url: https://jobs.ashbyhq.com/1password
+  - name: "Vanta"
+    url: https://jobs.ashbyhq.com/vanta

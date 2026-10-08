@@ -1,0 +1,16 @@
+# Education & Public Sector career sites searched by Job Agent. Every file in this folder is one industry; pick industries in the
+# search bar (none picked = every file). Entries: name, url, and optionally ats:/board:, enabled: false, aliases:
+# and industry: (see "Company lists" in README.md). Workday URLs verified against the live Workday API, other job
+# boards against their public feeds, between 2026-09-30 and 2026-10-06.
+industry: "Education & Public Sector"
+companies:
+  - name: "Salt Lake City Corporation"
+    url: https://slcgov.wd1.myworkdayjobs.com/SLC
+  - name: "Cambium Learning"
+    url: https://cambiumlearning.wd1.myworkdayjobs.com/camb
+  - name: "Washington University in St. Louis"
+    url: https://wustl.wd1.myworkdayjobs.com/External
+  - name: "University of Arizona Global Campus"
+    url: https://uagc.wd5.myworkdayjobs.com/UAGC
+  - name: "University of Rochester"
+    url: https://rochester.wd5.myworkdayjobs.com/ur_staff

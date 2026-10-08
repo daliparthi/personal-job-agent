@@ -1,0 +1,47 @@
+# Semiconductors & Hardware career sites searched by Job Agent. Every file in this folder is one industry; pick industries in the
+# search bar (none picked = every file). Entries: name, url, and optionally ats:/board:, enabled: false, aliases:
+# and industry: (see "Company lists" in README.md). Workday URLs verified against the live Workday API, other job
+# boards against their public feeds, between 2026-09-30 and 2026-10-06.
+industry: "Semiconductors & Hardware"
+companies:
+  - name: "NVIDIA"
+    url: https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite
+  - name: "Intel"
+    url: https://intel.wd1.myworkdayjobs.com/External
+  - name: "HP Inc"
+    url: https://hp.wd5.myworkdayjobs.com/ExternalCareerSite
+  - name: "Cisco"
+    url: https://cisco.wd5.myworkdayjobs.com/Cisco_Careers
+  - name: "Micron"
+    url: https://micron.wd1.myworkdayjobs.com/External
+  - name: "Broadcom"
+    url: https://broadcom.wd1.myworkdayjobs.com/External_Career
+  - name: "Analog Devices"
+    url: https://analogdevices.wd1.myworkdayjobs.com/External
+  - name: "Equinix"
+    url: https://equinix.wd1.myworkdayjobs.com/External
+  - name: "Samsung"
+    url: https://sec.wd3.myworkdayjobs.com/Samsung_Careers
+  - name: "Sony"
+    url: https://sonyglobal.wd1.myworkdayjobs.com/SonyGlobalCareers
+  - name: "Applied Materials"
+    url: https://amat.wd1.myworkdayjobs.com/External
+  - name: "KLA"
+    url: https://kla.wd1.myworkdayjobs.com/Search
+  - name: "Marvell"
+    url: https://marvell.wd1.myworkdayjobs.com/MarvellCareers
+  - name: "Hewlett Packard Enterprise"
+    url: https://hpe.wd5.myworkdayjobs.com/Jobsathpe
+  - name: "Motorola Solutions"
+    url: https://motorolasolutions.wd5.myworkdayjobs.com/Careers
+  - name: "Cadence"
+    url: https://cadence.wd1.myworkdayjobs.com/External_Careers
+    aliases: ["Cadence Design Systems"]
+  - name: "Zebra Technologies"
+    url: https://zebra.wd501.myworkdayjobs.com/Zebra_careers
+  - name: "F5"
+    url: https://ffive.wd5.myworkdayjobs.com/f5jobs
+  - name: "Altera"
+    url: https://altera.wd1.myworkdayjobs.com/Altera
+  - name: "MKS Instruments"
+    url: https://mksinst.wd1.myworkdayjobs.com/MKSCareersAmericas

@@ -1,0 +1,27 @@
+# AI career sites searched by Job Agent. Every file in this folder is one industry; pick industries in the
+# search bar (none picked = every file). Entries: name, url, and optionally ats:/board:, enabled: false, aliases:
+# and industry: (see "Company lists" in README.md). Workday URLs verified against the live Workday API, other job
+# boards against their public feeds, between 2026-09-30 and 2026-10-06.
+industry: "AI"
+companies:
+  - name: "OpenAI"
+    url: https://jobs.ashbyhq.com/openai
+  - name: "Anthropic"
+    url: https://job-boards.greenhouse.io/anthropic
+  - name: "xAI"
+    url: https://job-boards.greenhouse.io/xai
+  - name: "Scale AI"
+    url: https://job-boards.greenhouse.io/scaleai
+  - name: "Perplexity"
+    url: https://jobs.ashbyhq.com/perplexity
+  - name: "Cohere"
+    url: https://jobs.ashbyhq.com/cohere
+  - name: "Cursor"
+    url: https://jobs.ashbyhq.com/cursor
+    aliases: ["Anysphere"]
+  - name: "Harvey"
+    url: https://jobs.ashbyhq.com/harvey
+  - name: "Sierra"
+    url: https://jobs.ashbyhq.com/sierra
+  - name: "Glean"
+    url: https://job-boards.greenhouse.io/gleanwork

@@ -56,6 +56,7 @@ const S = {
   settings: null, status: null, jobs: [], sel: null, detail: null, master: null, masterYaml: "", tailored: null,
   view: "master", approved: [], rejected: [], tailoring: false, abort: null,
   lastVisit: null, onlyNew: false, // postings first seen after lastVisit are "new since your last visit"
+  industries: [], // [{name, companies}] of the company lists, for the Industries picker
 };
 const llm = new LocalLLM();
 
@@ -149,6 +150,31 @@ function fillSearchInputs() {
   $("#mandatory").value = S.settings.mandatory || "";
   $("#optional").value = S.settings.optional || "";
   $("#omit").value = S.settings.omit || "";
+}
+
+async function loadIndustries() {
+  try { S.industries = await api("/api/industries"); } catch { S.industries = []; }
+  renderIndustries();
+}
+
+/** The Industries picker in the search bar: none picked searches (and lists) every industry's companies. */
+function renderIndustries() {
+  const sel = new Set(S.settings.industries || []);
+  const picked = [...sel];
+  const btn = $("#btn-industries");
+  btn.textContent = !picked.length ? "All industries" : picked.length === 1 ? picked[0] : `${picked[0]} +${picked.length - 1}`;
+  btn.title = picked.length ? `Searching and listing only: ${picked.join("; ")}` : "Searching every industry's companies";
+  $("#industries-pop").innerHTML = `<div class="industries-grid">${S.industries.map((x) =>
+    `<label><input type="checkbox" value="${esc(x.name)}"${sel.has(x.name) ? " checked" : ""}>${esc(x.name)}<span class="hint">${x.companies}</span></label>`).join("")
+    || '<span class="hint">No company lists found.</span>'}</div>
+    <p class="hint">Searches and the job list cover only these industries' companies. None ticked: all of them.</p>
+    <div class="pop-actions"><button type="button" class="btn small" data-act="clear">All industries</button><button type="button" class="btn small primary" data-act="done">Done</button></div>`;
+}
+
+async function setIndustries(list) {
+  await saveSettings({ industries: list });
+  renderIndustries();
+  syncPicker(); // the industries are part of a saved search
 }
 
 /** Run the keywords in the boxes; when they are a saved search's, the run is recorded under it. */
@@ -1034,10 +1060,17 @@ async function renderCompanies() {
   const ok = list.filter((c) => !c.error);
   const yours = ok.filter((c) => c.source === "yours").length;
   $("#companies-count").textContent = `${ok.filter((c) => c.active).length} of ${ok.length} searched · ${ok.length - yours} shared, ${yours} yours`;
-  $("#companies").innerHTML = list.map((c) => c.error
+  const rowOf = (c) => (c.error
     ? `<div class="err" title="${esc(c.url)}">${esc(c.name || c.url)}: ${esc(c.error)}</div>`
-    : `<label title="${esc(c.url)}${c.enabled ? "" : " (enabled: false in the file)"}"><input type="checkbox" data-key="${esc(c.key)}"${c.active ? " checked" : ""}${c.enabled ? "" : " disabled"}> ${esc(c.name)}${c.ats && c.ats !== "workday" ? ` <span class="hint">· ${esc(SOURCES[c.ats] || c.ats)}</span>` : ""}${c.source === "yours" ? ' <span class="hint">(yours)</span>' : ""}</label>`).join("")
-    || '<span class="hint">No companies yet: add career sites to companies.yaml, or use the Add box.</span>';
+    : `<label title="${esc(c.url)}${c.enabled ? "" : " (enabled: false in the file)"}"><input type="checkbox" data-key="${esc(c.key)}"${c.active ? " checked" : ""}${c.enabled ? "" : " disabled"}> ${esc(c.name)}${c.ats && c.ats !== "workday" ? ` <span class="hint">· ${esc(SOURCES[c.ats] || c.ats)}</span>` : ""}${c.source === "yours" ? ' <span class="hint">(yours)</span>' : ""}</label>`);
+  const groups = new Map(); // industry -> its companies, under a heading each
+  list.forEach((c) => { const k = c.error ? "" : c.industry || "Other"; groups.set(k, [...(groups.get(k) || []), c]); });
+  const names = [...groups.keys()].filter(Boolean).sort((a, b) => (a === "Other") - (b === "Other") || a.localeCompare(b));
+  $("#companies").innerHTML = [...(groups.get("") || []).map(rowOf), ...names.map((n) =>
+    `<div class="co-industry">${esc(n)} <span class="hint">(${groups.get(n).length})</span></div>${groups.get(n).map(rowOf).join("")}`)].join("")
+    || '<span class="hint">No companies yet: add career sites to a file in the companies folder, or use the Add box.</span>';
+  $("#new-co-industry").innerHTML = [...names.filter((n) => n !== "Other"), "Other"]
+    .map((n) => `<option value="${esc(n === "Other" ? "" : n)}">${esc(n)}</option>`).join("");
 }
 
 async function saveSettingsDialog() {
@@ -1129,8 +1162,23 @@ function bindEvents() {
       renderFilters();
     }
   };
+  $("#btn-industries").onclick = () => {
+    const pop = $("#industries-pop");
+    pop.hidden = !pop.hidden;
+    $("#btn-industries").setAttribute("aria-expanded", String(!pop.hidden));
+  };
+  $("#industries-pop").onclick = async (e) => {
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    if (act === "clear") $$("#industries-pop input").forEach((c) => (c.checked = false));
+    if (act) {
+      $("#industries-pop").hidden = true;
+      $("#btn-industries").setAttribute("aria-expanded", "false");
+      await setIndustries($$("#industries-pop input:checked").map((c) => c.value));
+    }
+  };
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".states") && !$("#states-pop").hidden) $("#states-pop").querySelector('[data-act="done"]').click();
+    if (!e.target.closest(".industries") && !$("#industries-pop").hidden) $("#industries-pop").querySelector('[data-act="done"]').click();
   });
 
   // job list
@@ -1187,9 +1235,10 @@ function bindEvents() {
   $("#co-none").onclick = () => tickAll(false);
   $("#btn-add-co").onclick = async () => {
     try {
-      await api("/api/companies", { method: "POST", body: { name: $("#new-co-name").value, url: $("#new-co-url").value } });
+      await api("/api/companies", { method: "POST", body: { name: $("#new-co-name").value, url: $("#new-co-url").value, industry: $("#new-co-industry").value } });
       $("#new-co-name").value = $("#new-co-url").value = "";
       await renderCompanies();
+      await loadIndustries();
       toast("Added to my_companies.yaml in your personal folder");
     } catch (e) { toast(e.message, 7000); }
   };
@@ -1231,6 +1280,7 @@ async function init() {
   } catch { S.master = null; }
   fillSearchInputs();
   renderFilters();
+  await loadIndustries();
   updateChips();
   renderResumePane();
   bindEvents();
@@ -1238,13 +1288,16 @@ async function init() {
   try { S.lastVisit = (await api("/api/visit", { method: "POST" })).previous; } catch { /* no "new" badges */ }
   await initSearches({
     api, toast,
-    getKeywords: () => ({ mandatory: $("#mandatory").value, optional: $("#optional").value, omit: $("#omit").value }),
-    setKeywords: async (mandatory, optional, omit = "") => {
+    getKeywords: () => ({ mandatory: $("#mandatory").value, optional: $("#optional").value, omit: $("#omit").value,
+      industries: S.settings.industries || [] }),
+    setKeywords: async (mandatory, optional, omit = "", industries = []) => {
       $("#mandatory").value = mandatory;
       $("#optional").value = optional;
       $("#omit").value = omit;
-      await saveSettings({ mandatory, optional, omit });
+      await saveSettings({ mandatory, optional, omit, industries });
+      renderIndustries();
     },
+    industries: () => S.industries,
     runSearch: (id) => runSearch(id),
     selectJob: (id) => selectJob(id),
     onSearchRunning: () => pollSearch(),

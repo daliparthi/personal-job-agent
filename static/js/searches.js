@@ -7,7 +7,7 @@ const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: "short", 
 const EVERY = { 1: "every hour", 3: "every 3 hours", 6: "every 6 hours", 12: "every 12 hours", 24: "daily", 168: "weekly" };
 const POLL_MS = 60_000;
 
-let deps = null;     // { api, toast, getKeywords, setKeywords, runSearch, selectJob, onSearchRunning }
+let deps = null;     // { api, toast, getKeywords, setKeywords, industries, runSearch, selectJob, onSearchRunning }
 let searches = [];
 let editing = null;  // saved search being edited in the dialog (null: a new one)
 const notified = new Set();
@@ -26,12 +26,22 @@ export async function initSearches(d) {
   $("#search-form").addEventListener("submit", (e) => { e.preventDefault(); saveEditor(); });
   $("#sm-close").onclick = () => $("#searches-dialog").close();
   $("#sm-list").addEventListener("click", onManagerClick);
-  $("#sm-runs").addEventListener("click", (e) => {
+  $("#sm-runs").addEventListener("click", async (e) => {
+    const del = e.target.closest("[data-delrun]");
+    if (del) {
+      try { await deps.api(`/api/search/runs/${del.dataset.delrun}`, { method: "DELETE" }); } catch (err) { deps.toast(err.message); }
+      return renderManager();
+    }
     const b = e.target.closest("[data-log]");
     if (!b) return;
     const log = $(`#run-log-${b.dataset.log}`);
     log.hidden = !log.hidden;
   });
+  $("#sm-clear-runs").onclick = async () => {
+    if (!confirm("Clear the whole run history? Saved searches and the jobs they found stay.")) return;
+    try { await deps.api("/api/search/runs", { method: "DELETE" }); } catch (err) { deps.toast(err.message); }
+    renderManager();
+  };
   $("#sm-copy").onclick = () => navigator.clipboard?.writeText($("#sm-register").textContent).then(() => deps.toast("Copied."), () => deps.toast("Select the command and copy it."));
   $("#sm-notify").onclick = askNotifications;
   $("#sm-open-alerts").onclick = $("#al-folder").onclick = () => deps.api("/api/open", { method: "POST", body: { what: "alerts" } }).catch((e) => deps.toast(e.message));
@@ -63,18 +73,19 @@ async function loadSearches() {
 }
 
 const norm = (s) => (s || "").split(/[,;\n]/).map((x) => x.trim().toLowerCase()).filter(Boolean).join(",");
+const sameSet = (a, b) => [...(a || [])].sort().join("\n") === [...(b || [])].sort().join("\n");
 
-/** Show the saved search whose keywords are in the boxes, if any. */
+/** Show the saved search whose keywords (and industries) are in the boxes, if any. */
 export function syncPicker() {
-  const { mandatory, optional, omit } = deps.getKeywords();
+  const { mandatory, optional, omit, industries } = deps.getKeywords();
   const match = searches.find((s) => norm(s.mandatory) === norm(mandatory) && norm(s.optional) === norm(optional)
-    && norm(s.omit) === norm(omit));
+    && norm(s.omit) === norm(omit) && sameSet(s.industries, industries));
   $("#saved-search").value = match ? String(match.id) : "";
 }
 
 async function onPick() {
   const s = selectedSearch();
-  if (s) await deps.setKeywords(s.mandatory, s.optional, s.omit);
+  if (s) await deps.setKeywords(s.mandatory, s.optional, s.omit, s.industries);
 }
 
 // ---------------------------------------------------------------- save / edit dialog
@@ -87,6 +98,10 @@ function openEditor(s) {
   f.mandatory.value = s ? s.mandatory : kw.mandatory;
   f.optional.value = s ? s.optional : kw.optional;
   f.omit.value = s ? s.omit : kw.omit;
+  const chosen = new Set(s ? s.industries || [] : kw.industries || []);
+  $("#ss-industries").innerHTML = deps.industries().map((x) =>
+    `<label><input type="checkbox" value="${esc(x.name)}"${chosen.has(x.name) ? " checked" : ""}>${esc(x.name)}</label>`).join("")
+    || '<span class="hint">No company lists found.</span>';
   f.every_hours.value = s?.every_hours ? String(s.every_hours) : "";
   f.notify_min_score.value = s?.notify_min_score != null ? String(s.notify_min_score) : "";
   f.enabled.checked = s ? s.enabled : true;
@@ -99,6 +114,7 @@ async function saveEditor() {
   const f = $("#search-form");
   const body = {
     name: f.name.value.trim(), mandatory: f.mandatory.value.trim(), optional: f.optional.value.trim(), omit: f.omit.value.trim(),
+    industries: [...$("#ss-industries").querySelectorAll("input:checked")].map((c) => c.value),
     every_hours: f.every_hours.value ? Number(f.every_hours.value) : null,
     notify_min_score: f.notify_min_score.value ? Number(f.notify_min_score.value) : null, enabled: f.enabled.checked,
   };
@@ -112,7 +128,7 @@ async function saveEditor() {
   $("#search-dialog").close();
   await loadSearches();
   $("#saved-search").value = String(saved.id);
-  await deps.setKeywords(saved.mandatory, saved.optional, saved.omit);
+  await deps.setKeywords(saved.mandatory, saved.optional, saved.omit, saved.industries);
   deps.toast(saved.every_hours && saved.enabled
     ? `Saved “${saved.name}”. It runs ${EVERY[saved.every_hours] || `every ${saved.every_hours} hours`} while Job Agent is open.`
     : `Saved “${saved.name}”.`);
@@ -149,10 +165,12 @@ async function renderManager() {
     const last = s.last_run_at ? ` · last run ${when(s.last_run_at)}` : " · never run";
     const next = s.next_run_at && s.enabled ? ` · next ${when(s.next_run_at)}` : "";
     return `<div class="app-row"><div><strong>${esc(s.name)}</strong>
-        <div class="sub">${esc([s.mandatory && `must: ${s.mandatory}`, s.optional && `optional: ${s.optional}`, s.omit && `omit: ${s.omit}`].filter(Boolean).join(" · "))}</div>
+        <div class="sub">${esc([s.mandatory && `must: ${s.mandatory}`, s.optional && `optional: ${s.optional}`, s.omit && `omit: ${s.omit}`,
+          s.industries?.length && `industries: ${s.industries.join("; ")}`].filter(Boolean).join(" · "))}</div>
         <div class="sub">${esc(sched + alertTxt + last + next)}</div></div>
       <div><button type="button" class="btn small" data-run="${s.id}">Run now</button>
-        <button type="button" class="btn small" data-edit="${s.id}">Edit</button></div></div>`;
+        <button type="button" class="btn small" data-edit="${s.id}">Edit</button>
+        <button type="button" class="btn small" data-delete="${s.id}" title="Delete this saved search (the jobs it found stay)">Delete</button></div></div>`;
   }).join("") : '<p class="hint">No saved searches yet. Enter keywords above and click <b>Save…</b>.</p>';
   let runs = [];
   try { runs = await deps.api("/api/search/runs?limit=20"); } catch { /* shown empty */ }
@@ -160,19 +178,29 @@ async function renderManager() {
     <div class="app-row"><div><strong>${esc(r.search_name || "Current keywords")}</strong>
       <div class="sub">${esc(when(r.started))} · ${esc(r.trigger || "")} · ${esc(r.mode || "")} · ${r.new_jobs} new, ${r.refreshed} refreshed${r.errors.length ? ` · <span class="bad">${r.errors.length} error(s)</span>` : ""}</div>
       <pre class="log" id="run-log-${r.id}" hidden>${esc([r.log_text, ...r.errors.map((e) => `ERROR ${e}`)].filter(Boolean).join("\n"))}</pre></div>
-      <div><button type="button" class="btn small" data-log="${r.id}">Log</button></div></div>`).join("")
+      <div><button type="button" class="btn small" data-log="${r.id}">Log</button>
+        <button type="button" class="btn small" data-delrun="${r.id}" title="Remove this run from the history">Delete</button></div></div>`).join("")
     : '<p class="hint">No runs yet.</p>';
 }
 
 async function onManagerClick(e) {
   const run = e.target.closest("[data-run]");
   const edit = e.target.closest("[data-edit]");
+  const del = e.target.closest("[data-delete]");
   if (edit) return openEditor(searches.find((s) => String(s.id) === edit.dataset.edit));
+  if (del) {
+    const s = searches.find((x) => String(x.id) === del.dataset.delete);
+    if (!s || !confirm(`Delete the saved search “${s.name}”? Jobs it found stay.`)) return;
+    try { await deps.api(`/api/searches/${s.id}`, { method: "DELETE" }); } catch (err) { return deps.toast(err.message); }
+    await loadSearches();
+    syncPicker();
+    return renderManager();
+  }
   if (run) {
     const s = searches.find((x) => String(x.id) === run.dataset.run);
     $("#searches-dialog").close();
     $("#saved-search").value = String(s.id);
-    await deps.setKeywords(s.mandatory, s.optional, s.omit);
+    await deps.setKeywords(s.mandatory, s.optional, s.omit, s.industries);
     deps.runSearch(s.id);
   }
 }

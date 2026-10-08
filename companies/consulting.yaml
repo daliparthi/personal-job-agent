@@ -1,0 +1,28 @@
+# Consulting & Professional Services career sites searched by Job Agent. Every file in this folder is one industry; pick industries in the
+# search bar (none picked = every file). Entries: name, url, and optionally ats:/board:, enabled: false, aliases:
+# and industry: (see "Company lists" in README.md). Workday URLs verified against the live Workday API, other job
+# boards against their public feeds, between 2026-09-30 and 2026-10-06.
+industry: "Consulting & Professional Services"
+companies:
+  - name: "Kyndryl"
+    url: https://kyndryl.wd5.myworkdayjobs.com/KyndrylProfessionalCareers
+  - name: "Thomson Reuters"
+    url: https://thomsonreuters.wd5.myworkdayjobs.com/External_Career_Site
+  - name: "Gartner"
+    url: https://gartner.wd5.myworkdayjobs.com/EXT
+  - name: "Accenture"
+    url: https://accenture.wd103.myworkdayjobs.com/AccentureCareers
+  - name: "PwC"
+    url: https://pwc.wd3.myworkdayjobs.com/Global_Experienced_Careers
+  - name: "Guidehouse"
+    url: https://guidehouse.wd1.myworkdayjobs.com/External
+  - name: "Groundswell"
+    url: https://groundswell.wd12.myworkdayjobs.com/groundswell
+  - name: "JLL"
+    url: https://jll.wd1.myworkdayjobs.com/jllcareers
+  - name: "Robert Half"
+    url: https://roberthalf.wd1.myworkdayjobs.com/RobertHalfCareers
+  - name: "SHI"
+    url: https://shi.wd12.myworkdayjobs.com/shicareers
+  - name: "ICF"
+    url: https://icf.wd5.myworkdayjobs.com/ICFExternal_Career_Site

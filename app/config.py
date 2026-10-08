@@ -7,7 +7,7 @@ several people on the same computer (Windows, macOS or Linux). Each person gets 
     <your home folder>/JobAgent/<profile>/    e.g. C:\\Users\\you\\JobAgent\\default, /Users/you/JobAgent/default,
                                               /home/you/JobAgent/default; profile "default" unless --profile NAME
         .env                 Workday account email + password (fills Create Account / Sign In forms)
-        my_companies.yaml    your own Workday sites, on top of the shared companies.yaml in the program folder
+        my_companies.yaml    your own career sites, on top of the shared lists in the program's companies/ folder
         master_resume.yaml   your master resume, parsed by the local model (edit freely)
         jobs.db              settings, postings (new ones expire after 5 days; ones you worked on are kept), tailored resumes
         browser-profile/     the apply window's own browser profile (Workday logins)
@@ -24,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 MODELS = ROOT / "models"
-COMPANIES_SHARED = ROOT / "companies.yaml"  # shared list, read fresh for every search
+COMPANIES_SHARED = ROOT / "companies"  # shared lists, one YAML file per industry, read fresh for every search
 
 PROFILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}")
 

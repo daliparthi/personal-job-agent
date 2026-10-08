@@ -20,17 +20,28 @@ from .workday import WorkdayClient, find_job_type_facet, find_us_facet
 
 
 # ---------------------------------------------------------------- company lists
-# companies.yaml in the program folder is the shared list; my_companies.yaml in your personal folder holds your own
-# additions (Settings > Add company) and overrides (same URL, e.g. enabled: false). Both are read fresh for every
-# search and every time Settings opens, so edits apply without restarting.
+# The program's companies/ folder holds the shared lists, one YAML file per industry ("industry: Healthcare & Life
+# Sciences" at the top of each); my_companies.yaml in your personal folder holds your own additions (Settings > Add
+# company) and overrides (same URL, e.g. enabled: false). All are read fresh for every search and every time Settings
+# opens, so edits apply without restarting. A search covers the industries picked in the search bar (none = all).
 MY_HEADER = """\
-# my_companies.yaml - your own career sites, added to the shared companies.yaml in the program folder.
-# Same format. An entry with the same URL as a shared one replaces it for you (e.g. add  enabled: false).
+# my_companies.yaml - your own career sites, added to the shared lists in the program's companies/ folder.
+# Same format (add  industry: <name>  to an entry to file it under an industry; without one it is "Other").
+# An entry with the same URL as a shared one replaces it for you (e.g. add  enabled: false).
 companies:
 """
+OTHER_INDUSTRY = "Other"  # companies whose list names no industry
 
 
-def _read_list(path, source):
+def shared_files(path=None):
+    """The shared company lists: every *.yaml in the companies folder, or the one file `path` names."""
+    path = path or COMPANIES_SHARED
+    if path.is_dir():
+        return sorted(p for p in path.glob("*.yaml") if p.is_file())
+    return [path] if path.exists() else []
+
+
+def _read_list(path, source, default_industry=""):
     if not path.exists():
         return []
     try:
@@ -39,7 +50,8 @@ def _read_list(path, source):
         mark = getattr(e, "problem_mark", None)
         where = f" line {mark.line + 1}" if mark else ""
         return [{"name": path.name, "url": "", "key": None, "error": f"YAML error on{where}: {getattr(e, 'problem', e)}",
-                 "enabled": True, "aliases": [], "source": source, "ats": None, "board": None}]
+                 "enabled": True, "aliases": [], "source": source, "ats": None, "board": None, "industry": ""}]
+    file_industry = (str(raw.get("industry") or "").strip() if isinstance(raw, dict) else "") or default_industry
     out = []
     for c in (raw.get("companies") if isinstance(raw, dict) else None) or []:
         if not isinstance(c, dict):
@@ -54,8 +66,16 @@ def _read_list(path, source):
         aliases = c.get("aliases") or []
         aliases = [str(a).strip() for a in (aliases if isinstance(aliases, list) else [aliases]) if str(a).strip()]
         out.append({"name": name, "url": url, "key": key, "error": err, "enabled": c.get("enabled", True) is not False,
-                    "aliases": aliases, "source": source, "ats": ats or "workday", "board": board})
+                    "aliases": aliases, "source": source, "ats": ats or "workday", "board": board,
+                    "industry": str(c.get("industry") or "").strip() or file_industry})
     return out
+
+
+def _read_shared():
+    folder = COMPANIES_SHARED.is_dir()
+    # A file without an "industry:" line is named after its file name (aerospace_defense.yaml -> Aerospace Defense).
+    return [c for p in shared_files() for c in
+            _read_list(p, "shared", p.stem.replace("_", " ").title() if folder else "")]
 
 
 def _migrate_old_copy():
@@ -63,7 +83,7 @@ def _migrate_old_copy():
     companies.yaml were ignored. Keep only entries that aren't in the shared list (your additions), set the copy aside."""
     if not OLD_COMPANIES_COPY.exists():
         return
-    shared = {c["key"] for c in _read_list(COMPANIES_SHARED, "shared") if c["key"]}
+    shared = {c["key"] for c in _read_shared() if c["key"]}
     mine = {c["key"] for c in _read_list(MY_COMPANIES, "yours") if c["key"]}
     for c in _read_list(OLD_COMPANIES_COPY, "yours"):
         if c["key"] and c["key"] not in shared and c["key"] not in mine:
@@ -84,9 +104,9 @@ def _mtime(path):
 
 
 def load_companies():
-    """Both company lists merged. Re-read only when either file changed (it is called for every job list)."""
+    """The shared lists and yours merged. Re-read only when a file changed (it is called for every job list)."""
     _migrate_old_copy()
-    key = (str(COMPANIES_SHARED), _mtime(COMPANIES_SHARED), str(MY_COMPANIES), _mtime(MY_COMPANIES))
+    key = (tuple((str(p), _mtime(p)) for p in shared_files()), str(MY_COMPANIES), _mtime(MY_COMPANIES))
     with _companies_lock:
         if _companies_cache["key"] != key:
             _companies_cache.update(key=key, value=_load_companies())
@@ -95,17 +115,30 @@ def load_companies():
 
 def _load_companies():
     out, index = [], {}
-    for c in _read_list(COMPANIES_SHARED, "shared") + _read_list(MY_COMPANIES, "yours"):
+    for c in _read_shared() + _read_list(MY_COMPANIES, "yours"):
         k = c["key"] or f"{c['source']}:{c['url'] or c['name']}"
         if k in index:
+            c["industry"] = c["industry"] or out[index[k]]["industry"]  # an override keeps the shared entry's industry
             out[index[k]] = c  # your entry replaces the shared one, in the same place
         else:
             index[k] = len(out)
             out.append(c)
+    for c in out:
+        c["industry"] = c["industry"] or OTHER_INDUSTRY
     return out
 
 
-def append_company(name: str, url: str, enabled=True, aliases=()):
+def industries(companies=None):
+    """[{name, companies}] of every industry in the company lists, by name ("Other" last)."""
+    counts = {}
+    for c in companies if companies is not None else load_companies():
+        if not c["error"]:
+            counts[c["industry"]] = counts.get(c["industry"], 0) + 1
+    names = sorted(counts, key=lambda n: (n == OTHER_INDUSTRY, n.lower()))
+    return [{"name": n, "companies": counts[n]} for n in names]
+
+
+def append_company(name: str, url: str, enabled=True, aliases=(), industry=""):
     sources.parse_site(name, url)  # validates
     text = MY_COMPANIES.read_text(encoding="utf-8") if MY_COMPANIES.exists() else MY_HEADER
     if not text.endswith("\n"):
@@ -116,6 +149,8 @@ def append_company(name: str, url: str, enabled=True, aliases=()):
         text += "    enabled: false\n"
     if aliases:
         text += "    aliases: [" + ", ".join('"' + a.replace('"', "'") + '"' for a in aliases) + "]\n"
+    if industry.strip():
+        text += '    industry: "' + industry.strip().replace('"', "'") + '"\n'
     MY_COMPANIES.write_text(text, encoding="utf-8")
 
 
@@ -217,12 +252,15 @@ class SearchRunner:
                    "resume_text": resume["text"] if resume else "",
                    "profile": candidate.profile_for(resume, settings)}
             disabled = set(settings.get("disabled_companies") or [])
+            wanted = set(source.get("industries") or [])  # the industries picked (none: every one)
+            if wanted:
+                self.log(f"Industries: {', '.join(sorted(wanted))}")
             companies = []
             for c in await asyncio.to_thread(load_companies):
                 if c["error"]:
                     self.state["errors"].append(f"{c['name']}: {c['error']}")
                     continue
-                if not c["enabled"] or c["key"] in disabled:
+                if not c["enabled"] or c["key"] in disabled or (wanted and c["industry"] not in wanted):
                     continue
                 if is_current_employer(c["name"], c["key"], settings.get("current_employer"), c["aliases"]):
                     self.log(f"Skipping {c['name']} (your current employer)")
@@ -655,10 +693,16 @@ def list_jobs(settings):
                             kw_sig=keyword_hits_signature(mandatory, optional, omit), posted_since=posted_since,
                             hide_knockouts=bool(f.get("hide_knockouts")), sponsorship=f.get("sponsorship") or "any",
                             sort=f.get("sort") or "match_salary")
-    aliases = {c["key"]: c["aliases"] for c in load_companies() if c["key"]} if employer else {}
+    wanted_industries = set(settings.get("industries") or [])
+    companies = load_companies() if employer or wanted_industries else []
+    aliases = {c["key"]: c["aliases"] for c in companies if c["key"]}
+    industry_of = {c["key"]: c["industry"] for c in companies if c["key"]}
     out = []
     for j in rows:
         if is_current_employer(j["company"], j["company_key"], employer, aliases.get(j["company_key"], ())):
+            continue
+        # Only the industries picked in the search bar (a company no longer in any list is kept).
+        if wanted_industries and industry_of.get(j["company_key"], next(iter(wanted_industries))) not in wanted_industries:
             continue
         if f.get("require_optional") and optional and not j["optional_hits"]:
             continue

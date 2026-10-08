@@ -1,0 +1,103 @@
+# Software & Internet career sites searched by Job Agent. Every file in this folder is one industry; pick industries in the
+# search bar (none picked = every file). Entries: name, url, and optionally ats:/board:, enabled: false, aliases:
+# and industry: (see "Company lists" in README.md). Workday URLs verified against the live Workday API, other job
+# boards against their public feeds, between 2026-09-30 and 2026-10-06.
+industry: "Software & Internet"
+companies:
+  - name: "Salesforce"
+    url: https://salesforce.wd12.myworkdayjobs.com/External_Career_Site
+  - name: "Adobe"
+    url: https://adobe.wd5.myworkdayjobs.com/external_experienced
+  - name: "Workday"
+    url: https://workday.wd5.myworkdayjobs.com/Workday
+  - name: "Zoom"
+    url: https://zoom.wd5.myworkdayjobs.com/Zoom
+  - name: "Autodesk"
+    url: https://autodesk.wd1.myworkdayjobs.com/Ext
+  - name: "Red Hat"
+    url: https://redhat.wd5.myworkdayjobs.com/jobs
+  - name: "eBay"
+    url: https://ebay.wd5.myworkdayjobs.com/apply
+  - name: "Guidewire"
+    url: https://guidewire.wd5.myworkdayjobs.com/external
+  - name: "Snap"
+    url: https://snapchat.wd1.myworkdayjobs.com/snap
+  - name: "Yahoo"
+    url: https://ouryahoo.wd5.myworkdayjobs.com/careers
+  - name: "Zillow"
+    url: https://zillow.wd5.myworkdayjobs.com/Zillow_Group_External
+  - name: "Expedia Group"
+    url: https://expedia.wd108.myworkdayjobs.com/search
+    aliases: ["Expedia"]
+  - name: "Flexera"
+    url: https://flexerasoftware.wd1.myworkdayjobs.com/FlexeraSoftware
+  - name: "Volaris Group"
+    url: https://volarisgroup.wd3.myworkdayjobs.com/AssetWorks
+  - name: "Databricks"
+    url: https://job-boards.greenhouse.io/databricks
+  - name: "Palantir"
+    url: https://jobs.lever.co/palantir
+  - name: "Notion"
+    url: https://jobs.ashbyhq.com/notion
+  - name: "ServiceNow"
+    url: https://jobs.smartrecruiters.com/ServiceNow
+  - name: "Snowflake"
+    url: https://jobs.ashbyhq.com/snowflake
+  - name: "Datadog"
+    url: https://job-boards.greenhouse.io/datadog
+  - name: "MongoDB"
+    url: https://job-boards.greenhouse.io/mongodb
+  - name: "Elastic"
+    url: https://job-boards.greenhouse.io/elastic
+  - name: "Confluent"
+    url: https://jobs.ashbyhq.com/confluent
+  - name: "Fivetran"
+    url: https://job-boards.greenhouse.io/fivetran
+  - name: "Grafana Labs"
+    url: https://job-boards.greenhouse.io/grafanalabs
+  - name: "GitLab"
+    url: https://job-boards.greenhouse.io/gitlab
+  - name: "Figma"
+    url: https://job-boards.greenhouse.io/figma
+  - name: "Asana"
+    url: https://job-boards.greenhouse.io/asana
+  - name: "Linear"
+    url: https://jobs.ashbyhq.com/linear
+  - name: "Replit"
+    url: https://jobs.ashbyhq.com/replit
+  - name: "Twilio"
+    url: https://job-boards.greenhouse.io/twilio
+  # - name: "HubSpot"   # Greenhouse board returns 404 (checked 2026-10-06)
+  #   url: https://job-boards.greenhouse.io/hubspotjobs
+  - name: "Klaviyo"
+    url: https://job-boards.greenhouse.io/klaviyo
+  - name: "Samsara"
+    url: https://job-boards.greenhouse.io/samsara
+  - name: "Toast"
+    url: https://job-boards.greenhouse.io/toast
+  - name: "Dropbox"
+    url: https://job-boards.greenhouse.io/dropbox
+  - name: "Benchling"
+    url: https://jobs.ashbyhq.com/benchling
+  - name: "LinkedIn"
+    url: https://jobs.smartrecruiters.com/LinkedIn3
+  - name: "Airbnb"
+    url: https://job-boards.greenhouse.io/airbnb
+  - name: "DoorDash"
+    url: https://job-boards.greenhouse.io/doordashusa
+  - name: "Instacart"
+    url: https://job-boards.greenhouse.io/instacart
+  - name: "Lyft"
+    url: https://job-boards.greenhouse.io/lyft
+  - name: "Pinterest"
+    url: https://job-boards.greenhouse.io/pinterest
+  - name: "Reddit"
+    url: https://job-boards.greenhouse.io/reddit
+  - name: "Discord"
+    url: https://job-boards.greenhouse.io/discord
+  - name: "Duolingo"
+    url: https://job-boards.greenhouse.io/duolingo
+  - name: "Faire"
+    url: https://job-boards.greenhouse.io/faire
+  - name: "Squarespace"
+    url: https://job-boards.greenhouse.io/squarespace

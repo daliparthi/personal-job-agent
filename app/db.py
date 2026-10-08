@@ -149,6 +149,10 @@ MIGRATIONS = [
     """
     ALTER TABLE saved_searches ADD COLUMN omit TEXT NOT NULL DEFAULT '';
     """,
+    # 12: industries a saved search covers (a JSON list; empty: every industry)
+    """
+    ALTER TABLE saved_searches ADD COLUMN industries TEXT NOT NULL DEFAULT '[]';
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -377,6 +381,7 @@ DEFAULT_SETTINGS = {
     "mandatory": "",
     "optional": "",
     "omit": "",
+    "industries": [],           # industries picked in the search bar (none: every industry's companies)
     "current_employer": "",
     "disabled_companies": [],
     "filters": {
@@ -756,24 +761,37 @@ def set_checked(job_id, at, closed=False):
 
 
 # ---------- saved searches, run history, alerts ----------
-SEARCH_FIELDS = ("name", "mandatory", "optional", "omit", "every_hours", "notify_min_score", "enabled")
+SEARCH_FIELDS = ("name", "mandatory", "optional", "omit", "industries", "every_hours", "notify_min_score", "enabled")
+
+
+def _search_row(r) -> dict:
+    d = dict(r)
+    try:
+        d["industries"] = [str(x) for x in json.loads(d.get("industries") or "[]")]
+    except (TypeError, ValueError):
+        d["industries"] = []
+    return d
+
+
+def _search_value(k, v):
+    return json.dumps(list(v or [])) if k == "industries" else v
 
 
 def saved_searches():
     rows = read().execute("SELECT * FROM saved_searches ORDER BY name COLLATE NOCASE, id").fetchall()
-    return [dict(r) for r in rows]
+    return [_search_row(r) for r in rows]
 
 
 def get_saved_search(search_id):
     r = read().execute("SELECT * FROM saved_searches WHERE id = ?", (search_id,)).fetchone()
-    return dict(r) if r else None
+    return _search_row(r) if r else None
 
 
 def create_saved_search(values: dict) -> int:
     cols = [k for k in SEARCH_FIELDS if k in values]
     with conn() as c:
         cur = c.execute(f"INSERT INTO saved_searches({', '.join(cols)}, created_at) "
-                        f"VALUES({', '.join('?' for _ in cols)}, ?)", [values[k] for k in cols] + [_now()])
+                        f"VALUES({', '.join('?' for _ in cols)}, ?)", [_search_value(k, values[k]) for k in cols] + [_now()])
         return cur.lastrowid
 
 
@@ -782,7 +800,7 @@ def update_saved_search(search_id, values: dict):
     if cols:
         with conn() as c:
             c.execute(f"UPDATE saved_searches SET {', '.join(f'{k} = ?' for k in cols)} WHERE id = ?",
-                      [values[k] for k in cols] + [search_id])
+                      [_search_value(k, values[k]) for k in cols] + [search_id])
 
 
 def delete_saved_search(search_id):
@@ -804,6 +822,16 @@ def record_run(run: dict) -> int:
                          run.get("started"), run.get("finished"), run.get("new_jobs", 0), run.get("refreshed", 0),
                          run.get("rejected", 0), json.dumps(run.get("errors") or []), run.get("log_text", "")))
         return cur.lastrowid
+
+
+def delete_run(run_id) -> bool:
+    with conn() as c:
+        return c.execute("DELETE FROM search_runs WHERE id = ?", (run_id,)).rowcount > 0
+
+
+def clear_runs() -> int:
+    with conn() as c:
+        return c.execute("DELETE FROM search_runs").rowcount
 
 
 def search_runs(limit=30):

@@ -331,6 +331,8 @@ def move_to_keychain():
 
 @app.get("/api/companies")
 def companies():
+    """Every company of the shared lists and yours, each with its industry. active: ticked in Settings (the
+    industries picked in the search bar narrow a search further)."""
     disabled = set(db.get_settings().get("disabled_companies") or [])
     out = search.load_companies()
     for c in out:
@@ -338,10 +340,15 @@ def companies():
     return out
 
 
+@app.get("/api/industries")
+def industries():
+    return search.industries()
+
+
 @app.post("/api/companies")
 def add_company(body: CompanyIn):
     try:
-        search.append_company(body.name.strip(), body.url.strip())
+        search.append_company(body.name.strip(), body.url.strip(), industry=body.industry)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return companies()
@@ -426,6 +433,18 @@ async def run_search(body: RunIn | None = None):
 @app.get("/api/search/runs")
 def search_runs(limit: int = 30):
     return db.search_runs(max(1, min(limit, db.KEEP_RUNS)))
+
+
+@app.delete("/api/search/runs/{run_id}")
+def delete_search_run(run_id: int):
+    if not db.delete_run(run_id):
+        raise HTTPException(404, "That run is no longer in the history")
+    return {"ok": True}
+
+
+@app.delete("/api/search/runs")
+def clear_search_runs():
+    return {"deleted": db.clear_runs()}
 
 
 # ---------------------------------------------------------------- saved searches + alerts

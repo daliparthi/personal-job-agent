@@ -1,0 +1,93 @@
+# Banking, Payments & Fintech career sites searched by Job Agent. Every file in this folder is one industry; pick industries in the
+# search bar (none picked = every file). Entries: name, url, and optionally ats:/board:, enabled: false, aliases:
+# and industry: (see "Company lists" in README.md). Workday URLs verified against the live Workday API, other job
+# boards against their public feeds, between 2026-09-30 and 2026-10-06.
+industry: "Banking, Payments & Fintech"
+companies:
+  - name: "PayPal"
+    url: https://paypal.wd1.myworkdayjobs.com/jobs
+  - name: "Capital One"
+    url: https://capitalone.wd12.myworkdayjobs.com/Capital_One
+  - name: "Mastercard"
+    url: https://mastercard.wd1.myworkdayjobs.com/CorporateCareers
+  - name: "Visa"
+    url: https://visa.wd5.myworkdayjobs.com/Visa
+  - name: "Morgan Stanley"
+    url: https://ms.wd5.myworkdayjobs.com/External
+  - name: "Fidelity Investments"
+    url: https://fmr.wd1.myworkdayjobs.com/FidelityCareers
+  - name: "State Street"
+    url: https://statestreet.wd1.myworkdayjobs.com/Global
+  - name: "Wells Fargo"
+    url: https://wd1.myworkdaysite.com/recruiting/wf/WellsFargoJobs
+  - name: "Bank of America"
+    url: https://ghr.wd1.myworkdayjobs.com/Lateral-US
+  - name: "Citi"
+    url: https://citi.wd5.myworkdayjobs.com/2
+  - name: "BlackRock"
+    url: https://blackrock.wd1.myworkdayjobs.com/BlackRock_Professional
+  - name: "Nasdaq"
+    url: https://nasdaq.wd1.myworkdayjobs.com/Global_External_Site
+  - name: "S&P Global"
+    url: https://spgi.wd5.myworkdayjobs.com/SPGI_Careers
+  - name: "Fannie Mae"
+    url: https://fanniemae.wd1.myworkdayjobs.com/FannieMaeCareers
+  - name: "Freddie Mac"
+    url: https://freddiemac.wd5.myworkdayjobs.com/External
+  - name: "Synchrony"
+    url: https://synchronyfinancial.wd5.myworkdayjobs.com/careers
+  - name: "US Bank"
+    url: https://usbank.wd1.myworkdayjobs.com/US_Bank_Careers
+  - name: "PNC"
+    url: https://pnc.wd5.myworkdayjobs.com/External
+  - name: "Truist"
+    url: https://truist.wd1.myworkdayjobs.com/Careers
+  - name: "TIAA"
+    url: https://tiaa.wd1.myworkdayjobs.com/Search
+  - name: "Fiserv"
+    url: https://fiserv.wd5.myworkdayjobs.com/EXT
+  - name: "FIS"
+    url: https://fis.wd5.myworkdayjobs.com/SearchJobs
+    aliases: ["Fidelity National Information Services"]
+  - name: "Northern Trust"
+    url: https://ntrs.wd1.myworkdayjobs.com/northerntrust
+  - name: "T. Rowe Price"
+    url: https://troweprice.wd5.myworkdayjobs.com/TRowePrice
+  - name: "USAA"
+    url: https://usaa.wd1.myworkdayjobs.com/USAAJOBSWD
+  - name: "MUFG"
+    url: https://mufgub.wd3.myworkdayjobs.com/MUFG-Careers
+  - name: "FactSet"
+    url: https://factset.wd108.myworkdayjobs.com/FactSetCareers
+  - name: "WEX"
+    url: https://wexinc.wd5.myworkdayjobs.com/wexinc
+  - name: "CSI"
+    url: https://csiweb.wd1.myworkdayjobs.com/csi_careers
+  - name: "Huntington Bank"
+    url: https://huntington.wd12.myworkdayjobs.com/HNBcareers
+  - name: "Stripe"
+    url: https://job-boards.greenhouse.io/stripe
+  - name: "Coinbase"
+    url: https://job-boards.greenhouse.io/coinbase
+  - name: "Robinhood"
+    url: https://job-boards.greenhouse.io/robinhood
+  - name: "Ramp"
+    url: https://jobs.ashbyhq.com/ramp
+  - name: "Plaid"
+    url: https://jobs.ashbyhq.com/plaid
+  - name: "Affirm"
+    url: https://job-boards.greenhouse.io/affirm
+  - name: "Brex"
+    url: https://job-boards.greenhouse.io/brex
+  - name: "Chime"
+    url: https://job-boards.greenhouse.io/chime
+  - name: "SoFi"
+    url: https://job-boards.greenhouse.io/sofi
+  - name: "Mercury"
+    url: https://job-boards.greenhouse.io/mercury
+  - name: "Carta"
+    url: https://job-boards.greenhouse.io/carta
+  - name: "Gusto"
+    url: https://job-boards.greenhouse.io/gusto
+  - name: "Experian"
+    url: https://jobs.smartrecruiters.com/Experian

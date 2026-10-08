@@ -1,0 +1,53 @@
+# Industrial, Energy & Automotive career sites searched by Job Agent. Every file in this folder is one industry; pick industries in the
+# search bar (none picked = every file). Entries: name, url, and optionally ats:/board:, enabled: false, aliases:
+# and industry: (see "Company lists" in README.md). Workday URLs verified against the live Workday API, other job
+# boards against their public feeds, between 2026-09-30 and 2026-10-06.
+industry: "Industrial, Energy & Automotive"
+companies:
+  - name: "Chevron"
+    url: https://chevron.wd5.myworkdayjobs.com/jobs
+  - name: "GE Vernova"
+    url: https://gevernova.wd5.myworkdayjobs.com/Vernova_ExternalSite
+  - name: "Caterpillar"
+    url: https://cat.wd5.myworkdayjobs.com/CaterpillarCareers
+  - name: "3M"
+    url: https://3m.wd1.myworkdayjobs.com/Search
+  - name: "General Motors"
+    url: https://generalmotors.wd5.myworkdayjobs.com/Careers_GM
+  - name: "Carrier"
+    url: https://carrier.wd5.myworkdayjobs.com/jobs
+  - name: "Johnson Controls"
+    url: https://jci.wd5.myworkdayjobs.com/JCI
+  - name: "Rockwell Automation"
+    url: https://rockwellautomation.wd1.myworkdayjobs.com/External_Rockwell_Automation
+  - name: "Dow"
+    url: https://dow.wd1.myworkdayjobs.com/ExternalCareers
+  - name: "Otis"
+    url: https://otis.wd504.myworkdayjobs.com/REC_Ext_Gateway
+    aliases: ["Otis Elevator"]
+  - name: "Boston Dynamics"
+    url: https://bostondynamics.wd1.myworkdayjobs.com/Boston_Dynamics
+  - name: "Primoris"
+    url: https://prim.wd108.myworkdayjobs.com/Primoris
+  - name: "Republic Services"
+    url: https://republic.wd5.myworkdayjobs.com/republic
+  - name: "nVent"
+    url: https://nvent.wd5.myworkdayjobs.com/nVent
+  - name: "Ryder"
+    url: https://ryder.wd5.myworkdayjobs.com/RyderCareers
+  - name: "Graco"
+    url: https://graco.wd501.myworkdayjobs.com/Graco_Careers
+  - name: "VST"
+    url: https://vst.wd5.myworkdayjobs.com/equest
+  - name: "Crane Company"
+    url: https://cranecompany.wd5.myworkdayjobs.com/Careers
+  - name: "ESS Companies"
+    url: https://emerysapp.wd501.myworkdayjobs.com/ESSC
+  - name: "Bosch"
+    url: https://jobs.smartrecruiters.com/BoschGroup
+  - name: "Waymo"
+    url: https://job-boards.greenhouse.io/waymo
+  - name: "Zoox"
+    url: https://jobs.lever.co/zoox
+  - name: "Nuro"
+    url: https://job-boards.greenhouse.io/nuro

@@ -164,6 +164,48 @@ def test_saved_search_api(client):
     assert client.delete(f"/api/searches/{s['id']}").status_code == 404
 
 
+def test_saved_search_keeps_its_industries(client):
+    s = client.post("/api/searches", json={"name": "Clinical", "mandatory": "clinical research",
+                                           "industries": ["Healthcare & Life Sciences"]}).json()
+    assert s["industries"] == ["Healthcare & Life Sciences"]
+    s = client.put(f"/api/searches/{s['id']}", json={"industries": ["AI", "Insurance"]}).json()
+    assert s["industries"] == ["AI", "Insurance"]
+    assert client.put(f"/api/searches/{s['id']}", json={"name": "Clinical 2"}).json()["industries"] == ["AI", "Insurance"]
+    assert client.get("/api/searches").json()[0]["industries"] == ["AI", "Insurance"]
+    assert client.post("/api/searches", json={"name": "All", "optional": "x"}).json()["industries"] == []
+    settings = client.put("/api/settings", json={"industries": ["AI"]}).json()
+    assert settings["industries"] == ["AI"]
+    assert client.get("/api/industries").status_code == 200
+
+
+def test_saved_search_runs_only_its_industries(fake_site, tmp_path, monkeypatch):
+    folder = tmp_path / "lists"
+    folder.mkdir()
+    (folder / "healthcare.yaml").write_text(f'industry: Healthcare\ncompanies:\n  - name: "Acme"\n    url: {ACME_URL}\n',
+                                            encoding="utf-8")
+    monkeypatch.setattr(search, "COMPANIES_SHARED", folder)
+    db.save_settings({"industries": ["Healthcare"]})  # the search bar's choice does not apply to a saved search
+    sid = db.create_saved_search({"name": "AI only", "mandatory": "python", "industries": ["AI"]})
+    runner = search.SearchRunner()
+
+    async def go():
+        runner.start(False, spec=db.get_saved_search(sid))
+        await runner.task
+
+    asyncio.run(go())
+    assert runner.state["total"] == 0 and fake_site.list_bodies == []
+
+
+def test_run_history_can_be_deleted(client):
+    first = db.record_run({"trigger": "manual", "started": "2026-01-01T00:00:00"})
+    db.record_run({"trigger": "schedule", "started": "2026-01-02T00:00:00"})
+    assert client.delete(f"/api/search/runs/{first}").json() == {"ok": True}
+    assert client.delete(f"/api/search/runs/{first}").status_code == 404
+    assert [r["trigger"] for r in client.get("/api/search/runs").json()] == ["schedule"]
+    assert client.delete("/api/search/runs").json() == {"deleted": 1}
+    assert client.get("/api/search/runs").json() == []
+
+
 def test_alerts_visit_runs_and_schedule_help(client):
     db.upsert_job(make_job("a:1"))
     db.add_alerts([("a:1", None, 75)])

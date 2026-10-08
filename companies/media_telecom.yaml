@@ -1,0 +1,33 @@
+# Media & Telecom career sites searched by Job Agent. Every file in this folder is one industry; pick industries in the
+# search bar (none picked = every file). Entries: name, url, and optionally ats:/board:, enabled: false, aliases:
+# and industry: (see "Company lists" in README.md). Workday URLs verified against the live Workday API, other job
+# boards against their public feeds, between 2026-09-30 and 2026-10-06.
+industry: "Media & Telecom"
+companies:
+  - name: "Verizon"
+    url: https://verizon.wd12.myworkdayjobs.com/verizon-careers
+  - name: "T-Mobile"
+    url: https://tmobile.wd1.myworkdayjobs.com/External
+  - name: "Comcast"
+    url: https://comcast.wd115.myworkdayjobs.com/Comcast_Careers
+    aliases: ["Xfinity"]
+  - name: "Disney"
+    url: https://disney.wd5.myworkdayjobs.com/disneycareer
+  - name: "Warner Bros. Discovery"
+    url: https://warnerbros.wd5.myworkdayjobs.com/global
+  - name: "Fox"
+    url: https://fox.wd1.myworkdayjobs.com/Domestic
+  - name: "Dentsu"
+    url: https://dentsuaegis.wd3.myworkdayjobs.com/DAN_GLOBAL
+  - name: "Cox Enterprises"
+    url: https://cox.wd1.myworkdayjobs.com/cox_external_career_site_1
+  - name: "Havas"
+    url: https://havas.wd3.myworkdayjobs.com/GroupExternalCareerSite
+  - name: "Spotify"
+    url: https://jobs.lever.co/spotify
+  - name: "Roblox"
+    url: https://job-boards.greenhouse.io/roblox
+  - name: "Epic Games"
+    url: https://job-boards.greenhouse.io/epicgames
+  - name: "Riot Games"
+    url: https://job-boards.greenhouse.io/riotgames

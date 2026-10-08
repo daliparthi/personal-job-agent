@@ -33,7 +33,7 @@ SUPPORTED = "Workday, Greenhouse, Lever, Ashby or SmartRecruiters"
 
 
 def parse_site(name: str, url: str, ats: str | None = None, board: str | None = None) -> Site:
-    """The career site for one companies.yaml entry. The source is detected from the URL; `ats:` (with `board:`)
+    """The career site for one company-list entry. The source is detected from the URL; `ats:` (with `board:`)
     names it for a company whose careers page is on its own domain, e.g. ats: greenhouse, board: airbnb."""
     url = (url or "").strip()
     ats = (ats or "").strip().lower() or None

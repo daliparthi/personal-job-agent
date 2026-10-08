@@ -114,6 +114,14 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .states-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 4px; max-height: 260px; overflow: auto; }
 .states-grid label { font-size: 12px; display: flex; gap: 4px; align-items: center; cursor: pointer; }
 .pop-actions { display: flex; gap: 8px; margin-top: 8px; justify-content: flex-end; }
+.industries-field { min-width: 170px; }
+.industries { position: relative; }
+.industries .popover { left: auto; right: 0; width: min(330px, 90vw); }
+.industries .popover .industries-grid { grid-template-columns: 1fr; }
+#btn-industries { padding: 7px 10px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.industries-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; max-height: 300px; overflow: auto; }
+.industries-grid label { font-size: 13px; display: flex; gap: 6px; align-items: center; cursor: pointer; font-weight: 400; }
+.industries-grid .hint { margin-left: auto; }
 
 /* ---------- panes ---------- */
 .panes { flex: 1; display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr) minmax(0, 1fr);
@@ -258,6 +266,7 @@ legend { font-weight: 600; padding: 0 4px; }
 .companies { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; max-height: 220px; overflow: auto; }
 .companies label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .companies .err { color: var(--bad); font-size: 12px; }
+.companies .co-industry { grid-column: 1 / -1; font-weight: 600; font-size: 12px; color: var(--ink-2); margin-top: 6px; }
 .companies-head { display: flex; gap: 6px; align-items: center; font-size: 13px; margin-bottom: 6px; }
 .add-company { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .add-company input { flex: 1; min-width: 160px; }
@@ -386,6 +395,8 @@ legend { font-weight: 600; padding: 0 4px; }
 
 /* ---------------------------------------------------------------- saved searches + alerts */
 .saved-field { min-width: 0; }
+.ss-industries .industries-grid { max-height: 180px; }
+.sm-clear { font-size: 12px; font-weight: 400; margin-left: 8px; }
 .saved-row { display: flex; gap: 6px; align-items: center; }
 .saved-row select { max-width: 230px; }
 #search-form > label:not(.check) { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }

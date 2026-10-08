@@ -1,0 +1,37 @@
+# Aerospace & Defense career sites searched by Job Agent. Every file in this folder is one industry; pick industries in the
+# search bar (none picked = every file). Entries: name, url, and optionally ats:/board:, enabled: false, aliases:
+# and industry: (see "Company lists" in README.md). Workday URLs verified against the live Workday API, other job
+# boards against their public feeds, between 2026-09-30 and 2026-10-06.
+industry: "Aerospace & Defense"
+companies:
+  - name: "Boeing"
+    url: https://boeing.wd1.myworkdayjobs.com/EXTERNAL_CAREERS
+  - name: "Northrop Grumman"
+    url: https://ngc.wd1.myworkdayjobs.com/Northrop_Grumman_External_Site
+  - name: "RTX"
+    url: https://globalhr.wd5.myworkdayjobs.com/REC_RTX_Ext_Gateway
+  - name: "GDIT"
+    url: https://gdit.wd5.myworkdayjobs.com/External_Career_Site
+  - name: "Leidos"
+    url: https://leidos.wd5.myworkdayjobs.com/External
+  - name: "Booz Allen Hamilton"
+    url: https://bah.wd1.myworkdayjobs.com/BAH_Jobs
+  - name: "CACI"
+    url: https://caci.wd1.myworkdayjobs.com/External
+  - name: "GE Aerospace"
+    url: https://geaerospace.wd5.myworkdayjobs.com/GE_ExternalSite
+  - name: "Blue Origin"
+    url: https://blueorigin.wd5.myworkdayjobs.com/BlueOrigin
+  - name: "Aerospace Corporation"
+    url: https://aero.wd5.myworkdayjobs.com/External
+  - name: "SpaceX"
+    url: https://job-boards.greenhouse.io/spacex
+  - name: "Anduril"
+    url: https://job-boards.greenhouse.io/andurilindustries
+    aliases: ["Anduril Industries"]
+  - name: "Shield AI"
+    url: https://jobs.lever.co/shieldai
+  - name: "Rocket Lab"
+    url: https://job-boards.greenhouse.io/rocketlab
+  - name: "Relativity Space"
+    url: https://job-boards.greenhouse.io/relativity
