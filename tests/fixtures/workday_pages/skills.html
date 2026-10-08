@@ -3,18 +3,19 @@
 <body>
 <!-- An anonymized, hand-built page in the shape of Workday's "Type to Add Skills" box, as it behaves on a real form:
      Enter searches; the last search's list stays on screen until the results arrive (about half a second) and is then
-     drawn again once more as the rest come in; each suggestion has a checkbox and the list stays open; picking one
-     ticks it and shows it as a chip in the field and in the list. A click on the last search's list, while the new
-     search is loading, is lost; after a pick the cursor goes back into the box. A search with no match empties the
-     list. -->
+     drawn again once more as the rest come in; each suggestion is a row with a checkbox and a label, and the list
+     stays open. A suggestion is picked by pressing the mouse button on it and letting go (Workday's rows don't answer
+     a bare scripted click); that ticks it and shows it as a chip in the field and in the list. The chips are marked as
+     options too. A click on the last search's list, while the new search is loading, is lost; after a pick the cursor
+     goes back into the box. A search with no match shows "No Items." -->
 <h2>My Experience</h2>
 
 <div data-automation-id="formField-skills">
   <label for="skills">Type to Add Skills</label>
-  <div id="chips"></div>
+  <ul id="chips" role="listbox" data-automation-id="selectedItemList"></ul>
   <input type="text" id="skills" data-automation-id="searchBox">
 </div>
-<div id="popup" data-automation-id="activeListContainer"></div>
+<div id="popup" data-automation-id="activeListContainer" role="listbox" aria-multiselectable="true"></div>
 
 <script>
 const RESULTS = {
@@ -29,52 +30,79 @@ const RESULTS = {
   "tableau": ["Tableau (Software)"],
   "power bi": ["Power BI"],
   "data governance": ["Data Governance", "Data Governance Frameworks"],
+  "data quality management": ["Data Quality Management", "Data Quality Management Systems"],
+  "data pipelines": ["Data Pipeline", "Data Pipeline Automation"],
 };
 const selected = [];
 let search = 0;  // the latest search; a click on an older search's list does nothing
 
+function chipItems() {
+  return selected.map((name) => {
+    const li = document.createElement("li");
+    const chip = document.createElement("div");
+    chip.setAttribute("role", "option");
+    chip.dataset.automationId = "selectedItem";
+    const label = document.createElement("div");
+    label.dataset.automationId = "promptOption";
+    label.textContent = name;
+    chip.appendChild(label);
+    const del = document.createElement("div");
+    del.setAttribute("role", "button");
+    del.dataset.automationId = "DELETE_charm";
+    li.append(chip, del);
+    return li;
+  });
+}
+
 function draw(names, g) {
   const popup = document.getElementById("popup");
   popup.innerHTML = "";
+  if (!names.length) {
+    popup.textContent = "No Items.";
+    return;
+  }
   for (const name of names) {
     const row = document.createElement("div");
     row.setAttribute("role", "option");
     row.dataset.automationId = "menuItem";
+    const leaf = document.createElement("div");
+    leaf.dataset.automationId = "promptLeafNode";
+    const panel = document.createElement("div");
+    panel.dataset.automationId = "checkboxPanel";
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = selected.includes(name);
+    panel.appendChild(box);
     const label = document.createElement("div");
     label.dataset.automationId = "promptOption";
+    label.dataset.automationLabel = name;
     label.textContent = name;
-    row.append(box, label);
-    row.addEventListener("click", (e) => {
-      if (!row.isConnected || g !== search) return;
-      e.preventDefault();
+    leaf.append(panel, label);
+    row.appendChild(leaf);
+    let pressed = false;
+    leaf.addEventListener("mousedown", (e) => { e.preventDefault(); pressed = true; });
+    leaf.addEventListener("mouseup", () => {
+      if (!pressed || !row.isConnected || g !== search) return;
+      pressed = false;
       const i = selected.indexOf(name);
       if (i >= 0) selected.splice(i, 1); else selected.push(name);
       box.checked = i < 0;
       drawChips();
       document.getElementById("skills").focus();  // Workday puts the cursor back in the box (a trusted focus event)
     });
+    leaf.addEventListener("click", (e) => e.preventDefault());  // the checkbox follows the pick, not the click
     popup.appendChild(row);
   }
   const list = document.createElement("ul");
   list.dataset.automationId = "selectedItemList";
-  selected.forEach((name) => { const li = document.createElement("li"); li.textContent = `× ${name}`; list.appendChild(li); });
+  list.append(...chipItems());
   popup.appendChild(list);
 }
 
 function drawChips() {
-  const chips = document.getElementById("chips");
-  chips.innerHTML = "";
-  for (const name of selected) {
-    const chip = document.createElement("div");
-    chip.dataset.automationId = "selectedItem";
-    chip.textContent = name;
-    chips.appendChild(chip);
-  }
-  const list = document.querySelector('[data-automation-id="selectedItemList"]');
-  if (list) list.innerHTML = selected.map((n) => `<li>× ${n}</li>`).join("");
+  document.getElementById("chips").replaceChildren(...chipItems());
+  const list = document.querySelector('#popup [data-automation-id="selectedItemList"]');
+  if (list) list.replaceChildren(...chipItems());
 }
 
 document.getElementById("skills").addEventListener("keydown", (e) => {

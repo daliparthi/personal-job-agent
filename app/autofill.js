@@ -27,6 +27,7 @@
   const gaveUp = new WeakSet();
   const touched = new WeakSet();     // fields you focused, typed in or clicked: left alone from then on, even if emptied
   let scripted = 0;                  // until this time, focus events come from this script (the banner), not from you
+  let ownClick = null;               // { x, y, until }: the real mouse click Job Agent makes on a skill, not yours
   const bankFilled = new WeakMap();  // element -> the value filled from the answer bank
   const asked = new Map();           // question -> saved answer (or null)
   const used = new Set();            // answer ids already reported as used
@@ -320,20 +321,25 @@
   const skillsDone = new Set();   // skills added, already there, or not listed by Workday: not searched again
   const skillTries = new Map();   // skill -> searches that got no list at all (Workday was slow): tried again once
   const skillsMissing = [];       // skills Workday doesn't list, for the banner
+  const skillsUnpicked = [];      // skills Workday listed but that didn't get selected, for the banner
+  const skillLog = [];            // what happened to each skill, for autofill_skills.log
   let skillsAdded = 0;
   const MAX_SKILLS = 60, SKILLS_PER_TICK = 8;
   // Compared without case and punctuation: "Fine Tuning" is Workday's "Fine-Tuning".
   const simple = (s) => norm(s).replace(/[^a-z0-9+#]+/g, " ").trim();
+  // ...and without plural endings: "Data Pipelines" is Workday's "Data Pipeline".
+  const singular = (s) => simple(s).split(" ").map((w) => (w.length > 3 && /[^s]s$/.test(w) ? w.slice(0, -1) : w)).join(" ");
   /** The suggestion that is this skill: exact, else one that starts with it ("Python (Programming Language)"), else one
    *  that has it as a whole word ("Apache Spark"); the shortest of those. null when nothing names the skill. */
   function bestSkillOption(opts, skill) {
     const s = simple(skill);
     if (!s) return null;
     const whole = new RegExp(`(^| )${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`);
-    const text = (o) => simple(o.innerText);
-    const plain = (o) => simple(norm(o.innerText).replace(/\([^)]*\)/g, " "));
+    const text = (o) => simple(skillName(o));
+    const plain = (o) => simple(skillName(o).replace(/\([^)]*\)/g, " "));
     const shortest = (list) => list.sort((a, b) => text(a).length - text(b).length)[0] || null;
     return opts.find((o) => text(o) === s) || opts.find((o) => plain(o) === s)
+      || opts.find((o) => singular(plain(o)) === singular(s))
       || shortest(opts.filter((o) => text(o).startsWith(s) && whole.test(text(o))))
       || shortest(opts.filter((o) => whole.test(text(o))));
   }
@@ -342,11 +348,22 @@
   /** Is this the "Type to Add Skills" box? Workday puts the cursor back in it after each pick: that is not you. */
   const isSkillsBox = (el) => !!(C && el && el.tagName === "INPUT" && C.skills.test(describe(el)));
 
-  const skillOptions = () => [...document.querySelectorAll(C.skillOption)].filter(visible);
-  const optionsKey = (opts) => opts.map((o) => norm(o.innerText)).join("\n");
-  // Selected skills show as chips, in the field and in the open list (which Workday draws outside the field).
+  // Selected skills show as chips, in the field and in the open list (which Workday draws outside the field). Workday
+  // marks the chips as options too: the suggestions are the options outside them, one per row.
+  const CHIPS = '[data-automation-id="selectedItemList"], [data-automation-id="selectedItem"]';
   const skillChips = () => [...document.querySelectorAll('[data-automation-id="selectedItem"], [data-automation-id="selectedItemList"] li')];
-  const chipNamed = (name) => skillChips().some((c) => norm(c.innerText) === name || norm(c.innerText).startsWith(`${name} `));
+  // A chip is the skill, or the skill with Workday's note ("Python (Programming Language)"); "Data Quality Management"
+  // is not "Data Quality".
+  const chipNamed = (name) => skillChips().some((c) => norm(c.innerText) === name || norm(c.innerText).startsWith(`${name} (`));
+  const skillOptions = () => [...new Set([...document.querySelectorAll(C.skillOption)]
+    .filter((o) => visible(o) && !o.closest(CHIPS)).map((o) => o.closest('[role="option"]') || o))];
+  /** A suggestion's label (not its checkbox or the rest of the row), and the skill it names. */
+  const skillLabel = (o) => (o.matches('[data-automation-id="promptOption"]') ? o : o.querySelector('[data-automation-id="promptOption"]')) || o;
+  const skillName = (o) => norm(skillLabel(o).innerText);
+  const optionsKey = (opts) => opts.map(skillName).join("\n");
+  /** Workday's "No Items." where the list would be: nothing found for this search. */
+  const noSkillItems = () => [...document.querySelectorAll('[data-automation-id="activeListContainer"]')]
+    .some((l) => visible(l) && /^no (items|results|matches)\b/i.test((l.innerText || "").trim()));
 
   /** Type into the skills box the way a person does: no change / blur events (those close Workday's list). */
   function typeSkill(input, text) {
@@ -373,9 +390,9 @@
       const gone = before.nodes.every((o) => !o.isConnected || !visible(o));
       const fresh = key !== before.key || gone || i >= 12;
       if (opts.length && fresh && key === last) return { hit: bestSkillOption(opts, skill), listed: true };
-      // the last list went away and nothing came in its place: Workday has nothing for this search
-      empty = !opts.length && before.nodes.length && gone ? empty + 1 : 0;
-      if (empty >= 5) return { hit: null, listed: true };
+      // the last list went away and nothing came in its place, or Workday says "No Items.": nothing for this search
+      empty = !opts.length && ((before.nodes.length && gone) || noSkillItems()) ? empty + 1 : 0;
+      if (empty >= 5 && i >= 7) return { hit: null, listed: true };
       last = key;
     }
     return { hit: null, listed: false };
@@ -385,18 +402,53 @@
    *  null when it can't be told (then it is not clicked again, which could unselect it). */
   function skillSelected(name) {
     if (chipNamed(name)) return true;
-    const row = skillOptions().map((o) => o.closest('[role="option"]') || o).find((r) => norm(r.innerText) === name);
+    const row = skillOptions().find((o) => skillName(o) === name);
     const box = row && row.querySelector('input[type="checkbox"], [role="checkbox"], [aria-checked]');
     if (!box) return null;
     return box.checked === true || box.getAttribute("aria-checked") === "true";
   }
 
-  /** What to click on a suggestion: the row it was found by first, then its checkbox, its label, the row itself. */
-  function optionTargets(o) {
-    const row = o.closest('[role="option"]') || o;
-    return [...new Set([o, row.querySelector('input[type="checkbox"], [role="checkbox"]'),
-      row.querySelector('[data-automation-id="promptOption"]'), row].filter(Boolean))];
+  /** What to click on a suggestion, in turn: its label (where a person clicks), its checkbox, the whole row. */
+  const optionTargets = (row) => [...new Set([skillLabel(row), row.querySelector('input[type="checkbox"], [role="checkbox"]'),
+    row].filter(Boolean))];
+
+  /** Click a suggestion the way a person does: Job Agent moves the real mouse there, as Workday's lists don't all
+   *  answer a scripted click. When it can't (something covers the spot), the page gets every pointer and mouse event
+   *  of a click, not just "click". */
+  async function pressOn(el) {
+    const row = el.closest('[role="option"]') || el;
+    if (el.closest('a[href], button[type="submit"]')) return;
+    const ours = [...document.querySelectorAll('[id^="__jobagent_"]')];  // the banner must not be in the way
+    const was = ours.map((n) => n.style.pointerEvents);
+    ours.forEach((n) => { n.style.pointerEvents = "none"; });
+    try {
+      el.scrollIntoView({ block: "nearest" });
+      await sleep(50);
+      const r = el.getBoundingClientRect();
+      const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
+      const at = document.elementFromPoint(x, y);
+      const onIt = !!(at && row.contains(at));
+      if (onIt) {
+        ownClick = { x, y, until: Date.now() + 3000 };
+        if ((await event("click", { x, y, name: skillName(row) })) === true) return;
+      }
+      const target = onIt ? at : el;
+      const mouse = { bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, button: 0 };
+      const pointer = { ...mouse, pointerId: 1, pointerType: "mouse", isPrimary: true };
+      target.dispatchEvent(new PointerEvent("pointerover", pointer));
+      target.dispatchEvent(new MouseEvent("mouseover", mouse));
+      target.dispatchEvent(new PointerEvent("pointerdown", { ...pointer, buttons: 1 }));
+      target.dispatchEvent(new MouseEvent("mousedown", { ...mouse, buttons: 1 }));
+      target.dispatchEvent(new PointerEvent("pointerup", pointer));
+      target.dispatchEvent(new MouseEvent("mouseup", mouse));
+      target.dispatchEvent(new MouseEvent("click", mouse));
+    } finally {
+      ours.forEach((n, i) => { n.style.pointerEvents = was[i]; });
+    }
   }
+  /** A trusted event from Job Agent's own mouse click (see pressOn), not from you. */
+  const ownMouse = (e) => !!(ownClick && Date.now() < ownClick.until && typeof e.clientX === "number"
+    && Math.abs(e.clientX - ownClick.x) <= 2 && Math.abs(e.clientY - ownClick.y) <= 2);
 
   async function fillSkills() {
     const skills = ((setup.history || {}).skills || []).slice(0, MAX_SKILLS);
@@ -413,45 +465,54 @@
         const showing = skillOptions();
         const before = { key: optionsKey(showing), nodes: showing };
         scripted = Date.now() + 1500;
+        if (document.activeElement !== input) input.focus();
         typeSkill(input, term);
         pressEnter(input);
         ({ hit, listed } = await settledSkillOption(term, before));
         if (hit || !listed) break;
       }
       if (!hit) {
+        const shown = optionsKey(skillOptions()).split("\n").filter(Boolean).slice(0, 8).join(" | ");
         typeSkill(input, "");
         const tries = (skillTries.get(norm(skill)) || 0) + 1;
         skillTries.set(norm(skill), tries);
         if (listed || tries >= 2) {  // Workday doesn't list it (or never answered): skipped
           skillsDone.add(norm(skill));
           if (listed) skillsMissing.push(skill);
+          skillLog.push(`${listed ? "not listed" : "no answer"}: ${skill}${shown ? ` (list showed: ${shown})` : ""}`);
         }
         continue;
       }
       skillsDone.add(norm(skill));
-      const name = norm(hit.innerText);
-      let picked = false;
-      for (let attempt = 0; attempt < 3 && !picked; attempt++) {
-        if (attempt) {  // the list was redrawn under the click: pick it again from the list as it is now
-          hit = bestSkillOption(skillOptions(), term);
-          if (!hit || norm(hit.innerText) !== name) break;
-        }
+      const name = skillName(hit), label = skillLabel(hit).innerText.trim();
+      let state = skillSelected(name);  // Workday may have picked it on Enter already: a click would unselect it
+      if (state === null) {  // nothing shows yet whether it is ticked: click it, then look again
+        scripted = Date.now() + 4000;
+        await pressOn(optionTargets(hit)[0]);
+        await sleep(600);
+        state = skillSelected(name) !== false;
+      }
+      for (let attempt = 1; attempt < 4 && state === false; attempt++) {
+        const now = skillOptions().find((o) => skillName(o) === name);  // the row as it is now (lists get redrawn)
+        if (now) hit = now;
         const targets = optionTargets(hit);
-        scripted = Date.now() + 2500;  // Workday focuses the box again after a pick: not you
-        if (!safeClick(targets[Math.min(attempt, targets.length - 1)], "option")) break;
-        let state = null;
-        for (let i = 0; i < 10; i++) {
+        scripted = Date.now() + 4000;  // Workday focuses the box again after a pick: not you
+        await pressOn(targets[Math.min(attempt - 1, targets.length - 1)]);
+        for (let i = 0; i < 20; i++) {  // the chip can take a moment (Workday checks the pick with its server)
           await sleep(150);
           state = skillSelected(name);
           if (state) break;
         }
-        picked = state !== false;  // can't tell: trust the click rather than risk unselecting it
+        if (state === null) state = true;  // clicked, and nothing shows otherwise: trust it rather than click again
       }
-      if (picked) { filled++; skillsAdded++; }
+      if (state) { filled++; skillsAdded++; } else skillsUnpicked.push(skill);
+      skillLog.push(`${state ? "added" : "NOT SELECTED"}: ${skill} -> ${label}`
+        + (state ? "" : `\n  row: ${(hit.outerHTML || "").slice(0, 1500)}`));
       await sleep(200);
     }
     scripted = Date.now() + 1500;
     if (input.value) typeSkill(input, "");  // leave nothing typed in the box
+    if (skillLog.length) event("skills", skillLog.splice(0));  // to autofill_skills.log in the application folder
   }
 
   const inHistory = (el) => groupsMatching(C.exp.entry).concat(groupsMatching(C.edu.entry)).some((g) => g.contains(el));
@@ -626,7 +687,7 @@
   };
 
   function onUserClick(e) {
-    if (!e.isTrusted || !C) return;
+    if (!e.isTrusted || !C || ownMouse(e)) return;
     const btn = e.target.closest?.('button[aria-haspopup="listbox"]');
     if (btn) { lastListbox = btn; return; }
     const opt = e.target.closest?.('[role="option"]');
@@ -643,7 +704,7 @@
   // Anything you focus, type in or click is yours from then on: autofill won't fill it again (not even when you
   // empty it to retype). Script-made events (isTrusted false) and the banner's own focus() don't count.
   function markTouched(e) {
-    if (!e.isTrusted || (e.type === "focusin" && Date.now() < scripted)) return;
+    if (!e.isTrusted || (e.type === "focusin" && Date.now() < scripted) || ownMouse(e)) return;
     const el = e.target;
     if (!el || el.nodeType !== 1) return;
     if (e.type === "focusin" && isSkillsBox(el)) return;  // Workday puts the cursor back there after each pick
@@ -788,7 +849,9 @@
         if (skillsDone.size) {
           const more = skillsMissing.length > 6 ? "…" : "";
           notes.push(`Skills: added ${skillsAdded} of ${Math.min(skillCount, MAX_SKILLS)}${skillsMissing.length
-            ? `; Workday doesn't list ${skillsMissing.slice(0, 6).join(", ")}${more}` : ""}.`);
+            ? `; Workday doesn't list ${skillsMissing.slice(0, 6).join(", ")}${more}` : ""}${skillsUnpicked.length
+            ? `; didn't take ${skillsUnpicked.slice(0, 6).join(", ")}${skillsUnpicked.length > 6 ? "…" : ""} (add those yourself)`
+            : ""}.`);
         }
         notes.push("Check every step, then click Submit yourself.");
         banner(notes.join(" "), missingRequired());

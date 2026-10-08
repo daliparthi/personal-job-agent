@@ -72,6 +72,18 @@ UPLOAD_LABEL_JS = """el => {
   return parts.join(" ").slice(0, 600);
 }"""
 
+# Is the spot (x, y) on the suggestion `name` in one of Workday's lists (not a chip of one already picked, a button or
+# a link)? The only thing autofill.js may click with the real mouse.
+OPTION_AT_JS = """([x, y, name]) => {
+  const el = document.elementFromPoint(x, y);
+  const row = el && el.closest('[role="option"], [data-automation-id="promptOption"]');
+  if (!row || el.closest('a[href], button, [data-automation-id="selectedItemList"], [data-automation-id="selectedItem"]')) return false;
+  const label = row.matches('[data-automation-id="promptOption"]') ? row : row.querySelector('[data-automation-id="promptOption"]') || row;
+  return !name || (label.innerText || "").toLowerCase().replace(/\\s+/g, " ").trim() === name;
+}"""
+SKILLS_LOG = "autofill_skills.log"
+SKILLS_LOG_MAX = 512 * 1024
+
 _RESUME_WORDS = re.compile(r"\b(resume|résumé|cv|curriculum vitae)\b", re.I)
 _COVER_WORDS = re.compile(r"cover[\s_-]*letter|letter of (interest|motivation)|motivation(al)? letter", re.I)
 
@@ -204,7 +216,28 @@ class BrowserWorker:
         if kind == "applied":
             mark_applied(info["job_id"], info["folder"], how=str(payload or "manual"))
             return True
+        if kind == "click" and isinstance(payload, dict):  # a skill in Workday's list: picked with the real mouse
+            return await self._click_option(source.get("page"), payload)
+        if kind == "skills" and isinstance(payload, list):  # what happened to each skill in the skills box
+            return log_skills(info.get("folder"), payload)
         return None
+
+    @staticmethod
+    async def _click_option(page, payload):
+        """Click the suggestion at (x, y) with the real mouse: some of Workday's lists don't answer a scripted click.
+        Only a suggestion in a list (the one named `name`, when given: not another the list was redrawn with), never a
+        button, a link or anything else on the page."""
+        try:
+            x, y = float(payload.get("x")), float(payload.get("y"))
+        except (TypeError, ValueError):
+            return False
+        name = str(payload.get("name") or "")[:200]
+        if page is None or not (0 <= x < 20000 and 0 <= y < 20000):
+            return False
+        if not await page.evaluate(OPTION_AT_JS, [x, y, name]):
+            return False
+        await page.mouse.click(x, y)
+        return True
 
     async def _open(self, job_id, url, profile, resume_path, folder, account, cover_path=None, setup=None):
         ctx = await self._context()
@@ -297,6 +330,23 @@ class BrowserWorker:
 
 
 worker = BrowserWorker()
+
+
+def log_skills(folder, lines) -> bool:
+    """Add autofill's notes on the skills box (each skill: added, not listed by Workday, or not selected, with what
+    the list showed) to autofill_skills.log in the application's folder, so a skill that didn't take can be traced."""
+    if not folder:
+        return False
+    path = Path(folder) / SKILLS_LOG
+    try:
+        if path.exists() and path.stat().st_size > SKILLS_LOG_MAX:
+            return False
+        text = "\n".join(str(line)[:2000] for line in lines[:80])
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"--- {datetime.now():%Y-%m-%d %H:%M:%S}\n{text}\n")
+        return True
+    except OSError:
+        return False
 
 
 # ---------------------------------------------------------------- packages on disk

@@ -5,7 +5,7 @@
 window.__clicks = [];
 
 function closeLists() {
-  document.querySelectorAll('[role="listbox"]').forEach((ul) => ul.remove());
+  document.querySelectorAll('[role="listbox"][data-for]').forEach((ul) => ul.remove());
 }
 
 function openList(btn) {
@@ -41,7 +41,7 @@ document.addEventListener("click", (e) => {
 document.addEventListener("click", (e) => {
   const btn = e.target.closest('button[aria-haspopup="listbox"]');
   if (btn) return openList(btn);
-  const opt = e.target.closest('[role="option"]');
+  const opt = e.target.closest('[role="listbox"][data-for] [role="option"]');
   if (opt) {
     const b = document.getElementById(opt.parentElement.dataset.for);
     b.textContent = opt.textContent;

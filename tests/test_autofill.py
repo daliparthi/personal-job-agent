@@ -206,7 +206,7 @@ async def _serve(route):
                         content_type="text/javascript" if path.suffix == ".js" else "text/html")
 
 
-def run_page(name, setup, done_js, then=None, timeout=20):
+def run_page(name, setup, done_js, then=None, timeout=20, folder=None):
     """Open fixture page `name` on a Workday host with autofill.js, wait until done_js is true, then return
     {"values": {id: value}, "buttons": {id: text}, "checked": [...], "clicks": [...], "banner": text, ...}."""
     pytest.importorskip("playwright")
@@ -221,7 +221,7 @@ def run_page(name, setup, done_js, then=None, timeout=20):
                 await w.prepare(ctx)
                 await ctx.route(f"{HOST}/**", _serve)
                 page = await ctx.new_page()
-                w.pages[page] = {"job_id": "acme/external:R1", "profile": setup["profile"], "folder": None,
+                w.pages[page] = {"job_id": "acme/external:R1", "profile": setup["profile"], "folder": folder,
                                  "setup": setup}
                 await page.goto(f"{HOST}/en-US/External/job/R1/apply/{name}")
                 try:
@@ -236,7 +236,8 @@ def run_page(name, setup, done_js, then=None, timeout=20):
                         .map((b) => [b.id, b.textContent.trim()])),
                       checked: [...document.querySelectorAll('input:checked')].map((e) => e.id),
                       outlined: [...document.querySelectorAll('*')].filter((e) => e.style.outlineColor).map((e) => e.id || e.tagName),
-                      chips: [...document.querySelectorAll('[data-automation-id=selectedItem]')].map((e) => e.textContent),
+                      chips: [...document.querySelectorAll('[data-automation-id=selectedItem]')]
+                        .filter((e) => !e.closest('#popup')).map((e) => e.textContent),
                       clicks: window.__clicks,
                       banner: document.getElementById('__jobagent_banner')?.innerText || '',
                     })""")
@@ -419,20 +420,65 @@ def test_skills_are_picked_from_this_searchs_list_and_checked():
     assert st["values"]["skills"] == ""
 
 
-def test_every_skill_is_tried_even_though_workday_puts_the_cursor_back_in_the_box():
+def test_every_skill_is_tried_even_though_workday_puts_the_cursor_back_in_the_box(tmp_path):
     """Workday focuses the skills box after each pick (a trusted event): that must not count as you typing there, or
-    only the first few skills get added. Spelling differences ("Fine Tuning" / "Fine-Tuning") and a bracketed note
-    ("Data Cataloging (Alation)") still find the skill; one Workday doesn't list is named in the banner."""
+    only the first few skills get added. Its rows ignore a bare scripted click, so each skill is picked with the real
+    mouse. Spelling differences ("Fine Tuning" / "Fine-Tuning", "Data Pipelines" / "Data Pipeline") and a bracketed
+    note ("Data Cataloging (Alation)") still find the skill; a chip already picked ("Data Quality Management") is not a
+    suggestion for another skill ("Data Quality"); the ones Workday doesn't list are named in the banner and the log."""
     names = ["ETL Development", "Data Transformation", "Fine Tuning", "Data Cataloging (Alation)", "Python", "SQL",
-             "Information Stewardship", "Snowflake", "Tableau", "Power BI", "Data Governance"]
+             "Information Stewardship", "Snowflake", "Tableau", "Power BI", "Data Governance",
+             "Data Quality Management (Bigeye)", "Data Quality", "Data Pipelines"]
     setup = formfill.page_setup(PROFILE, settings(), MASTER, JOB, resume={"sections": [{"kind": "skills", "groups": [
         {"name": "Data", "items": names}]}]})
-    st = run_page("skills", setup, "() => document.querySelectorAll('#chips [data-automation-id=selectedItem]').length === 10"
-                  " && /added 10 of 11/.test(document.getElementById('__jobagent_banner')?.innerText || '')", timeout=90)
+    st = run_page("skills", setup, "() => document.querySelectorAll('#chips [data-automation-id=selectedItem]').length === 12"
+                  " && /added 12 of 14/.test(document.getElementById('__jobagent_banner')?.innerText || '')",
+                  timeout=120, folder=tmp_path)
     assert st["chips"] == ["ETL Development", "Data Transformation", "Fine-Tuning", "Data Cataloging",
                            "Python (Programming Language)", "SQL", "Snowflake", "Tableau (Software)", "Power BI",
-                           "Data Governance"]
-    assert "Skills: added 10 of 11; Workday doesn't list Information Stewardship" in st["banner"]
+                           "Data Governance", "Data Quality Management", "Data Pipeline"]
+    assert "Skills: added 12 of 14; Workday doesn't list Information Stewardship, Data Quality." in st["banner"]
+    assert st["values"]["skills"] == ""
+    log = (tmp_path / apply.SKILLS_LOG).read_text(encoding="utf-8")
+    assert "added: Fine Tuning -> Fine-Tuning" in log and "added: Data Pipelines -> Data Pipeline" in log
+    assert "not listed: Information Stewardship" in log and "NOT SELECTED" not in log
+    assert not db.answers_all()  # Job Agent's own clicks on the list are not answers you gave
+
+
+def test_the_real_mouse_clicks_only_a_list_suggestion():
+    """autofill.js may ask for a real mouse click, but only on a suggestion in a list: never a button or a link."""
+    pytest.importorskip("playwright")
+    from playwright.async_api import async_playwright
+
+    async def go():
+        async with async_playwright() as pw:
+            browser = await _browser(pw)
+            try:
+                page = await browser.new_page()
+                await page.set_content("""<button id=b style="display:block;height:30px">Submit</button>
+                  <a id=a href="#x" style="display:block;height:30px">Link</a>
+                  <div role=listbox><div role=option id=o style="height:30px">Python</div></div>
+                  <ul data-automation-id=selectedItemList><li><div role=option data-automation-id=selectedItem id=c
+                    style="height:30px">SQL</div></li></ul>
+                  <script>window.hits = []; document.addEventListener('click', (e) => hits.push(e.target.id));</script>""")
+                got = {}
+                for el in ("b", "a", "o", "c"):
+                    box = await page.locator(f"#{el}").bounding_box()
+                    xy = {"x": box["x"] + 5, "y": box["y"] + box["height"] / 2}
+                    got[el] = await apply.BrowserWorker._click_option(page, xy)
+                assert await apply.BrowserWorker._click_option(page, {"x": "nan", "y": 1}) is False
+                # the list was redrawn and another skill is at that spot now: not clicked
+                box = await page.locator("#o").bounding_box()
+                xy = {"x": box["x"] + 5, "y": box["y"] + box["height"] / 2}
+                assert await apply.BrowserWorker._click_option(page, {**xy, "name": "sql"}) is False
+                assert await apply.BrowserWorker._click_option(page, {**xy, "name": "python"}) is True
+                return got, await page.evaluate("window.hits")
+            finally:
+                await browser.close()
+
+    got, hits = asyncio.run(go())
+    assert got == {"b": False, "a": False, "o": True, "c": False}
+    assert hits == ["o", "o"]
 
 
 def test_self_identify_declines_disability_and_leaves_the_signature():

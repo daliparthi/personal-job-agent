@@ -9,6 +9,7 @@ from .jobparse import degree_level
 from .resume_io import split_items
 
 RULES_PATH = Path(__file__).parent / "autofill_rules.json"
+MAX_SKILLS = 60  # skills typed into Workday's "Type to Add Skills" box (autofill.js has the same limit)
 
 # Workday's degree list varies by company; the first of these that an option starts with is picked.
 DEGREE_OPTIONS = {
@@ -92,7 +93,7 @@ def skills(resume: dict) -> list:
             if 1 < len(item) <= 60 and item.lower() not in seen:
                 seen.add(item.lower())
                 out.append(item)
-    return out[:50]
+    return out[:MAX_SKILLS]
 
 
 def page_setup(profile: dict, settings: dict, master: dict | None, job: dict, resume: dict | None = None) -> dict:
